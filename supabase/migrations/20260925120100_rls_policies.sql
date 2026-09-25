@@ -1,6 +1,11 @@
 -- ROOMLY — Políticas RLS (Fase 0, borrador de diseño)
 -- NO APLICADA TODAVÍA. Se valida con tests de integración por rol en Fase 1
 -- (ver docs/TESTING.md) antes de confiar en ella en producción.
+--
+-- Comprobación de coherencia final: se encontraron y corrigieron dos huecos
+-- de escalado de privilegios (profiles.role, conversation_participants.
+-- conversation_id) y se reforzó el INSERT de admin_action_logs — ver
+-- docs/SECURITY.md §"Comprobación de coherencia final" para el razonamiento.
 
 alter table profiles enable row level security;
 alter table housing_preferences enable row level security;
@@ -164,6 +169,37 @@ create policy "reports_insert_own" on reports for insert with check (auth.uid() 
 create policy "reports_select_own" on reports for select using (auth.uid() = reporter_id);
 create policy "reports_admin_all" on reports for all using (is_admin());
 
-create policy "admin_action_logs_admin_only" on admin_action_logs for all using (is_admin());
+create policy "admin_action_logs_admin_only" on admin_action_logs
+  for all using (is_admin())
+  with check (is_admin() and admin_id = auth.uid()); -- evita que un admin falsifique la autoría de otro admin en la auditoría
 
 create policy "notifications_own" on notifications for all using (auth.uid() = user_id);
+
+-- ============================================================
+-- RESTRICCIÓN DE COLUMNAS ACTUALIZABLES
+-- Hallazgo de la comprobación de coherencia final: RLS filtra FILAS, no
+-- columnas. Una política "for update using (auth.uid() = id)" sin "with
+-- check" dejaba pasar cualquier valor nuevo en cualquier columna de esa
+-- fila — incluida `profiles.role`. Sin esta corrección, cualquier usuario
+-- autenticado podía ejecutar:
+--   update profiles set role = 'admin' where id = auth.uid();
+-- y la política lo permitía, porque auth.uid() = id sigue siendo cierto
+-- para la fila nueva. El mismo patrón afectaba a
+-- conversation_participants.conversation_id (un usuario podía "saltar" a
+-- cualquier conversación editando su propia fila de participante).
+-- Postgres soporta GRANT a nivel de columna: se usa aquí como una segunda
+-- barrera, independiente de RLS, que impide incluir esas columnas en el
+-- UPDATE desde el primer momento.
+-- ============================================================
+revoke update on profiles from authenticated;
+grant update (
+  full_name, date_of_birth, avatar_url, bio, seeking_status,
+  email_notifications_enabled, onboarding_completed_at
+) on profiles to authenticated;
+-- role, id, created_at, deleted_at quedan fuera: solo admin
+-- (profiles_admin_all) o el servidor (borrado de cuenta) pueden tocarlas.
+
+revoke update on conversation_participants from authenticated;
+grant update (last_read_at) on conversation_participants to authenticated;
+-- conversation_id, user_id, joined_at quedan fuera de lo actualizable
+-- por el cliente — solo se insertan/leen, nunca se reasignan.

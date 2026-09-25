@@ -8,6 +8,15 @@
 --     en `profiles` basta hasta que exista push real).
 --   - Se añadieron constraints de integridad (precios positivos, rangos de fecha/presupuesto
 --     coherentes, score 0-100, jsonb con forma de objeto).
+--
+-- Comprobación de coherencia final (ver docs/DATABASE.md §"Comprobación de
+-- coherencia final"):
+--   - Añadidas pets_allowed/smoking_allowed/students_only en `rooms`: filtros
+--     de búsqueda explícitos de la sección 13 del brief que faltaban como
+--     columnas propias (antes solo existían como texto libre en `features`).
+--   - Añadidos 3 índices que faltaban para consultas ya previstas por el
+--     propio esquema (features, favoritos por habitación, conversaciones
+--     por usuario).
 
 create extension if not exists "pgcrypto"; -- gen_random_uuid()
 
@@ -131,6 +140,9 @@ create table rooms (
   total_roommates integer, -- plazas que se buscan, no el total de gente ya viviendo (asunción marcada como ambigua)
   total_rooms integer,
   features text[] not null default '{}',
+  pets_allowed boolean not null default false, -- filtro explícito de la sección 13 del brief
+  smoking_allowed boolean not null default false, -- ídem
+  students_only boolean not null default false, -- ídem; el formulario de Fase 4 debe pedirlo explícitamente, el default solo evita NULLs
   house_rules text,
   roommate_preferences text,
   status room_status not null default 'draft',
@@ -279,6 +291,7 @@ create table notifications (
 create index idx_rooms_city_status on rooms(city_id, status) where deleted_at is null;
 create index idx_rooms_available_from on rooms(available_from) where status = 'active';
 create index idx_rooms_owner on rooms(owner_id);
+create index idx_rooms_features on rooms using gin(features); -- filtro por "características", sección 13
 create index idx_housing_preferences_city on housing_preferences(city_id);
 create index idx_interests_to_user on interests(to_user_id);
 create index idx_interests_from_user on interests(from_user_id);
@@ -288,6 +301,8 @@ create index idx_messages_conversation on messages(conversation_id, created_at);
 create index idx_notifications_user_unread on notifications(user_id) where read_at is null;
 create index idx_reports_status on reports(status);
 create index idx_favorites_user on favorites(user_id);
+create index idx_favorites_room on favorites(room_id); -- popularidad de habitación, métricas de admin
+create index idx_conversation_participants_user on conversation_participants(user_id); -- "mis conversaciones": el PK (conversation_id, user_id) no basta para filtrar solo por user_id
 
 -- ============================================================
 -- TRIGGER: updated_at automático

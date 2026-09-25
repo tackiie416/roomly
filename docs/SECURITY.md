@@ -18,6 +18,33 @@ Las 35 políticas completas están en
 `supabase/migrations/20260925120100_rls_policies.sql` — esta tabla es el
 mapa de lectura rápida, no la fuente de la verdad.
 
+## Comprobación de coherencia final (antes de Fase 1)
+
+Auditoría de RLS pedida explícitamente antes de confirmar el esquema.
+Encontró un problema real de escalado de privilegios, ya corregido:
+
+**`profiles_update_own` y `participants_update_own` no tenían
+`with check`.** RLS restringe qué *filas* se pueden tocar, no qué
+*columnas* dentro de esa fila. Con solo `using (auth.uid() = id)`, un
+usuario autenticado podía incluir `role` en su propio `UPDATE` y
+auto-promocionarse a admin — la condición seguía siendo cierta para la
+fila nueva. El mismo patrón dejaba que un usuario cambiara
+`conversation_id` en su propia fila de `conversation_participants` para
+entrar en cualquier conversación ajena.
+
+**Corrección**: restricción de columnas actualizables a nivel de
+`GRANT`/`REVOKE`, independiente de RLS — `authenticated` ya no tiene
+privilegio de `UPDATE` sobre `profiles.role`/`id`/`created_at`/
+`deleted_at`, ni sobre `conversation_participants.conversation_id`/
+`user_id`/`joined_at`. Solo las columnas realmente autoeditables quedan
+con privilegio de escritura. De paso se reforzó el `INSERT` de
+`admin_action_logs` con `admin_id = auth.uid()`, para que un admin no
+pueda atribuir una acción a otro.
+
+El resto de hallazgos de esta comprobación (columnas e índices que
+faltaban en `rooms`/`favorites`/`conversation_participants`) están en
+`docs/DATABASE.md`.
+
 ## Defensa en profundidad, no una sola capa
 
 Ninguna capa se usa sola:

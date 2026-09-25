@@ -60,6 +60,26 @@ es cosa de diez minutos) — no hay nada técnicamente forzoso en esta
 elección, es una opinión de diseño que se puede anular sin fricción.
 Dímelo y lo ajusto antes de Fase 1.
 
+## Comprobación de coherencia final (antes de Fase 1)
+
+Auditoría punto por punto contra `ARCHITECTURE.md`, `SECURITY.md`,
+`ROADMAP.md` y el SQL, pedida explícitamente antes de confirmar el
+esquema. 5 problemas reales encontrados, los 5 ya corregidos en el SQL
+(no solo documentados aquí):
+
+| # | Problema encontrado | Corrección |
+|---|---|---|
+| 1 | `rooms` no tenía columnas propias para "mascotas", "fumadores" ni "estudiantes" — tres filtros que la sección 13 del brief pide explícitamente. Solo existían, si acaso, como texto libre dentro de `features`, no fiable para filtrar. | Añadidas `pets_allowed`, `smoking_allowed`, `students_only` (boolean, `not null default false`) |
+| 2 | Sin índice GIN en `rooms.features`, el filtro por "características" habría hecho un escaneo completo de la tabla a partir de cierto volumen. | Añadido `idx_rooms_features` |
+| 3 | `conversation_participants` no tenía índice por `user_id` — el PK `(conversation_id, user_id)` no sirve para la consulta más frecuente del chat: "mis conversaciones". | Añadido `idx_conversation_participants_user` |
+| 4 | Sin índice en `favorites.room_id`, contar cuántas veces se guardó una habitación (métrica de admin) habría sido lento a escala. | Añadido `idx_favorites_room` |
+| 5 | **Escalado de privilegios real**: `profiles_update_own` y `participants_update_own` usaban `using` sin `with check`. RLS filtra filas, no columnas — nada impedía `update profiles set role = 'admin' where id = auth.uid()`, ni que un usuario "saltara" a cualquier conversación cambiando `conversation_id` en su propia fila de `conversation_participants`. | Restricción de columnas actualizables vía `GRANT`/`REVOKE` (detalle en `docs/SECURITY.md` y en el propio SQL): `authenticated` ya no tiene privilegio de `UPDATE` sobre `profiles.role` ni `conversation_participants.conversation_id`. También se reforzó el `INSERT` de `admin_action_logs`, que antes permitía a un admin atribuir una acción a otro admin. |
+
+Ninguno de estos 5 cambios añade tablas, cambia nombres ni introduce
+funcionalidad nueva — son índices y restricciones sobre el esquema ya
+confirmado. El punto 5 es el único crítico: sin él, cualquier usuario
+podía auto-promocionarse a admin.
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid

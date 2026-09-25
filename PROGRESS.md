@@ -6,6 +6,46 @@ próximos pasos.**
 
 ---
 
+## 2026-09-25 — Sesión 3: comprobación final de coherencia, arquitectura confirmada
+
+**Qué se hizo**
+- Usuario confirma la arquitectura tal cual (incluido el mapeo de
+  nombres de la sesión 2). Auditoría de coherencia entre
+  `ARCHITECTURE.md`, `DATABASE.md`, `SECURITY.md`, `ROADMAP.md` y el SQL,
+  releyendo ambas migraciones y `seed.sql` desde el sandbox antes de
+  tocar nada.
+- 5 problemas reales encontrados y corregidos directamente en el SQL:
+  3 columnas de filtro que faltaban en `rooms` (`pets_allowed`,
+  `smoking_allowed`, `students_only` — sección 13 del brief), 3 índices
+  que faltaban (`idx_rooms_features`, `idx_favorites_room`,
+  `idx_conversation_participants_user`), y un escalado de privilegios
+  real en dos políticas RLS (`profiles_update_own`,
+  `participants_update_own` sin `with check` — cualquier usuario podía
+  auto-promocionarse a admin). Corregido con restricciones de columna
+  (`GRANT`/`REVOKE`), independientes de RLS. Reforzado también el
+  `INSERT` de `admin_action_logs`.
+- Documentado cada hallazgo en `docs/DATABASE.md` y `docs/SECURITY.md`
+  (sección "Comprobación de coherencia final" en ambos).
+- Sin cambios de naming, sin tablas nuevas, sin funcionalidad añadida —
+  tal como se pidió explícitamente.
+
+**Qué queda**
+- Confirmación final del usuario para ejecutar el "Prompt 02" (Fase 1).
+
+**Problemas encontrados**: los 5 de arriba — el de escalado de
+privilegios era el único con severidad real; el resto son índices y
+columnas de filtro que faltaban, sin riesgo de seguridad.
+
+**Decisiones técnicas**: ninguna decisión de arquitectura cambiada;
+correcciones puntuales de schema/RLS.
+
+**Próximos pasos**
+1. Ejecutar Prompt 02 / Fase 1: `create-next-app`, proyecto Supabase
+   real, aplicar migraciones (ya con las 5 correcciones), autenticación,
+   CI.
+
+---
+
 ## 2026-09-25 — Sesión 2: arquitectura contra el stack/esquema pedidos explícitamente
 
 **Qué se hizo**
