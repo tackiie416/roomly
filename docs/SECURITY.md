@@ -1,0 +1,91 @@
+# Seguridad — ROOMLY
+
+Prioridad alta desde el día uno (sección 28 del brief). Este documento
+recoge los principios; las decisiones concretas de esquema/RLS ya
+corregidas están en `docs/DATABASE.md`.
+
+## Defensa en profundidad, no una sola capa
+
+Ninguna capa se usa sola:
+
+1. **RLS en Postgres** — la autoridad final. Activada en todas las
+   tablas de `public`, incluidas las de referencia.
+2. **Validación Zod en servidor** — en cada Server Action / Route
+   Handler, siempre, aunque el formulario ya valide en cliente. La
+   validación de cliente es solo UX, nunca seguridad.
+3. **Comprobación de rol en servidor** — `/admin` se protege en el
+   servidor además de en RLS; nunca basta con ocultar un enlace en el
+   cliente.
+
+## Gestión de secretos
+
+- `.env*` en `.gitignore` desde el primer commit (ya hecho).
+- Variables `NEXT_PUBLIC_*` son las únicas que llegan al navegador — todo
+  lo demás (`SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`...) es
+  server-only, nunca importado en un componente cliente.
+- El rol de servicio de Supabase (`service_role`) se usa exclusivamente
+  en código server-only, para las pocas operaciones que necesitan
+  saltarse RLS de forma controlada (p. ej. el propio servidor creando un
+  `match` tras verificar interés mutuo) — nunca expuesto a un endpoint
+  público sin más comprobaciones.
+- Variables de entorno de producción gestionadas en Vercel, no en
+  archivos.
+
+## Rate limiting
+
+Enfoque en dos capas, deliberadamente simple para el MVP (sin añadir
+Redis todavía — eso sería sobreingeniería sin abuso real que lo
+justifique):
+
+- **App**: checks con mensajes de UX claros ("has alcanzado tu límite
+  diario").
+- **Base de datos (backstop)**: trigger `enforce_interest_rate_limit` en
+  `interests` (30/día) — no se puede saltar aunque haya un bug en la app.
+
+Si se observa abuso real que este mecanismo no cubre (por ejemplo,
+scraping de páginas públicas), el siguiente paso es un limitador de
+verdad (Upstash Redis, barato) — se añade cuando haga falta, no antes.
+
+## Subida de archivos (Supabase Storage)
+
+- Bucket de **lectura pública** para fotos de habitación y avatares
+  (nada sensible en una foto).
+- **Escritura** restringida por política de Storage: solo a rutas
+  prefijadas con el `auth.uid()` de quien sube.
+- Límite de tamaño y whitelist de tipo MIME (solo imágenes), validado
+  tanto en la configuración del bucket como en Zod antes de iniciar la
+  subida.
+
+## Privacidad de ubicación
+
+`room_addresses.address_exact` en tabla separada, RLS restringida al
+propietario (ver `docs/DATABASE.md` para el razonamiento completo). Los
+pines públicos usan coordenadas difuminadas (~150-300m), nunca la
+dirección real, hasta que exista una lógica de "compañero con match
+confirmado" que amplíe el acceso sin tocar la tabla `rooms`.
+
+## Auditoría
+
+`admin_action_logs` registra toda acción de moderación (bloquear
+usuario, resolver reporte). Sin esto, un abuso del propio panel de admin
+sería invisible.
+
+## Dependencias
+
+`npm audit` en CI, Dependabot activado en el repositorio de GitHub en
+cuanto exista.
+
+## RGPD — lo que es responsabilidad técnica y lo que no
+
+Diseño pensado desde el principio para RGPD (minimización de datos,
+soft-delete como paso previo a un borrado/anonimización real — ver
+`docs/DATABASE.md`), pero **no se redacta aquí ningún texto legal**
+(política de privacidad, términos, plazos de retención exactos, umbral
+de DPO). Todo lo que requiere una decisión legal se marca explícitamente
+como **REQUIERE REVISIÓN LEGAL** en el documento correspondiente, en vez
+de inventarse.
+
+Puntos ya marcados así: plazo de borrado/anonimización tras soft-delete,
+edad mínima de 18 años, ubicación/transferencia internacional de datos
+(Supabase, Vercel, Resend, PostHog — todos ofrecen opción de región EU,
+pero confirmar transferencias con legal antes de producción).
