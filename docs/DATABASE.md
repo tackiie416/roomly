@@ -41,6 +41,25 @@ Esto es lo que cambió:
 - **`admin_action_logs`**: una sola tabla append-only, sin lógica compleja. El panel admin puede bloquear personas y resolver reportes — sin trazabilidad de eso, no hay manera de auditar un abuso del propio panel. Coste bajo, valor de confianza alto.
 - **18 tablas en total**: el número en sí no es el riesgo — cada una responde a una sección explícita del brief (habitaciones, interés, chat, reportes, admin). El riesgo real era construir infraestructura sin función detrás (lo que sí se cortó arriba), no el conteo de tablas.
 
+### Mapeo con los nombres de tabla pedidos
+
+Se ha pedido explícitamente un esquema para `users`, `preferences` y
+`verification_status` con esos nombres literales. Mantengo la decisión
+de la revisión anterior sobre las tres, pero la dejo explícita aquí para
+que la confirmes o la corrijas directamente:
+
+| Nombre pedido | Qué hay en su lugar | Por qué |
+|---|---|---|
+| `users` | `auth.users` (gestionada por Supabase) + `profiles` (FK 1:1 a `auth.users.id`) | `auth.users` ya guarda credenciales, email y proveedores OAuth. Una tabla `users` propia sería una copia que se puede desincronizar. En la práctica sigue existiendo "un registro de usuario" — la mitad la gestiona Supabase Auth y la mitad `profiles`. |
+| `preferences` | `housing_preferences` | Mismo concepto, nombre más específico (conviven con preferencias de notificación, respuestas del test...). Todas las columnas pedidas — presupuesto, fechas, zona, número de compañeros — están ahí. |
+| `verification_status` | No existe como tabla. `auth.users.email_confirmed_at` cubre la única verificación real del MVP. | El resto de badges (universidad, identidad, vivienda) no tienen ningún flujo funcional detrás todavía — el propio brief dice "no KYC complejo en el MVP" (sección 18). |
+
+Si prefieres los tres nombres tal cual se pidieron, es un cambio pequeño
+en el SQL (crear `verifications` con `user_id`/`type`/`status`/`verified_at`
+es cosa de diez minutos) — no hay nada técnicamente forzoso en esta
+elección, es una opinión de diseño que se puede anular sin fricción.
+Dímelo y lo ajusto antes de Fase 1.
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid

@@ -6,6 +6,49 @@ próximos pasos.**
 
 ---
 
+## 2026-09-25 — Sesión 2: arquitectura contra el stack/esquema pedidos explícitamente
+
+**Qué se hizo**
+- Releído el repo completo (`CLAUDE.md`, `ROADMAP.md`, `PROGRESS.md`,
+  `README.md`, y también `ARCHITECTURE.md`/`DATABASE.md`/`SECURITY.md`
+  antes de editarlos) — confirmado que el estado de la sesión 1 persiste
+  íntegro en el sandbox.
+- `ARCHITECTURE.md`: añadidas secciones explícitas que faltaban —
+  Separación frontend/backend, Autorización (separada de
+  Autenticación), Administración, Notificaciones, Analytics (PostHog,
+  captura cliente+servidor, funnel). Corregida una referencia obsoleta
+  al árbol de carpetas. Añadida nota sobre ESLint/Prettier.
+- `DATABASE.md`: añadido mapeo explícito entre los nombres de tabla
+  pedidos ahora (`users`, `preferences`, `verification_status`) y las
+  decisiones ya tomadas en la sesión 1 (`auth.users`+`profiles`,
+  `housing_preferences`, sin tabla de verificación) — con opción
+  explícita de revertir si se prefiere.
+- `SECURITY.md`: añadida tabla que mapea cada uno de los 5 requisitos de
+  RLS pedidos explícitamente a las políticas concretas que lo cumplen.
+- `CLAUDE.md`: añadidos ESLint/Prettier al stack documentado.
+- El esquema SQL no se ha tocado — ya cubría todo lo pedido; solo hacía
+  falta documentarlo de forma más explícita y reconciliar el naming.
+
+**Qué queda**
+- Confirmación del usuario sobre el mapeo de nombres de tabla (mantener
+  `auth.users`+`profiles`/`housing_preferences`/sin `verification_status`,
+  o forzar los nombres literales).
+- Confirmación para empezar Fase 1.
+
+**Problemas encontrados**
+- Ninguno nuevo.
+
+**Decisiones técnicas**
+- Ninguna decisión de esquema cambiada; se documentaron con más detalle
+  las ya tomadas en la sesión 1.
+
+**Próximos pasos**
+1. Usuario confirma la arquitectura final (incluido el mapeo de
+   nombres) o pide ajustes puntuales.
+2. Si confirma: Fase 1.
+
+---
+
 ## 2026-09-25 — Sesión 1: Fase 0 (arquitectura)
 
 **Qué se hizo**

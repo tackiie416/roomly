@@ -4,6 +4,20 @@ Prioridad alta desde el día uno (sección 28 del brief). Este documento
 recoge los principios; las decisiones concretas de esquema/RLS ya
 corregidas están en `docs/DATABASE.md`.
 
+## Cobertura de los requisitos de RLS pedidos
+
+| Requisito pedido | Políticas que lo cumplen |
+|---|---|
+| Usuarios solo modifican sus propios datos | `profiles_update_own`, `housing_preferences_own`, `compatibility_responses_own`, `favorites_own`, `interests_insert_own`/`interests_delete_own`, `participants_update_own` |
+| Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations` — un tercero no puede leer aunque conozca el UUID de la conversación |
+| Habitaciones editables solo por su propietario | `rooms_owner_write`. La dirección exacta va un paso más allá: `room_addresses_owner_only`, ni siquiera visible para otros usuarios autenticados |
+| Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
+| Información privada protegida | `profiles` completo exige sesión (vista `public_profile_previews` para lo estrictamente público de SEO); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
+
+Las 35 políticas completas están en
+`supabase/migrations/20260925120100_rls_policies.sql` — esta tabla es el
+mapa de lectura rápida, no la fuente de la verdad.
+
 ## Defensa en profundidad, no una sola capa
 
 Ninguna capa se usa sola:

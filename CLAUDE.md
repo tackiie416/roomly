@@ -35,6 +35,8 @@ aplicación escrito todavía. Esperando confirmación para empezar Fase 1.
 - **Analítica**: PostHog (región EU).
 - **Pagos**: Stripe — no se integra hasta que exista demanda real.
 - **Testing**: Vitest (unit/integración) + Playwright (E2E).
+- **Calidad de código**: ESLint (config recomendada de Next.js + reglas
+  TypeScript estrictas) + Prettier.
 - **Hosting**: Vercel.
 - **Mobile (futuro, no MVP)**: React Native + Expo, reutilizando
   `lib/services/*` vía una API REST fina que se añade cuando haga falta.

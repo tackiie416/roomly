@@ -35,7 +35,17 @@ flowchart LR
   Realtime --> DB
 ```
 
-## Decisión central: capa de servicios, no API primero
+## Separación frontend/backend
+
+Mismo repositorio (monolito, sección 44 del brief), pero frontera de
+responsabilidad clara: el frontend (componentes de servidor y de
+cliente de Next.js) **nunca** habla directamente con Postgres ni usa la
+`service_role key` — todo pasa por Server Actions (hoy) o por la API
+REST (cuando exista Mobile). Un componente cliente solo ve el cliente
+Supabase con la `anon key`, sujeto siempre a RLS; el acceso privilegiado
+vive exclusivamente en código server-only.
+
+### Decisión central: capa de servicios, no API primero
 
 El brief pide explícitamente no duplicar backend cuando llegue la app móvil
 (sección 25). La forma de cumplir eso **sin** construir una API REST completa
@@ -98,17 +108,86 @@ o el SMTP de Supabase) importa más que con contraseña. Si prefieres
 email+contraseña, es un cambio de configuración en Supabase Auth, no de
 arquitectura.
 
-Roles: `profiles.role` (`user` | `admin`), comprobado en RLS vía la función
-`is_admin()` (ver DATABASE.md). La ruta `/admin` se protege **dos veces**:
-RLS en la base de datos, y una comprobación de rol en el servidor
-(middleware o layout de `app/admin/`) antes de renderizar nada — nunca solo
-ocultar el enlace en el cliente.
+## Autorización
+
+Modelo de roles simple: `profiles.role` (`user` | `admin`), comprobado en
+RLS vía la función `is_admin()` (ver DATABASE.md). La ruta `/admin` se
+protege **dos veces**: RLS en la base de datos, y una comprobación de rol
+en el servidor (middleware o layout de `app/admin/`) antes de renderizar
+nada — nunca solo ocultar el enlace en el cliente. `docs/SECURITY.md`
+tiene el mapa punto por punto de qué política cubre cada requisito de
+autorización pedido (datos propios, mensajes entre participantes,
+habitaciones del propietario, admin separado, información privada). No
+hay roles intermedios (moderador, propietario profesional...) en el MVP
+— el enum `user_role` se amplía sin romper nada cuando la sección 4 del
+brief los necesite de verdad.
 
 ## Chat en tiempo real
 
 Supabase Realtime (change data capture sobre `messages`) en vez de
 infraestructura de websockets propia. Cero servidores nuevos que mantener,
 y cubre 1 a 1 y grupo por igual gracias a `conversation_participants`.
+
+## Administración
+
+Ruta protegida `/admin` (ver Autorización arriba). Cuatro áreas, tal
+como pide la sección 20 del brief:
+
+- **Usuarios**: buscar, filtrar, verificar (badge de email), bloquear
+  (soft-delete + revocar sesión).
+- **Habitaciones**: revisar, ocultar (`status = 'paused'`), eliminar
+  (soft-delete), marcar como sospechosa.
+- **Reportes**: listar por `status`, revisar, resolver (con
+  `resolution_notes`).
+- **Métricas**: usuarios registrados/activos, habitaciones, matches,
+  conversaciones, reportes, conversión del funnel (ver Analytics).
+
+Toda acción de moderación se escribe en `admin_action_logs` sin
+excepción (ver `docs/SECURITY.md`). Un único rol `admin` con acceso
+completo es suficiente mientras el equipo sea pequeño — roles de
+moderador separados quedan para cuando el brief los necesite de verdad
+(sección 4).
+
+## Notificaciones
+
+Dos canales en el MVP, un tercero preparado pero no construido:
+
+- **In-app**: tabla `notifications` (bandeja, no leídos vía
+  `read_at is null`).
+- **Email**: efecto lateral disparado desde `lib/services/*` tras la
+  acción que lo origina (nuevo match, nuevo mensaje, nuevo interés,
+  habitación compatible, recordatorio de perfil incompleto — los 5 tipos
+  del MVP), enviado con Resend. Respeta
+  `profiles.email_notifications_enabled` — si está a `false`, el
+  servicio ni siquiera intenta el envío.
+- **Push**: no existe hasta que exista la app móvil (V2). La columna de
+  preferencia se añade junto con el propio canal, no antes — ver en
+  `docs/DATABASE.md` por qué no se construye ya una tabla de
+  preferencias granular sin un canal real que la use.
+
+La plantilla de cada email vive en `lib/email/`, no inline en el Server
+Action, para poder testearla sin disparar un envío real.
+
+## Analytics
+
+PostHog, región EU. Dos vías de captura, porque una sola no es fiable:
+
+- **Cliente** (`posthog-js`): eventos de interacción —
+  `room_viewed`, `match_viewed`, clics de exploración.
+- **Servidor** (`posthog-node`, desde `lib/services/*`): eventos de
+  conversión de negocio — `signup_completed`, `test_completed`,
+  `interest_sent`, `match_created`, `room_created`... Se capturan en
+  servidor porque son los que de verdad importan para el funnel
+  (sección 36 del brief) y un bloqueador de anuncios no debe poder
+  hacerlos desaparecer de las métricas.
+
+Funnel instrumentado tal como pide la sección 35: visita → registro →
+perfil → test → match → contacto → conversación → vivienda. La métrica
+que de verdad importa (sección 36) no es volumen de registros, es el
+**porcentaje de usuarios que llegan a un match relevante** — se calcula
+sobre estos eventos, no aparte. No se instrumenta nada más "por si
+acaso": la lista de eventos es la de la sección 35, ni más ni menos,
+hasta que el análisis real pida algo distinto.
 
 ## Imágenes
 
@@ -158,7 +237,14 @@ roomly/
 └── public/
 ```
 
-(Árbol completo, ya generado en el sandbox, al final de este turno.)
+(Árbol completo generado en el sandbox — consultable con `find` en
+`/home/claude/roomly` o revisando el commit inicial en git.)
+
+**Calidad de código**: ESLint con la configuración recomendada de
+Next.js + reglas de TypeScript estrictas, Prettier con configuración por
+defecto. Se materializan como archivos de config reales en Fase 1, junto
+con `package.json` — no antes, para no dejar configuración huérfana sin
+proyecto que la use.
 
 ## Cómo escala esto (sin optimizar prematuramente)
 
