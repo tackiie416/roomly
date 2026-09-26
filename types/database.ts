@@ -20,18 +20,11 @@
  */
 
 export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[];
+  string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type UserRole = "user" | "admin";
 export type SeekingStatus =
-  | "looking_for_room"
-  | "has_room_looking_for_roommate"
-  | "flexible";
+  "looking_for_room" | "has_room_looking_for_roommate" | "flexible";
 export type RoomStatus = "draft" | "active" | "paused" | "rented" | "removed";
 export type ReportStatus = "pending" | "in_review" | "resolved" | "dismissed";
 

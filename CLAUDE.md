@@ -110,6 +110,7 @@ npm run lint            # ESLint
 npm run typecheck        # tsc --noEmit
 npm run test               # Vitest, una vez
 npm run test:watch          # Vitest, modo watch
+npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (ver docs/TESTING.md)
 npm run test:e2e              # Playwright (necesita `npx playwright install` antes)
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
@@ -192,7 +193,17 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   fuera del privilegio `UPDATE` del rol `authenticated` a nivel de
   `GRANT`/`REVOKE` (no solo RLS) — corrección de un escalado de
   privilegios real encontrado en revisión. No lo reviertas sin entender
-  por qué existe.
+  por qué existe. Desde `20260926120000_security_fixes.sql`, `role` y
+  `deleted_at` también están fuera del `INSERT` (antes cualquiera podía
+  crearse su perfil como admin), y cambiar un rol solo se hace desde el
+  servidor con `service_role`, ni siquiera un admin desde el cliente.
+- Las políticas del chat usan `public.is_conversation_participant()`
+  (`SECURITY DEFINER`, sin parámetro de usuario). Nunca escribas una
+  subconsulta de RLS con columnas sin cualificar: Postgres resuelve el
+  nombre contra la tabla más interna y la condición puede volverse una
+  tautología (pasó aquí con `messages`).
+- `tests/db/` contiene tests de regresión de seguridad que deben pasar
+  siempre (`npm run test:db`, también en CI).
 - Rate limit a nivel de base de datos (trigger) sobre `interests`, además
   del check en la app.
 - `/admin` se protege en RLS **y** en el servidor (`app/admin/layout.tsx`)

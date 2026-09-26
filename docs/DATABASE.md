@@ -4,8 +4,8 @@ PostgreSQL (Supabase). UUID como PK en todas las tablas. `created_at`/`updated_a
 donde aplica. Soft delete (`deleted_at`) en `profiles` y `rooms` — el resto se
 borra en duro o se conserva sin restricción (ver "Soft delete vs. GDPR" abajo).
 
-El SQL real vive en `supabase/migrations/` (dos archivos: esquema y políticas RLS)
-y `supabase/seed.sql`. Este documento explica las decisiones; el código fuente
+El SQL real vive en `supabase/migrations/` (tres archivos: esquema, políticas RLS
+y correcciones de seguridad de la auditoría inicial) y `supabase/seed.sql`. Este documento explica las decisiones; el código fuente
 de la verdad es el SQL.
 
 ## Revisión crítica (lo que se encontró y se corrigió)
@@ -79,6 +79,33 @@ Ninguno de estos 5 cambios añade tablas, cambia nombres ni introduce
 funcionalidad nueva — son índices y restricciones sobre el esquema ya
 confirmado. El punto 5 es el único crítico: sin él, cualquier usuario
 podía auto-promocionarse a admin.
+
+## Correcciones de la auditoría inicial (2026-09-26)
+
+La corrección del punto 5 de arriba resultó incompleta, y aparecieron
+otros problemas al aplicar por primera vez el SQL en un PostgreSQL real.
+Todo se corrige en `supabase/migrations/20260926120000_security_fixes.sql`
+(migración nueva; las dos anteriores no se tocan) y cada punto tiene test
+de regresión en `tests/db/`. Detalle y razonamiento en `docs/SECURITY.md`
+§"Correcciones de la auditoría inicial".
+
+- `profiles`: `INSERT` restringido por columnas (sin `role`/`deleted_at`)
+  + `with check (role = 'user')`. Cerraba la auto-promoción a admin vía
+  `INSERT`, que el punto 5 no cubría.
+- Chat: nueva función `public.is_conversation_participant(uuid)`
+  (`SECURITY DEFINER`, `search_path` vacío, sin parámetro de usuario). Las
+  políticas de `messages`, `conversations` y `conversation_participants`
+  la usan en vez de subconsultas: elimina la recursión infinita y una
+  referencia ambigua a `conversation_id` que daba acceso a todas las
+  conversaciones.
+- `rooms`: trigger `trg_rooms_moderation` — solo un admin (o el servidor)
+  cambia el estado desde o hacia `removed`.
+- `reports`: `INSERT` restringido por columnas; quien reporta no puede
+  fijar `status`, `resolved_by`, `resolved_at` ni `resolution_notes`.
+
+Siguen siendo 18 tablas y 35 políticas (8 redefinidas). Se añaden 2
+funciones (`is_conversation_participant`, `enforce_room_moderation`) y
+1 trigger (`trg_rooms_moderation`).
 
 ## Diagrama de entidades (simplificado)
 
