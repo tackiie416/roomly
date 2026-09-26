@@ -19,18 +19,21 @@ import {
   type PostgrestError,
   type SupabaseClient,
 } from "@supabase/supabase-js";
+import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Entorno y guarda de destino
+// Entorno y guardas de destino
 // ---------------------------------------------------------------------------
 const REQUIRED_ENV = [
   "SUPABASE_VALIDATION_URL",
   "SUPABASE_VALIDATION_ANON_KEY",
   "SUPABASE_VALIDATION_SERVICE_ROLE_KEY",
   "SUPABASE_VALIDATION_PROJECT_REF",
+  "SUPABASE_VALIDATION_DB_URL",
 ] as const;
 
 function readEnv() {
@@ -53,6 +56,35 @@ function readEnv() {
   };
 }
 
+/**
+ * F1 — Identidad verificada DESDE EL PROPIO PROYECTO antes de crear o borrar
+ * nada: ejecuta tests/supabase/guard.sh (la misma guarda que usan los
+ * scripts SQL), que exige la marca `COMMENT ON DATABASE postgres IS
+ * 'roomly-validation'` en la base de datos a la que apuntan los secrets.
+ * Sin fallback: cualquier fallo aborta la suite. El mensaje propagado es
+ * solo el de la guarda, que nunca incluye valores de variables.
+ */
+function verifyValidationProjectIdentity() {
+  const guard = path.join(process.cwd(), "tests/supabase/guard.sh");
+  try {
+    execFileSync(
+      "bash",
+      [
+        guard,
+        "SUPABASE_VALIDATION_URL",
+        "SUPABASE_VALIDATION_ANON_KEY",
+        "SUPABASE_VALIDATION_SERVICE_ROLE_KEY",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"], env: process.env }
+    );
+  } catch (err) {
+    const stderr = (err as { stderr?: Buffer }).stderr?.toString().trim();
+    throw new Error(
+      `Destino NO reconocido como roomly-validation; la suite no se ejecuta.\n${stderr ?? ""}`
+    );
+  }
+}
+
 const env = readEnv();
 const CLIENT_OPTIONS = {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -66,8 +98,15 @@ const service: Client = createClient(env.url, env.serviceKey, CLIENT_OPTIONS);
 const anon: Client = createClient(env.url, env.anonKey, CLIENT_OPTIONS);
 
 const RUN = randomBytes(4).toString("hex");
-const EMAIL_PREFIX = "roomly-val-";
 const RESULTS: string[] = [];
+
+/**
+ * F2 — Formato EXACTO de los emails de prueba. La limpieza solo puede tocar
+ * usuarios cuyo email encaje entero en este patrón (prefijo, id de 8
+ * hexadecimales, actor de una letra y dominio example.com exacto).
+ */
+const TEST_EMAIL = /^roomly-val-[0-9a-f]{8}-[a-z]@example\.com$/;
+const testEmail = (key: string) => `roomly-val-${RUN}-${key}@example.com`;
 
 function record(line: string) {
   RESULTS.push(line);
@@ -94,6 +133,11 @@ const roomId = randomUUID();
 let cityId = "";
 let reportId = "";
 
+/** F3 — Conversaciones creadas por ESTA ejecución: las únicas que se borran. */
+const createdConversationIds = new Set<string>();
+/** Se pone a true solo cuando la guarda F1 ha pasado. Sin ella, no se limpia nada. */
+let identityVerified = false;
+
 // ---------------------------------------------------------------------------
 // Helpers de aserción
 // ---------------------------------------------------------------------------
@@ -102,16 +146,36 @@ function expectPgError(error: PostgrestError | null, code: string) {
   expect(error?.code).toBe(code);
 }
 
+/**
+ * F5 — Rechazo que procede del trigger de moderación de rooms (H5): SQLSTATE
+ * 42501 Y el mensaje propio del trigger (`room_moderation: ...`, definido en
+ * la migración 20260926120000). PostgREST devuelve el mensaje de Postgres
+ * tal cual en `message`; si alguna vez llegara distinto, el test falla de
+ * forma visible (nunca pasa en falso).
+ */
+function expectModerationRejection(error: PostgrestError | null) {
+  expectPgError(error, "42501");
+  expect(error?.message, "el rechazo debe venir del trigger de moderación").toMatch(
+    /^room_moderation:/
+  );
+}
+
+/** F4 — Éxito es exactamente `error === null`; cualquier error falla el test. */
 function expectOk(error: PostgrestError | null) {
-  // Nunca debe aparecer recursión RLS (42P17) ni ningún otro error.
-  expect(error?.code, error?.message).toBeUndefined();
+  expect(
+    error,
+    error ? `error inesperado: ${error.code} ${error.message}` : undefined
+  ).toBeNull();
 }
 
 // ---------------------------------------------------------------------------
 // Limpieza respetando H6: primero dependencias, después usuarios.
+// Solo toca datos creados por usuarios de prueba (F2) y conversaciones
+// creadas por la suite (F3). Si algo de un usuario de prueba está enlazado
+// con datos ajenos, NO se borra: el teardown falla de forma visible.
 // ---------------------------------------------------------------------------
-async function teardownUsers(userIds: string[]) {
-  if (userIds.length === 0) return;
+async function teardownUsers(userIds: string[], conversationIds: string[]) {
+  if (userIds.length === 0 && conversationIds.length === 0) return;
   const failures: string[] = [];
   const step = async (
     label: string,
@@ -121,58 +185,43 @@ async function teardownUsers(userIds: string[]) {
     if (error) failures.push(`${label}: ${error.code} ${error.message}`);
   };
 
-  const { data: parts } = await service
-    .from("conversation_participants")
-    .select("conversation_id")
-    .in("user_id", userIds);
-  const convIds = [...new Set((parts ?? []).map((p) => p.conversation_id as string))];
-
-  if (convIds.length > 0) {
+  if (conversationIds.length > 0) {
     await step("messages", () =>
-      service.from("messages").delete().in("conversation_id", convIds)
+      service.from("messages").delete().in("conversation_id", conversationIds)
     );
     await step("conversation_participants", () =>
-      service.from("conversation_participants").delete().in("conversation_id", convIds)
+      service
+        .from("conversation_participants")
+        .delete()
+        .in("conversation_id", conversationIds)
     );
     await step("conversations", () =>
-      service.from("conversations").delete().in("id", convIds)
+      service.from("conversations").delete().in("id", conversationIds)
     );
   }
-  // Mensajes enviados por estos usuarios en cualquier otra conversación.
-  await step("messages(sender)", () =>
-    service.from("messages").delete().in("sender_id", userIds)
-  );
-  await step("reports(reporter)", () =>
-    service.from("reports").delete().in("reporter_id", userIds)
-  );
-  await step("reports(reported)", () =>
-    service.from("reports").delete().in("reported_user_id", userIds)
-  );
-  await step("reports(resolved_by)", () =>
-    service.from("reports").delete().in("resolved_by", userIds)
-  );
-  await step("admin_action_logs", () =>
-    service.from("admin_action_logs").delete().in("admin_id", userIds)
-  );
-  await step("interests", () =>
-    service.from("interests").delete().in("from_user_id", userIds)
-  );
-  await step("interests(to)", () =>
-    service.from("interests").delete().in("to_user_id", userIds)
-  );
-  await step("matches(a)", () =>
-    service.from("matches").delete().in("user_a_id", userIds)
-  );
-  await step("matches(b)", () =>
-    service.from("matches").delete().in("user_b_id", userIds)
-  );
-  // rooms → room_addresses/room_images/favorites caen en cascada.
-  await step("rooms", () => service.from("rooms").delete().in("owner_id", userIds));
-  await step("profiles", () => service.from("profiles").delete().in("id", userIds));
 
-  for (const id of userIds) {
-    const { error } = await service.auth.admin.deleteUser(id);
-    if (error) failures.push(`deleteUser: ${error.message}`);
+  if (userIds.length > 0) {
+    // Solo filas CREADAS por usuarios de prueba (quien las crea es de prueba).
+    await step("reports", () =>
+      service.from("reports").delete().in("reporter_id", userIds)
+    );
+    await step("admin_action_logs", () =>
+      service.from("admin_action_logs").delete().in("admin_id", userIds)
+    );
+    await step("interests", () =>
+      service.from("interests").delete().in("from_user_id", userIds)
+    );
+    await step("matches", () =>
+      service.from("matches").delete().in("user_a_id", userIds).in("user_b_id", userIds)
+    );
+    // rooms → room_addresses/room_images/favorites caen en cascada.
+    await step("rooms", () => service.from("rooms").delete().in("owner_id", userIds));
+    await step("profiles", () => service.from("profiles").delete().in("id", userIds));
+
+    for (const id of userIds) {
+      const { error } = await service.auth.admin.deleteUser(id);
+      if (error) failures.push(`deleteUser: ${error.message}`);
+    }
   }
 
   if (failures.length > 0) {
@@ -180,21 +229,56 @@ async function teardownUsers(userIds: string[]) {
   }
 }
 
+/** F2 — Usuarios de ejecuciones anteriores: solo emails con el formato exacto. */
 async function staleValidationUserIds(): Promise<string[]> {
   const { data, error } = await service.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (error) throw new Error(`listUsers: ${error.message}`);
-  return data.users.filter((u) => u.email?.startsWith(EMAIL_PREFIX)).map((u) => u.id);
+  return data.users.filter((u) => TEST_EMAIL.test(u.email ?? "")).map((u) => u.id);
+}
+
+/**
+ * F3 — Conversaciones que dejó una ejecución anterior interrumpida: solo las
+ * que tienen EXCLUSIVAMENTE participantes de prueba. Una conversación con
+ * cualquier participante ajeno nunca se toca.
+ */
+async function staleValidationConversationIds(userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const testUsers = new Set(userIds);
+  const { data: mine, error } = await service
+    .from("conversation_participants")
+    .select("conversation_id")
+    .in("user_id", userIds);
+  if (error) throw new Error(`participants: ${error.message}`);
+  const candidates = [...new Set((mine ?? []).map((p) => p.conversation_id as string))];
+  if (candidates.length === 0) return [];
+
+  const { data: all, error: allError } = await service
+    .from("conversation_participants")
+    .select("conversation_id, user_id")
+    .in("conversation_id", candidates);
+  if (allError) throw new Error(`participants: ${allError.message}`);
+  return candidates.filter((id) =>
+    (all ?? [])
+      .filter((p) => p.conversation_id === id)
+      .every((p) => testUsers.has(p.user_id as string))
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Preparación (service_role) y sesiones reales (JWT de cada usuario)
 // ---------------------------------------------------------------------------
 beforeAll(async () => {
-  // Restos de ejecuciones anteriores interrumpidas.
-  await teardownUsers(await staleValidationUserIds());
+  // F1: lo PRIMERO. Si falla, no se crea ni se borra nada.
+  verifyValidationProjectIdentity();
+  identityVerified = true;
+
+  // Restos de ejecuciones anteriores interrumpidas (F2 + F3).
+  const staleUsers = await staleValidationUserIds();
+  await teardownUsers(staleUsers, await staleValidationConversationIds(staleUsers));
 
   for (const key of ACTOR_KEYS) {
-    const email = `${EMAIL_PREFIX}${RUN}-${key}@example.com`;
+    const email = testEmail(key);
+    if (!TEST_EMAIL.test(email)) throw new Error("formato de email de prueba inválido");
     const password = randomBytes(24).toString("base64url"); // nunca se imprime
     const { data, error } = await service.auth.admin.createUser({
       email,
@@ -238,7 +322,12 @@ afterAll(async () => {
       `\n### Resultados registrados (supabase-js)\n\n${RESULTS.map((r) => `- ${r}`).join("\n")}\n`
     );
   }
-  await teardownUsers(Object.values(actors).map((a) => a.id));
+  // Sin identidad verificada no se ha creado nada y no se toca nada.
+  if (!identityVerified) return;
+  await teardownUsers(
+    Object.values(actors).map((a) => a.id),
+    [...createdConversationIds]
+  );
 }, 120_000);
 
 // ===========================================================================
@@ -389,6 +478,9 @@ describe("Chat (CH)", () => {
       .from("conversations")
       .insert([{ id: conv1 }, { id: conv2 }]);
     if (conv.error) throw new Error(`conversations: ${conv.error.message}`);
+    // F3: se registran explícitamente para que el teardown borre solo estas.
+    createdConversationIds.add(conv1);
+    createdConversationIds.add(conv2);
     const parts = await service.from("conversation_participants").insert([
       { conversation_id: conv1, user_id: A().id },
       { conversation_id: conv1, user_id: B().id },
@@ -544,7 +636,10 @@ describe("Chat (CH)", () => {
   });
 
   it("CH11: un cliente no puede crear conversaciones, participantes ni matches", async () => {
-    const conv = await A().client.from("conversations").insert({ id: randomUUID() });
+    // Se registra antes del intento: si por error se aceptara, el teardown la borra.
+    const attemptedId = randomUUID();
+    createdConversationIds.add(attemptedId);
+    const conv = await A().client.from("conversations").insert({ id: attemptedId });
     expectPgError(conv.error, "42501");
 
     const part = await A()
@@ -602,7 +697,7 @@ describe("Rooms (RO)", () => {
 
   it("RO3: el propietario NO puede marcar removed", async () => {
     const { error } = await setStatus(O().client, "removed");
-    expectPgError(error, "42501");
+    expectModerationRejection(error);
   });
 
   it("RO4: un admin sí puede marcar removed", async () => {
@@ -612,8 +707,8 @@ describe("Rooms (RO)", () => {
   });
 
   it("RO5: el propietario NO puede sacar de removed (ni a active ni a paused)", async () => {
-    expectPgError((await setStatus(O().client, "active")).error, "42501");
-    expectPgError((await setStatus(O().client, "paused")).error, "42501");
+    expectModerationRejection((await setStatus(O().client, "active")).error);
+    expectModerationRejection((await setStatus(O().client, "paused")).error);
   });
 
   it("RO6: el propietario NO puede reactivar vía upsert (INSERT ... ON CONFLICT DO UPDATE)", async () => {
@@ -621,7 +716,7 @@ describe("Rooms (RO)", () => {
     record(
       `RO6: upsert de room removed → ${error ? `${error.code} — ${error.message}` : "ACEPTADO"}`
     );
-    expectPgError(error, "42501");
+    expectModerationRejection(error);
     const { data } = await service
       .from("rooms")
       .select("status")
