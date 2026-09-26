@@ -40,8 +40,21 @@ Supabase).
 de `@supabase/ssr` con `httpOnly: false`; el comentario "HTTP-only" del
 callback es inexacto (ver `docs/SUPABASE_VALIDATION.md`).
 
-**Pendiente**: crear `roomly-validation` y los secrets (persona dueña de la
-cuenta), llevar el workflow a `master` (requisito de `workflow_dispatch`) y
+**Revisión de la infraestructura (F1–F5), corregido con autorización**
+- F1 (MEDIUM): la guarda solo comprobaba coherencia local de los secrets.
+  Ahora exige la marca `COMMENT ON DATABASE postgres IS 'roomly-validation'`
+  leída del propio proyecto en todos los puntos de entrada (guard.sh, P0,
+  suite SQL, migraciones, suite supabase-js), sin fallback. Auto-test
+  `tests/supabase/guard-selftest.sh`: 16/16, y detecta la guarda mutada.
+- F2: limpieza solo de emails `^roomly-val-[0-9a-f]{8}-[a-z]@example\.com$`.
+- F3: solo conversaciones registradas por la ejecución (o, de ejecuciones
+  interrumpidas, con exclusivamente participantes de prueba).
+- F4: `expectOk` exige `error === null`.
+- F5: RO3/RO5/RO6 exigen `42501` + mensaje `room_moderation:` del trigger.
+
+**Pendiente**: crear `roomly-validation`, poner la marca de identidad
+(confirmar que `postgres` puede hacer `comment on database`), crear los
+secrets, llevar el workflow a `master` (requisito de `workflow_dispatch`) y
 ejecutar. Resultados reales: se añadirán aquí.
 
 ---

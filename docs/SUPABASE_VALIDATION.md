@@ -24,6 +24,30 @@ dashboard de Supabase por la persona dueña de la cuenta (no hay conector de
 Supabase en las sesiones de Claude Code y las credenciales de cuenta no se
 comparten por chat).
 
+### Marca de identidad (F1) — primer paso tras crear el proyecto
+
+Antes de configurar nada más, en el SQL Editor de `roomly-validation`:
+
+```sql
+comment on database postgres is 'roomly-validation';
+select shobj_description(d.oid, 'pg_database') from pg_database d where d.datname = 'postgres';
+```
+
+La segunda consulta debe devolver exactamente `roomly-validation`. Todo
+punto de entrada (guarda del workflow, aplicación de migraciones, P0–P5,
+suite SQL y suite supabase-js) comprueba esa marca **en la propia base de
+datos** antes de hacer nada; si falta o no coincide exactamente, aborta sin
+fallback. Unos secrets coherentes que apunten a otro proyecto no pasan,
+porque ese proyecto no tiene la marca. Nunca se pone esta marca en otro
+proyecto.
+
+Verificado en local: el comentario lo lee cualquier rol (también uno sin
+privilegios) y solo el dueño de la base de datos puede cambiarlo. **Pendiente
+de confirmar en Supabase**: que el rol `postgres` del proyecto pueda
+ejecutar el `comment on database` (requiere ser dueño de la BD). Si falla con
+`must be owner of database postgres`, se detiene el checkpoint y se decide
+otra marca; no hay mecanismo alternativo automático.
+
 ## Secrets (GitHub → Settings → Secrets and variables → Actions)
 
 | Secret | De dónde sale | Clase |
@@ -58,21 +82,28 @@ Entradas:
 Orden de jobs (cada uno solo corre si el anterior pasa):
 
 1. **guard** — confirmación + secrets presentes + URL y DB del mismo
-   `PROJECT_REF`. Barrera contra ejecutar tests destructivos en otro proyecto.
+   `PROJECT_REF` + **marca de identidad leída del propio proyecto** (F1).
+   Barrera contra ejecutar nada en otro proyecto.
 2. **migrate** (si `apply_migrations`) — `tests/supabase/apply-migrations.sh`:
    las 3 migraciones existentes + seed en **una transacción**; se niega si el
    esquema ya existe. (No usa `supabase db push`: el historial de migraciones
    de la CLI no se registra, aceptable en un proyecto desechable.)
-3. **preflight** — `tests/supabase/preflight.sql` (P1–P5, solo lectura de
-   catálogo). **Si falla, no se ejecuta ninguna suite.**
+3. **preflight** — `tests/supabase/preflight.sql` (P0 identidad + P1–P5,
+   solo lectura de catálogo). **Si falla, no se ejecuta ninguna suite.**
 4. **sql-suite** — `tests/supabase/run-sql-suite.sh`: la suite
    `tests/db/0*.sql` (58 aserciones) con los roles, dueños y `auth.uid()`
    REALES, sin shim, dentro de `BEGIN … ROLLBACK` (no deja datos).
 5. **api-suite** — `npm run test:supabase`
    (`tests/integration/supabase-validation.test.ts`): PR, CH, RO, RE, AU2
-   vía supabase-js/PostgREST con JWT reales.
+   vía supabase-js/PostgREST con JWT reales. Lo primero que hace es ejecutar
+   `tests/supabase/guard.sh` (marca de identidad); sin ella no crea ni borra
+   nada, también si se lanza fuera del workflow.
 6. **auth-redirects** — build + `next start` con la clave pública y
-   `tests/supabase/auth-redirects.sh` (AU3, AU5 sin sesión).
+   `tests/supabase/auth-redirects.sh` (AU3, AU5 sin sesión). Estas
+   comprobaciones prueban el comportamiento de la app (redirects dentro del
+   origen); no llegan a contactar con Supabase: con un código inválido el
+   intercambio falla en local por falta del verificador PKCE, y `/admin`
+   sin cookie no hace ninguna llamada.
 
 ## Matriz de pruebas
 
@@ -94,10 +125,35 @@ T (denunciado), D (admin, rol asignado con `service_role` en PR11). Cada uno
 con su propio cliente y su JWT real; `service_role` solo prepara y limpia
 datos y ejecuta PR11 y la parte de servidor de RO7.
 
-**Limpieza (respeta H6)**: primero mensajes, participantes, conversaciones,
-reportes, logs, intereses, matches, rooms y perfiles; solo después
-`auth.admin.deleteUser`. Al empezar se limpian restos de ejecuciones
-interrumpidas (usuarios `roomly-val-*`).
+**Limpieza (respeta H6)**: primero mensajes, participantes y
+conversaciones; después reportes, logs, intereses, matches, rooms y
+perfiles; solo al final `auth.admin.deleteUser`. Reglas:
+- Solo usuarios cuyo email encaja **entero** en
+  `^roomly-val-[0-9a-f]{8}-[a-z]@example\.com$` (F2).
+- De la ejecución actual, solo las conversaciones cuyos IDs registró la
+  propia suite al crearlas (F3). De ejecuciones anteriores interrumpidas,
+  solo conversaciones con **exclusivamente** participantes de prueba; una
+  conversación con cualquier participante ajeno nunca se toca.
+- Solo filas creadas por usuarios de prueba (reportes por su `reporter_id`,
+  intereses por `from_user_id`, matches con ambos usuarios de prueba...).
+  Si algo de un usuario de prueba estuviera enlazado a datos ajenos, no se
+  borra: `deleteUser` falla y el teardown lo reporta.
+- El teardown corre en `afterAll`, que Vitest ejecuta aunque fallen
+  `beforeAll` o los tests; si la guarda F1 no pasó, no se toca nada.
+
+**Aserciones**: éxito es exactamente `error === null` (F4). Los rechazos
+del trigger de moderación (RO3, RO5, RO6) exigen SQLSTATE `42501` **y** el
+mensaje propio del trigger `room_moderation: …` (F5). PostgREST devuelve el
+mensaje de Postgres tal cual en `message`; si en Supabase llegara distinto,
+el test falla de forma visible, nunca pasa en falso. El resto de rechazos
+se comprueban por SQLSTATE y número de filas; no se comprueban códigos
+HTTP.
+
+**Auto-test de la guarda F1** (PostgreSQL local, nunca Supabase):
+`PGHOST=... PGUSER=postgres bash tests/supabase/guard-selftest.sh` —
+proyecto ficticio, URL de otro proyecto, secrets coherentes de otro
+proyecto, marca incorrecta o ausente, y que migraciones/P0/suite SQL
+abortan antes de hacer nada.
 
 ## Comprobaciones manuales
 
