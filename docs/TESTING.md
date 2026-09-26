@@ -12,6 +12,40 @@
 - **E2E (Playwright)**: los 3 flujos completos que pide el brief
   (sección 39).
 
+## Resultados reales — Fase 1, sesión de Foundation (2026-09-25)
+
+Nada de esto es teórico: son comandos ejecutados de verdad en el sandbox.
+
+- **`npm run lint`** → pasa.
+- **`npm run typecheck`** → falló primero, con un error real y concreto:
+  `types/database.ts` no incluía el campo `Relationships` que exige
+  `GenericTable`/`GenericView` de `@supabase/postgrest-js` — sin él, la
+  inferencia de tipos de Supabase colapsa a `never` en cualquier
+  `.from(tabla).select()`, y el error solo se ve donde de verdad se usa
+  (apareció en `app/admin/layout.tsx`, al leer `profile.role`). Corregido
+  añadiendo `Relationships: []` a las 18 tablas y a la vista. Confirmado
+  leyendo el código fuente instalado en
+  `node_modules/@supabase/postgrest-js/src/types/common/common.ts`, no
+  adivinado. Reejecutado → pasa.
+- **`npm run test`** → pasa, 7/7 (`env.test.ts`, `cn.test.ts`).
+- **`npm run build`** → pasa, genera las 6 rutas esperadas. Aviso real
+  encontrado (no cosmético del todo): Next.js 16.0.0 deprecó la
+  convención `middleware.ts` en favor de `proxy.ts` — confirmado leyendo
+  `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`,
+  incluido en el propio paquete instalado. `middleware.ts` sigue
+  funcionando (deprecado, no eliminado), pero la migración a `proxy.ts`
+  queda pendiente — ver `docs/ROADMAP.md`, Fase 1.
+- **`npx playwright install`** → **no ejecutado todavía en ninguna
+  sesión con acceso de red real.** En el sandbox de desarrollo se sabe
+  que fallará (el CDN de navegadores de Playwright no está en la lista
+  de dominios permitidos), pero eso es una inferencia de la
+  configuración de red documentada, no una ejecución confirmada esta
+  vez. Quien continúe el proyecto (Claude Code local, con red real) debe
+  ejecutarlo de verdad y sustituir esta nota por el resultado real.
+- **Tests de integración / RLS contra una base de datos real**: no
+  ejecutados — no hay proyecto Supabase real disponible desde este
+  entorno. Sigue pendiente para cuando exista.
+
 ## Limitación conocida de este entorno
 
 El sandbox de desarrollo actual no tiene salida de red hacia el CDN de

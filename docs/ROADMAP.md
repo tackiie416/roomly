@@ -9,12 +9,27 @@ testear → documentar → commit.
 Diseño de arquitectura, esquema de base de datos, estructura de carpetas,
 documentación. Sin código de aplicación.
 
-## Fase 1 — Foundation
+## Fase 1 — Foundation 🚧 EN PROGRESO (interrumpida antes de cerrar el checklist — ver PROGRESS.md sesión 4)
 
 **Objetivo**: proyecto Next.js real, conectado a un Supabase real, con
 auth funcionando de extremo a extremo y CI básica.
 
-**Criterios de aceptación**
+**Estado real, punto por punto**:
+- [x] Proyecto Next.js 16 + TypeScript + Tailwind v4 real (scaffold con `create-next-app`, no inventado).
+- [x] `lib/supabase/{client,server,admin}.ts`, `lib/env.ts`, `middleware.ts`, `types/database.ts`.
+- [x] Login (magic link + Google), callback, protección de `/admin` (2 capas).
+- [x] `npm run lint` — pasa.
+- [x] `npm run typecheck` — pasa (tras corregir un fallo real: faltaba `Relationships` en `types/database.ts`).
+- [x] `npm run test` — pasa, 7/7.
+- [x] `npm run build` — pasa, con aviso pendiente de resolver (`middleware.ts` deprecado en Next 16 → `proxy.ts`).
+- [ ] `npx playwright install` — no ejecutado todavía en ninguna sesión con red real.
+- [ ] Decisión y migración `middleware.ts` → `proxy.ts`.
+- [ ] Proyecto Supabase real creado, migraciones aplicadas, RLS validada con tests de integración por rol.
+- [ ] Auth (magic link + Google) verificada de extremo a extremo contra Supabase real.
+- [ ] CI verificado corriendo en GitHub Actions de verdad (el workflow existe, `.github/workflows/ci.yml`, pero nunca se ha ejecutado en GitHub).
+- [ ] Commit de Foundation (los 36 archivos siguen sin commitear a propósito, ver PROGRESS.md).
+
+**Criterios de aceptación** (sin cambios — es lo que falta para dar la fase por cerrada)
 - `npm run dev` levanta la app sin errores.
 - Registro/login por magic link y por Google funcionan contra un proyecto
   Supabase real (región EU).

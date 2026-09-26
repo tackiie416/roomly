@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/*
+  Tokens mínimos, no un sistema de diseño completo — eso corresponde a
+  Fase 8 (Polish) con más contenido real que mirar. Paleta deliberadamente
+  distinta de los defaults genéricos (nada de crema+terracota, nada de
+  azul SaaS por defecto): un verde azulado sobrio para una plataforma de
+  vivienda/confianza.
+*/
+:root {
+  --background: #ffffff;
+  --foreground: #16181c;
+  --surface: #f6f5f3;
+  --border: #e4e2dd;
+  --muted: #6b6b66;
+  --accent: #1f6f5c;
+  --radius: 8px;
+  --radius-lg: 16px;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #101211;
+    --foreground: #eef0ee;
+    --surface: #181a18;
+    --border: #2a2d2a;
+    --muted: #9a9c98;
+    --accent: #3fa98a;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}

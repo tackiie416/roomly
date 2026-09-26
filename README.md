@@ -5,16 +5,20 @@
 Plataforma para encontrar compañeros de piso compatibles y formar grupos
 de convivencia. Lanzamiento inicial: estudiantes en Barcelona.
 
-🚧 **Estado: Fase 0 (arquitectura) completada.** Sin código de aplicación
-todavía — ver `PROGRESS.md` para el detalle de la sesión actual.
+🚧 **Estado: Fase 0 (arquitectura) completada · Fase 1 (Foundation) en
+progreso, sin cerrar.** Ver `PROGRESS.md` para el detalle exacto de cada
+sesión, y `HANDOFF.md` si acabas de recibir este proyecto transferido
+desde otro entorno.
 
 ## Documentación
 
-- [`CLAUDE.md`](./CLAUDE.md) — referencia rápida del proyecto (léelo primero)
+- [`CLAUDE.md`](./CLAUDE.md) — instrucciones permanentes del proyecto (léelo primero)
+- [`ROOMLY_MASTER_SPEC.md`](./ROOMLY_MASTER_SPEC.md) — especificación completa de producto y arquitectura
+- [`HANDOFF.md`](./HANDOFF.md) — si este proyecto te llega transferido, empieza aquí
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — arquitectura del sistema
 - [`docs/DATABASE.md`](./docs/DATABASE.md) — esquema de base de datos y su revisión crítica
 - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — fases de desarrollo
-- [`docs/TESTING.md`](./docs/TESTING.md) — estrategia de testing
+- [`docs/TESTING.md`](./docs/TESTING.md) — estrategia de testing y resultados reales
 - [`docs/SECURITY.md`](./docs/SECURITY.md) — principios de seguridad
 - [`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md) — variables de entorno
 - [`PROGRESS.md`](./PROGRESS.md) — log de sesiones
