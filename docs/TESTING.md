@@ -46,6 +46,65 @@ Nada de esto es teórico: son comandos ejecutados de verdad en el sandbox.
   ejecutados — no hay proyecto Supabase real disponible desde este
   entorno. Sigue pendiente para cuando exista.
 
+## Tests de seguridad/RLS — `tests/db/` (desde 2026-09-26)
+
+Tests de regresión de los hallazgos de la auditoría inicial (C1, C2, C3,
+H5, M2 — ver `docs/SECURITY.md`). Corren contra **PostgreSQL real**, sin
+Supabase: `tests/db/run.sh` crea una base de datos temporal, aplica
+`tests/db/supabase_shim.sql` (roles `anon`/`authenticated`/`service_role`,
+`auth.users`, `auth.uid()` leyendo `request.jwt.claims` y los privilegios
+por defecto de Supabase), **todas** las migraciones en orden y el seed, y
+ejecuta cada `tests/db/NN_*.sql`. Sin dependencias nuevas (ni pgTAP): los
+helpers de `tests/db/helpers.sql` lanzan una excepción al fallar una
+aserción y el runner sale con exit 1.
+
+```
+PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
+```
+
+| Archivo | Protege contra |
+|---|---|
+| `01_profiles_role.sql` | crear o convertir el propio perfil en admin (INSERT, UPDATE, upsert) |
+| `02_chat_rls.sql` | fuga de mensajes entre conversaciones, escritura en conversaciones ajenas, recursión RLS (y una guarda estática que detecta la tautología `x.conversation_id = x.conversation_id` en `pg_policies`) |
+| `03_rooms_moderation.sql` | reactivar una habitación que un admin marcó `removed` |
+| `04_reports_insert.sql` | crear reportes con campos de resolución |
+
+`expect_error` exige un SQLSTATE concreto: un "fallo por el motivo
+equivocado" (p. ej. recursión infinita en vez de rechazo por RLS) hace
+fallar el test en vez de pasar por accidente.
+
+**Resultado real (2026-09-26)**: 58/58 aserciones en verde en PostgreSQL
+16.13, por socket local y por TCP (como el servicio `postgres:16` de CI).
+**Validación de que los tests saben fallar** (pruebas de mutación en una
+copia fuera del repo): sin la migración de correcciones fallan los 4
+archivos, y reintroducir por separado cada vulnerabilidad (INSERT de role,
+tautología en `messages`, política recursiva, INSERT de mensajes sin
+comprobar participante, borrar el trigger de `rooms`, INSERT de reportes
+sin restringir) pone rojo su test correspondiente.
+
+**Limitación**: el shim no es Supabase. Cuando exista un proyecto real o
+`supabase start`, estos mismos tests deben correr también allí.
+
+## Resultados reales — auditoría inicial en Claude Code (2026-09-26)
+
+- `npm ci` → ok (418 paquetes). `format:check` → **fallaba** en
+  `types/database.ts` (el CI habría salido rojo en su primer run);
+  corregido con Prettier (solo formato), ahora pasa.
+- `lint`, `typecheck` → pasan. `test` → 39/39 (7 anteriores + 32 de
+  `tests/unit/safe-redirect.test.ts`, el validador del parámetro `next`
+  del callback; con la lógica anterior fallan 24 de esos 32).
+- `build` → pasa también con `NEXT_PUBLIC_SUPABASE_*` vacías (como en CI
+  sin secrets). Sigue el aviso de `middleware` → `proxy`.
+- `test:db` → 58/58 (ver arriba).
+- `test:e2e` → **con la configuración del repo falla en el entorno de
+  Claude Code en la nube**: Playwright 1.63 busca `chromium-1243` y ese
+  entorno trae preinstalado `chromium-1194` (no se permite `playwright
+  install`). No es un fallo del proyecto y no se ha cambiado la config
+  para ocultarlo. Con una config temporal fuera del repo que apunta al
+  Chromium preinstalado, el smoke test pasa 2/2. Necesita
+  `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY` definidas (aunque sean ficticias):
+  el middleware las valida en cada petición.
+
 ## Limitación conocida de este entorno
 
 El sandbox de desarrollo actual no tiene salida de red hacia el CDN de
@@ -96,6 +155,13 @@ deshabilita para que pase (regla explícita del brief, sección 39).
 
 ## CI
 
-GitHub Actions: lint + typecheck + tests unitarios/integración en cada
-PR. E2E en merge a `main` o de forma programada (no en cada PR, para no
-ralentizar el ciclo de desarrollo).
+GitHub Actions (`.github/workflows/ci.yml`), en cada PR y en cada push
+a `master` (antes el trigger de push apuntaba a `main`, rama que no
+existe en este repositorio):
+- `lint-typecheck-test-build`: `npm ci`, `format:check`, `lint`,
+  `typecheck`, `test`, `build`.
+- `db-security`: `tests/db/run.sh` contra un servicio `postgres:16`.
+
+E2E todavía no está en CI (necesita un proyecto Supabase de test). El
+workflow no se ha ejecutado aún en GitHub Actions de verdad: sus pasos se
+han reproducido localmente, uno a uno, con resultado verde.

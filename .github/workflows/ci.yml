@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   lint-typecheck-test-build:
@@ -30,6 +30,34 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+  # Tests de seguridad/RLS (tests/db) contra PostgreSQL real, sin Supabase:
+  # aplica todas las migraciones sobre un shim mínimo de Supabase y falla si
+  # vuelve cualquiera de los hallazgos corregidos (escalado a admin, fuga de
+  # mensajes, recursión RLS, reactivación de habitaciones moderadas,
+  # manipulación de reportes). Ver docs/TESTING.md.
+  db-security:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/db/run.sh
 
   # E2E deliberadamente NO incluido todavía: Playwright necesita un
   # proyecto Supabase de test (secrets que no existen aún) y, hasta que

@@ -9,19 +9,62 @@ corregidas están en `docs/DATABASE.md`.
 | Requisito pedido | Políticas que lo cumplen |
 |---|---|
 | Usuarios solo modifican sus propios datos | `profiles_update_own`, `housing_preferences_own`, `compatibility_responses_own`, `favorites_own`, `interests_insert_own`/`interests_delete_own`, `participants_update_own` |
-| Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations` — un tercero no puede leer aunque conozca el UUID de la conversación |
+| Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations`, todas vía `is_conversation_participant()` — un tercero no puede leer ni escribir aunque conozca el UUID de la conversación. **Hasta la migración `20260926120000_security_fixes.sql` esto NO era cierto** (ver "Correcciones de la auditoría inicial" abajo) |
 | Habitaciones editables solo por su propietario | `rooms_owner_write`. La dirección exacta va un paso más allá: `room_addresses_owner_only`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
 | Información privada protegida | `profiles` completo exige sesión (vista `public_profile_previews` para lo estrictamente público de SEO); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
 
-Las 35 políticas completas están en
-`supabase/migrations/20260925120100_rls_policies.sql` — esta tabla es el
-mapa de lectura rápida, no la fuente de la verdad.
+Las 35 políticas están en
+`supabase/migrations/20260925120100_rls_policies.sql`, con 8 de ellas
+redefinidas en `supabase/migrations/20260926120000_security_fixes.sql` —
+esta tabla es el mapa de lectura rápida, no la fuente de la verdad. Los
+tests de regresión de seguridad están en `tests/db/` (ver
+`docs/TESTING.md`).
+
+## Correcciones de la auditoría inicial (2026-09-26)
+
+Auditoría en Claude Code con las migraciones aplicadas en PostgreSQL 16
+real (sobre un shim mínimo de Supabase) y cada hallazgo demostrado con un
+ataque, no solo leyendo el SQL. Corregido en una migración nueva
+(`20260926120000_security_fixes.sql`); las dos anteriores quedan intactas.
+
+| ID | Hallazgo demostrado | Corrección |
+|---|---|---|
+| C1 | La corrección de la sesión 3 cerró el `UPDATE` de `profiles.role`, pero no el `INSERT`: `profiles_insert_own` solo exigía `auth.uid() = id`, así que cualquier usuario podía crear su propio perfil con `role = 'admin'` y `is_admin()` devolvía `true`. | `GRANT INSERT` por columnas en `profiles` (sin `role` ni `deleted_at`: se aplica el default `user`) **y** `with check (role = 'user' and deleted_at is null)` en la política. `profiles_update_own` gana `with check`. `anon` pierde `INSERT`/`UPDATE` en `profiles`. |
+| C2 | En `messages_select_participant`/`messages_insert_participant`, el `conversation_id` sin cualificar de la subconsulta se resolvía contra `cp` (`cp.conversation_id = cp.conversation_id`, siempre cierto): participar en una conversación daba lectura y escritura en **todas**. | Columnas siempre cualificadas y comprobación centralizada en `public.is_conversation_participant(uuid)`. |
+| C3 | `participants_select_own_conversations` consultaba su propia tabla: `infinite recursion detected in policy` en cualquier lectura del chat. | La misma función: al ser `SECURITY DEFINER` la subconsulta no reevalúa RLS, así que no hay recursión. |
+| H5 | El propietario podía volver a poner `active` una habitación que un admin había marcado `removed`: la moderación no tenía efecto. | Trigger `trg_rooms_moderation` (RLS no ve el valor anterior de la fila): cambiar el estado desde o hacia `removed` exige `is_admin()` o el servidor (`service_role`). El resto de la edición del propietario no cambia. |
+| M2 | Quien creaba un reporte podía fijar `status = 'resolved'`, `resolved_by`, `resolution_notes`, `resolved_at`. | `GRANT INSERT` por columnas en `reports` (solo `reporter_id`, `reported_user_id`, `reported_room_id`, `reason`, `description`) y `with check` que exige `status = 'pending'` y campos de resolución nulos. |
+
+**Por qué `is_conversation_participant()` es segura siendo `SECURITY
+DEFINER`**: no recibe ningún identificador de usuario — la identidad sale
+siempre de `auth.uid()`, así que solo responde "¿participo *yo* en esta
+conversación?" y no sirve para sondear a terceros; `search_path` vacío y
+todos los nombres cualificados con su schema; `EXECUTE` revocado a
+`PUBLIC` y `anon`, concedido solo a `authenticated`; `STABLE`, sin SQL
+dinámico. Se ejecuta como el dueño de la tabla (el rol de migraciones),
+por eso no reevalúa RLS sobre `conversation_participants`.
+
+**Consecuencia de diseño (a tener en cuenta en Fase 2/7)**: como `role` y
+`deleted_at` no están en los `GRANT` de `authenticated`, un admin tampoco
+puede cambiarlos desde el cliente — la comprobación del GRANT es por rol
+de Postgres, no por `is_admin()`. Cambiar el rol de alguien o
+borrar/restaurar una cuenta tiene que hacerse desde el servidor con
+`service_role`, tras comprobar en el servidor que quien lo pide es admin.
+Lo mismo aplica a quien quiera crear el primer admin: se hace desde el
+servidor o desde el SQL editor, nunca desde la app.
+
+**Decisión técnica en H5**: el propietario tampoco puede poner él mismo
+`removed` (no podría deshacerlo); para retirar su anuncio tiene `paused`
+o el soft-delete (`deleted_at`). `removed` queda como estado de
+moderación.
 
 ## Comprobación de coherencia final (antes de Fase 1)
 
 Auditoría de RLS pedida explícitamente antes de confirmar el esquema.
-Encontró un problema real de escalado de privilegios, ya corregido:
+Encontró un problema real de escalado de privilegios, ya corregido
+(**incompleto**: cubrió `UPDATE` pero no `INSERT` — ver C1 en
+"Correcciones de la auditoría inicial" arriba):
 
 **`profiles_update_own` y `participants_update_own` no tenían
 `with check`.** RLS restringe qué *filas* se pueden tocar, no qué

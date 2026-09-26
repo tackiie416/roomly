@@ -6,6 +6,79 @@ próximos pasos.**
 
 ---
 
+## 2026-09-26 — Sesión 5: auditoría inicial en Claude Code + correcciones de seguridad y CI autorizadas
+
+**Qué se hizo**
+- Auditoría inicial completa (documentación + código + SQL). Por primera
+  vez se aplicaron las migraciones en un PostgreSQL 16 real (con un shim
+  mínimo de Supabase): aplican limpias, 18 tablas / 35 políticas / 15
+  índices / RLS en las 18. Cada hallazgo se demostró con un ataque real.
+- Correcciones autorizadas por el usuario, en una **migración nueva**
+  (`supabase/migrations/20260926120000_security_fixes.sql`, las dos
+  anteriores intactas):
+  - **C1 (CRITICAL)**: cualquier usuario podía crear su propio perfil con
+    `role = 'admin'` (la corrección de la sesión 3 solo cubría `UPDATE`).
+    → `GRANT INSERT` por columnas + `with check (role = 'user')`.
+  - **C2 (CRITICAL)**: `messages_*` tenía `cp.conversation_id =
+    cp.conversation_id` (el `conversation_id` sin cualificar se resolvía
+    contra la subconsulta): acceso a todas las conversaciones.
+  - **C3 (CRITICAL)**: recursión infinita en
+    `participants_select_own_conversations` — el chat entero fallaba.
+    → C2+C3: función `public.is_conversation_participant(uuid)`
+    (`SECURITY DEFINER`, `search_path` vacío, sin parámetro de usuario).
+  - **H5 (HIGH)**: el propietario podía reactivar una habitación
+    `removed` por un admin. → trigger `trg_rooms_moderation`.
+  - **M2 (MEDIUM)**: se podían crear reportes ya resueltos. → `GRANT
+    INSERT` por columnas + `with check`.
+- **H1 (HIGH)**: open redirect en `app/(auth)/callback/route.ts`
+  (`next=@evil.com` → `evil.com`). → `lib/auth/safe-redirect.ts` + 32
+  tests unitarios.
+- **H2 (HIGH)**: CI solo se disparaba en push a `main` (la rama es
+  `master`) y `format:check` fallaba en `types/database.ts`. → trigger a
+  `master`, formato corregido, nuevo job `db-security`.
+- Tests de regresión de seguridad en `tests/db/` (`npm run test:db`):
+  58 aserciones, validadas con pruebas de mutación (cada vulnerabilidad
+  reintroducida pone rojo su test).
+- Docs actualizadas solo donde las correcciones las afectan:
+  `docs/SECURITY.md`, `docs/DATABASE.md`, `docs/TESTING.md`, `CLAUDE.md`.
+
+**Resultados reales**: `format:check`, `lint`, `typecheck` ✅ · `test`
+39/39 ✅ · `build` ✅ (también con env vacía) · `test:db` 58/58 ✅ ·
+`test:e2e`: falla con la config del repo por la versión de Chromium del
+entorno cloud (1194 instalado, 1243 requerido); con Chromium preinstalado
+2/2 ✅. Detalle en `docs/TESTING.md`.
+
+**Decisiones técnicas**
+- `removed` pasa a ser estado exclusivo de moderación: el propietario
+  tampoco puede fijarlo él mismo (tiene `paused` y el soft-delete).
+- Consecuencia de C1 (ya existía para UPDATE, ahora también para INSERT):
+  cambiar `role`/`deleted_at` solo se hace con `service_role` desde el
+  servidor, nunca desde el cliente, tampoco siendo admin.
+- `next dev` (Next 16.3) añade un bloque `nextjs-agent-rules` a
+  `CLAUDE.md` cuando detecta un agente de IA; se revirtió manualmente, no
+  se ha decidido todavía si desactivarlo (`agentRules: false`) o aceptarlo.
+
+**Qué sigue abierto (de la auditoría, NO corregido a propósito, pendiente de decisión)**
+- H3: `public_profile_previews` expone a `anon` nombre, avatar, id y
+  `role` de todos los usuarios.
+- H4: cualquier usuario autenticado lee `date_of_birth` de todos.
+- H6: borrar una cuenta falla por FKs sin `ON DELETE` (`messages`,
+  `reports`, `admin_action_logs`, `conversations.match_id`...).
+- H7: no existe modelo de bloqueo entre usuarios ni baneo por admin.
+- M1: el rate limit de `interests` se elude borrando y reinsertando.
+- M3: Storage (buckets/políticas) solo documentado. M4: escritura directa
+  vía PostgREST salta Zod; sin límites de longitud en BD. M6: login ignora
+  `?next=` y no hay creación de perfil tras el primer login.
+- L1 `middleware` → `proxy`; L2 bloque de `next dev` en `CLAUDE.md`.
+- Contradicción documental no reconciliada: HANDOFF/ROADMAP/CLAUDE.md
+  dicen que Foundation está sin commitear, pero está en `d1089aa`.
+
+**Próximos pasos**: revisión de estas correcciones por el usuario, push
+(solo con su autorización), y decisión sobre los puntos abiertos antes de
+cerrar Fase 1. Fase 1 NO se ha empezado a cerrar en esta sesión.
+
+---
+
 ## 2026-09-25 — Sesión 4: Fase 1 (Foundation) en progreso — interrumpida antes de terminar la verificación, transferencia a Claude Code local
 
 **Qué se hizo**
