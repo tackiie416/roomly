@@ -5,6 +5,23 @@
 -- Ver docs/SUPABASE_VALIDATION.md.
 
 -- ============================================================
+-- P0 — Identidad del proyecto (F1). Va primero: si la base de datos no
+-- lleva la marca exacta, no se comprueba ni se ejecuta nada más.
+-- (guard.sh ya lo verifica antes de conectar a nada destructivo; esto lo
+-- repite dentro de la misma sesión que ejecuta preflight.)
+-- ============================================================
+do $$
+begin
+  if coalesce(
+       (select shobj_description(d.oid, 'pg_database')
+        from pg_database d where d.datname = current_database()),
+       '') <> 'roomly-validation' then
+    raise exception 'FALLO P0: el destino NO está reconocido como roomly-validation (falta la marca de identidad o no coincide). Abortado.';
+  end if;
+  raise notice 'ok - P0: destino identificado como roomly-validation por su propia marca';
+end $$;
+
+-- ============================================================
 -- P1 — Versión real y migraciones aplicadas
 -- ============================================================
 do $$

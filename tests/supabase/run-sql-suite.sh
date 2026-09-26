@@ -15,6 +15,17 @@ export PGSSLMODE="${PGSSLMODE:-require}"
 
 {
   echo "begin;"
+  # F1: la identidad se comprueba también dentro de ESTA sesión, antes del
+  # primer INSERT de la suite. Sin la marca exacta, la transacción aborta.
+  cat <<'SQL'
+do $$
+begin
+  if coalesce((select shobj_description(d.oid, 'pg_database')
+               from pg_database d where d.datname = current_database()), '') <> 'roomly-validation' then
+    raise exception 'el destino NO está reconocido como roomly-validation. Abortado.';
+  end if;
+end $$;
+SQL
   cat "$ROOT/tests/db/helpers.sql"
   for test_file in "$ROOT"/tests/db/[0-9]*.sql; do
     printf "\\\\echo '== %s'\n" "$(basename "$test_file")"

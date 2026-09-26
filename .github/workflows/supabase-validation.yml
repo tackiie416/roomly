@@ -12,6 +12,11 @@ name: Supabase validation
 #   SUPABASE_VALIDATION_SERVICE_ROLE_KEY  PRIVILEGIADA (service_role / secret)
 #   SUPABASE_VALIDATION_DB_URL            PRIVILEGIADA: cadena del Session pooler (incluye contraseña)
 # Cada job recibe solo los secrets que necesita.
+#
+# Identidad (F1): antes de migrar, comprobar o crear usuarios, cada punto de
+# entrada verifica EN la propia base de datos la marca
+#   COMMENT ON DATABASE postgres IS 'roomly-validation';
+# Si falta o no coincide exactamente, todo aborta. Sin fallback.
 
 on:
   workflow_dispatch:
@@ -47,7 +52,7 @@ jobs:
             echo "ERROR: confirm_project debe ser exactamente roomly-validation" >&2
             exit 1
           fi
-      - name: Secrets presentes y del mismo proyecto (sin imprimirlos)
+      - name: Secrets del mismo proyecto y marca de identidad roomly-validation (sin imprimirlos)
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
@@ -107,9 +112,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # La suite verifica ella misma la marca de identidad del proyecto (F1)
+      # con la conexión de BD antes de crear ningún usuario.
       - name: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, AU2 con JWT reales
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
+          SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
           SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
           SUPABASE_VALIDATION_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
           SUPABASE_VALIDATION_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_VALIDATION_SERVICE_ROLE_KEY }}
