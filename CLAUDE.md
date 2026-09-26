@@ -111,6 +111,7 @@ npm run typecheck        # tsc --noEmit
 npm run test               # Vitest, una vez
 npm run test:watch          # Vitest, modo watch
 npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (ver docs/TESTING.md)
+npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # Playwright (necesita `npx playwright install` antes)
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check

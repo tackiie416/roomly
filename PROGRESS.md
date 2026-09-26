@@ -6,6 +6,46 @@ próximos pasos.**
 
 ---
 
+## 2026-09-26 — Sesión 6: preparación de la validación contra Supabase real (checkpoint previo a Fase 1)
+
+**Qué se hizo** (solo tests/infraestructura/docs; sin cambios de producto,
+migraciones ni RLS)
+- `tests/supabase/`: guarda de destino (`guard.sh`), aplicación única y
+  transaccional de migraciones + seed, P1–P5 (`preflight.sql`), suite
+  `tests/db` con roles reales dentro de `BEGIN … ROLLBACK`, y AU3/AU5 contra
+  la app local.
+- `tests/integration/supabase-validation.test.ts` +
+  `vitest.integration.config.ts` (`npm run test:supabase`, fuera de
+  `npm run test`): PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, AU2 con JWT reales;
+  `service_role` solo para preparar/limpiar y PR11/RO7; teardown respetando
+  H6.
+- Workflow manual `.github/workflows/supabase-validation.yml`.
+- `docs/SUPABASE_VALIDATION.md` (configuración, secrets, matriz, pasos
+  manuales AU4/AU5, D14).
+
+**Verificado en local** (PostgreSQL 16 simulando el proyecto): migraciones
+aplicadas una vez y rechazo de la segunda aplicación; P1–P5 en verde (y P2/P4
+detectan un FORCE RLS y un GRANT de tabla completo reintroducidos); suite SQL
+58/58 sin dejar rastro tras el ROLLBACK; la guarda rechaza URL/DB de otro
+proyecto y variables ausentes; AU3/AU5 en verde contra `next start` y en rojo
+sin app. La suite supabase-js **no** se ha ejecutado todavía: necesita el
+proyecto real.
+
+**Problema encontrado y corregido en la propia infraestructura**: P5
+marcaba como falso positivo las funciones de la extensión `pgcrypto`;
+ahora excluye las funciones que pertenecen a extensiones (como el linter de
+Supabase).
+
+**Hallazgo nuevo registrado (INFO, sin corregir)**: D14 — cookies de sesión
+de `@supabase/ssr` con `httpOnly: false`; el comentario "HTTP-only" del
+callback es inexacto (ver `docs/SUPABASE_VALIDATION.md`).
+
+**Pendiente**: crear `roomly-validation` y los secrets (persona dueña de la
+cuenta), llevar el workflow a `master` (requisito de `workflow_dispatch`) y
+ejecutar. Resultados reales: se añadirán aquí.
+
+---
+
 ## 2026-09-26 — Sesión 5: auditoría inicial en Claude Code + correcciones de seguridad y CI autorizadas
 
 **Qué se hizo**
