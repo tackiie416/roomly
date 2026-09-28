@@ -6,6 +6,43 @@ próximos pasos.**
 
 ---
 
+## 2026-09-28 — Sesión 7: validación contra Supabase real completada (checkpoint previo a Fase 1 cerrado)
+
+**Qué se hizo**
+- Proyecto de validación `roomly-validation` (Frankfurt, PostgreSQL 17.6),
+  con la marca de identidad F1 escrita y leída desde el propio proyecto.
+  Migraciones + seed aplicados por el propietario; P0–P5 en verde.
+- Workflow `Supabase validation` llevado a `master` (PR #2, `9ce2b8d`). El
+  run #1 terminó `success` pero con las suites **skipped** (un job omitido en
+  la cadena de `needs` arrastraba a los demás); corregido con 3 condiciones
+  `if` en el workflow (`241a274`, PR #3, merge `50c8d24`).
+- Run #2 (`36493446123`, sobre `50c8d24`, `apply_migrations=false`): todos
+  los jobs ejecutados, ninguno skipped salvo `migrate` (intencionado).
+
+**Resultados reales**
+- Guarda F1 ✅ · P0–P5 ✅.
+- Suite SQL (`tests/db`, roles reales, `ROLLBACK`): **58/58**.
+- Suite supabase-js (PostgREST + JWT reales de usuarios de Auth): **46/46**.
+- AU3/AU5 (redirects de la app): **6/6**.
+- C1, C2, C3, H5 y M2 validados contra Supabase real. Sin vulnerabilidades
+  nuevas en el alcance auditado.
+- Teardown: la suite terminó sin errores y la comprobación independiente
+  posterior en el SQL Editor dio 0 usuarios de prueba y 0 filas en
+  profiles, rooms, conversations, messages y reports.
+
+**Hallazgos registrados (sin cambios)**
+- PR8: `upsert()` de `profiles` lo rechaza Supabase (`42501`): restricción de
+  diseño para Fase 2 (INSERT + UPDATE o creación desde servidor); no se
+  relajan permisos.
+- H3 confirmado en real: `anon` lee `public_profile_previews` con `role`.
+  Sigue pendiente de decisión, igual que H6, H7, Storage y `middleware` →
+  `proxy`.
+
+**Próximos pasos**: cerrar los puntos que quedan del checklist de Fase 1
+(`docs/ROADMAP.md`) antes de empezar Fase 2. No se ha empezado ninguna fase.
+
+---
+
 ## 2026-09-26 — Sesión 6: preparación de la validación contra Supabase real (checkpoint previo a Fase 1)
 
 **Qué se hizo** (solo tests/infraestructura/docs; sin cambios de producto,
