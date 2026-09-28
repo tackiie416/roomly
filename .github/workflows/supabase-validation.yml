@@ -92,6 +92,7 @@ jobs:
   sql-suite:
     name: Suite SQL tests/db (roles reales, con ROLLBACK)
     needs: preflight
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,6 +105,7 @@ jobs:
   api-suite:
     name: API supabase-js (PR / CH / RO / RE / AU2)
     needs: sql-suite
+    if: ${{ !cancelled() && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -126,6 +128,7 @@ jobs:
   auth-redirects:
     name: AU3 / AU5 (app local contra Supabase de validación)
     needs: sql-suite
+    if: ${{ !cancelled() && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
