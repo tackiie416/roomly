@@ -1,0 +1,153 @@
+name: Supabase validation
+
+# Validación MANUAL contra el proyecto Supabase de validación
+# (roomly-validation). Nunca se ejecuta en push ni en pull_request.
+# Detalle, matriz de pruebas y configuración de secrets:
+# docs/SUPABASE_VALIDATION.md.
+#
+# Secrets necesarios (GitHub → Settings → Secrets and variables → Actions):
+#   SUPABASE_VALIDATION_PROJECT_REF       ref del proyecto (no secreto, pero se usa como guarda)
+#   SUPABASE_VALIDATION_URL               https://<ref>.supabase.co
+#   SUPABASE_VALIDATION_ANON_KEY          clave pública (anon / publishable)
+#   SUPABASE_VALIDATION_SERVICE_ROLE_KEY  PRIVILEGIADA (service_role / secret)
+#   SUPABASE_VALIDATION_DB_URL            PRIVILEGIADA: cadena del Session pooler (incluye contraseña)
+# Cada job recibe solo los secrets que necesita.
+#
+# Identidad (F1): antes de migrar, comprobar o crear usuarios, cada punto de
+# entrada verifica EN la propia base de datos la marca
+#   COMMENT ON DATABASE postgres IS 'roomly-validation';
+# Si falta o no coincide exactamente, todo aborta. Sin fallback.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_project:
+        description: "Escribe roomly-validation para confirmar el proyecto de destino"
+        required: true
+        type: string
+      apply_migrations:
+        description: "Aplicar migraciones + seed (solo la primera vez, sobre un proyecto vacío)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-validation
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Guarda de destino
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirmación explícita del proyecto
+        env:
+          CONFIRM: ${{ inputs.confirm_project }}
+        run: |
+          if [ "$CONFIRM" != "roomly-validation" ]; then
+            echo "ERROR: confirm_project debe ser exactamente roomly-validation" >&2
+            exit 1
+          fi
+      - name: Secrets del mismo proyecto y marca de identidad roomly-validation (sin imprimirlos)
+        env:
+          SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
+          SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
+          SUPABASE_VALIDATION_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
+          SUPABASE_VALIDATION_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_VALIDATION_SERVICE_ROLE_KEY }}
+          SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+        run: |
+          source tests/supabase/guard.sh SUPABASE_VALIDATION_URL SUPABASE_VALIDATION_ANON_KEY \
+            SUPABASE_VALIDATION_SERVICE_ROLE_KEY SUPABASE_VALIDATION_DB_URL
+
+  migrate:
+    name: Aplicar migraciones + seed
+    needs: guard
+    if: ${{ inputs.apply_migrations }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Migraciones existentes + seed (una transacción, se niega si el esquema ya existe)
+        env:
+          SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
+          SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+        run: bash tests/supabase/apply-migrations.sh
+
+  preflight:
+    name: P1–P5 (infraestructura)
+    needs: [guard, migrate]
+    if: ${{ !cancelled() && needs.guard.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: P1–P5 — si falla, no se ejecuta ninguna suite
+        env:
+          SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
+          SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+        run: bash tests/supabase/run-preflight.sh
+
+  sql-suite:
+    name: Suite SQL tests/db (roles reales, con ROLLBACK)
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: C1 / C2 / C3 / H5 / M2 en Supabase real
+        env:
+          SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
+          SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+        run: bash tests/supabase/run-sql-suite.sh
+
+  api-suite:
+    name: API supabase-js (PR / CH / RO / RE / AU2)
+    needs: sql-suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # La suite verifica ella misma la marca de identidad del proyecto (F1)
+      # con la conexión de BD antes de crear ningún usuario.
+      - name: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, AU2 con JWT reales
+        env:
+          SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
+          SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+          SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
+          SUPABASE_VALIDATION_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
+          SUPABASE_VALIDATION_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_VALIDATION_SERVICE_ROLE_KEY }}
+        run: npm run test:supabase -- --reporter=verbose
+
+  auth-redirects:
+    name: AU3 / AU5 (app local contra Supabase de validación)
+    needs: sql-suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Solo las variables públicas: esta app nunca recibe claves privilegiadas.
+      - name: Build y arranque de la app
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+        run: |
+          npm run build
+          nohup npm run start > /tmp/next.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -s -o /dev/null http://localhost:3000/ && exit 0
+            sleep 1
+          done
+          echo "ERROR: la app no arrancó" >&2
+          exit 1
+      - name: AU3 / AU5
+        run: bash tests/supabase/auth-redirects.sh

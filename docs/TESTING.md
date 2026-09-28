@@ -85,6 +85,17 @@ sin restringir) pone rojo su test correspondiente.
 **Limitación**: el shim no es Supabase. Cuando exista un proyecto real o
 `supabase start`, estos mismos tests deben correr también allí.
 
+## Validación contra Supabase real (checkpoint previo a Fase 1)
+
+Lo que el shim no puede demostrar (roles y `auth.uid()` reales, dueño de
+tablas, privilegios por defecto de Supabase, PostgREST/supabase-js, Auth)
+se valida contra un proyecto desechable `roomly-validation` con el
+workflow manual `.github/workflows/supabase-validation.yml`: P1–P5
+(`tests/supabase/preflight.sql`), la misma suite `tests/db` con roles reales
+y `ROLLBACK`, `npm run test:supabase` (supabase-js con JWT reales) y
+`tests/supabase/auth-redirects.sh`. Nunca corre en push ni en PR. Detalle,
+matriz y secrets: `docs/SUPABASE_VALIDATION.md`.
+
 ## Resultados reales — auditoría inicial en Claude Code (2026-09-26)
 
 - `npm ci` → ok (418 paquetes). `format:check` → **fallaba** en
