@@ -6,6 +6,74 @@ próximos pasos.**
 
 ---
 
+## 2026-09-29 — Sesión 8: AU4/AU5 manuales, migración `middleware.ts` → `proxy.ts` y cierre de Fase 1
+
+**Qué se hizo**
+- **AU4 y AU5 manuales** contra `roomly-validation`, ejecutados por el
+  propietario en su PC (`npm run dev` + `.env.local` con URL y clave
+  pública). Resultado confirmado por el propietario, paso a paso:
+  `/admin` sin sesión → `/login?next=…`; mensaje "Revisa tu correo";
+  el enlace del email (mismo navegador, PKCE) inicia sesión; cookie
+  `sb-…-auth-token` presente; `/admin` con sesión sin admin → `/`; tras
+  asignar `admin` desde el SQL Editor (lo ejecutó el propietario), `/admin`
+  muestra el panel. Teardown: 0 usuarios / 0 profiles.
+- **Migración `middleware.ts` → `proxy.ts`** (Next.js 16.3.6, según
+  `node_modules/next/dist/docs/.../upgrading/version-16.md` y `proxy.md`):
+  renombrado del archivo y del export `middleware()` → `proxy()`. Sin
+  codemod y sin cambios de lógica, `matcher`, imports ni Supabase.
+  - Build: `ƒ Proxy (Middleware)`, sin aviso de deprecación.
+    `functions-config-manifest.json` registra `/_middleware` con
+    `runtime: "nodejs"` y el mismo `matcher`; `middleware-manifest.json`
+    ya no tiene entradas Edge. Antes era Edge (`server/edge/…`).
+  - No hay `export const runtime` (en `proxy` no se puede configurar).
+  - Validación local con `next start` y un Supabase **simulado** en
+    `localhost:54321` (sin tocar `roomly-validation`): `/admin` sin sesión
+    → 307 `/login?next=%2Fadmin`; sesión con rol no admin → 307 `/`;
+    rol admin → 200 con el panel; token caducado → el proxy llama a
+    `/auth/v1/token?grant_type=refresh_token` y devuelve `Set-Cookie`
+    (en `/admin` y en `/`); callback sin `code` o con `code` inválido →
+    `/login?error=auth_callback_failed`; `tests/supabase/auth-redirects.sh`
+    6/6 (AU3a–e, AU5a).
+  - Comentarios que citaban `middleware` actualizados
+    (`app/admin/layout.tsx`, `lib/supabase/server.ts`, cabecera de
+    `proxy.ts`). Solo comentarios.
+- **Reconciliación documental** de Fase 1: `docs/ROADMAP.md`,
+  `docs/TESTING.md`, `docs/ENVIRONMENT.md`, `docs/ARCHITECTURE.md`,
+  `docs/SUPABASE_VALIDATION.md`, `CLAUDE.md`, `README.md`, `HANDOFF.md`
+  (aviso de documento histórico) y `ROOMLY_MASTER_SPEC.md` (nota de la
+  decisión 16). Se corrigen afirmaciones obsoletas: "nunca ejecutado
+  contra Supabase real", "CI nunca ejecutado en GitHub", "Foundation sin
+  commitear", "7/7 tests" y la migración a `proxy` como pendiente.
+
+**Resultados reales**: `format` sin cambios · `lint` ✅ · `typecheck` ✅ ·
+`test` 39/39 ✅ · `build` ✅. CI (`ci.yml`) en GitHub: 6 runs, todos
+`success` (PR y push a `master` de los PRs #1, #2 y #3), comprobado vía API.
+
+**Decisiones del usuario**
+- Google OAuth y Apple OAuth: **diferidos**.
+- E2E/Playwright en CI: **diferido a Fase 2**, cuando existan flujos
+  reales de usuario.
+- No se repite ninguna prueba que escriba en `roomly-validation`.
+- El alta real de un usuario nuevo por magic link **no se validó**
+  (signups desactivados en `roomly-validation`; el usuario de AU4 se creó
+  desde el dashboard). Se **traslada a Fase 2**, junto con Registro y la
+  creación de perfil tras el primer login (M6). El login sí está validado.
+- Con eso, **Fase 1 (Foundation) queda completada** en `docs/ROADMAP.md`.
+
+**Consecuencia conocida (no bloqueante)**: el proxy pasa de Edge a
+Node.js. En Vercel se ejecutará como función Node y no como Edge
+Middleware (latencia/región/coste por petición pueden cambiar). Se medirá
+cuando haya despliegue.
+
+**Qué queda**
+- Hallazgos abiertos de la auditoría, sin cambios y fuera del checklist de
+  Fase 1: H3, H4, H6, H7, M1, M3, M4, M6, L2, D14, PR8.
+
+**Próximos pasos**: esperar confirmación del usuario antes de empezar
+Fase 2. Fase 2 **no** se ha iniciado.
+
+---
+
 ## 2026-09-28 — Sesión 7: validación contra Supabase real completada (checkpoint previo a Fase 1 cerrado)
 
 **Qué se hizo**
@@ -36,7 +104,7 @@ próximos pasos.**
   relajan permisos.
 - H3 confirmado en real: `anon` lee `public_profile_previews` con `role`.
   Sigue pendiente de decisión, igual que H6, H7, Storage y `middleware` →
-  `proxy`.
+  `proxy` (este último, resuelto en la sesión 8).
 
 **Próximos pasos**: cerrar los puntos que quedan del checklist de Fase 1
 (`docs/ROADMAP.md`) antes de empezar Fase 2. No se ha empezado ninguna fase.

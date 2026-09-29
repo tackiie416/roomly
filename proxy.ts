@@ -16,11 +16,13 @@ import { getPublicEnv } from "@/lib/env";
  *    privilegios de la revisión anterior: aquí NUNCA se decide "es admin"
  *    solo con la sesión, siempre hace falta la comprobación de rol aparte.
  *
- * No verificado contra un proyecto Supabase real (no hay credenciales en
- * este entorno) — solo compila y pasa typecheck. Validar en Fase 1 con
- * credenciales reales antes de confiar en él en producción.
+ * Convención `proxy` de Next.js 16 (antes `middleware.ts`). Se ejecuta en
+ * el runtime Node.js, que en `proxy` no se puede configurar: no añadir
+ * `export const runtime`. Esta misma lógica se validó contra Supabase
+ * real como `middleware.ts` (AU3/AU4/AU5) y, tras el cambio, en local
+ * (ver docs/SUPABASE_VALIDATION.md y docs/TESTING.md).
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const env = getPublicEnv();

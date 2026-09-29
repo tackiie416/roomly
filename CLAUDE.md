@@ -24,19 +24,21 @@ decisión, no solo cuál): `ROOMLY_MASTER_SPEC.md`.
 (sobreingeniería, seguridad, escalabilidad — ver `docs/DATABASE.md` y
 `docs/ARCHITECTURE.md`).
 
-**Fase 1 (Foundation): en progreso, interrumpida antes de cerrar su
-propio checklist.** Hay código real (Next.js + Supabase clients + auth +
-tests) que pasa lint/typecheck/test/build, pero:
-- Nunca se ha ejecutado contra un proyecto Supabase real.
-- `npx playwright install` nunca se ha intentado con red real.
-- Next.js 16 deprecó `middleware.ts` en favor de `proxy.ts` — migración
-  pendiente.
-- **Los archivos de Foundation pueden seguir sin commitear.** Antes de
-  hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md` — no
-  asumas que un commit existe porque el código existe en disco.
+**Fase 1 (Foundation): completada (2026-09-29).** Hecho y verificado:
+Next.js 16 + TypeScript + Tailwind, Supabase Auth + SSR, magic link, `/admin` en dos capas, redirects seguros, correcciones de
+seguridad/RLS, CI en verde en GitHub Actions, 39/39 tests, validación
+contra un Supabase real (`roomly-validation`: SQL 58/58, supabase-js
+46/46, AU2–AU5) y migración a `proxy.ts` (runtime Node.js).
+- **Trasladado a Fase 2**: el alta real de un usuario nuevo por magic
+  link (el login sí está validado; `roomly-validation` tiene signups
+  desactivados). Ver `docs/ROADMAP.md`. Fase 2 no está iniciada.
+- **Diferido por decisión del usuario**: Google OAuth, Apple OAuth y
+  E2E/Playwright en CI (este último, a Fase 2).
+- Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
+  — no asumas que un commit existe porque el código existe en disco.
 
 Detalle exacto, sin adornar: `PROGRESS.md` (última entrada) y
-`HANDOFF.md`.
+`docs/ROADMAP.md`. `HANDOFF.md` es histórico.
 
 ## Cómo verificar antes de afirmar que algo funciona
 
@@ -215,11 +217,11 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
 Ver `docs/TESTING.md` para resultados reales de la última sesión.
 Prioridad: algoritmo de matching (casi cobertura total cuando exista, es
 el diferencial del producto), RLS por rol, y los 3 flujos E2E
-obligatorios (estudiante, room provider, admin). El sandbox de
-desarrollo donde se construyó este proyecto no podía descargar
-navegadores de Playwright ni conectar con Supabase — en Claude Code
-local, con red real, ambas cosas deberían funcionar; verifícalo de
-verdad, no lo asumas por el entorno anterior.
+obligatorios (estudiante, room provider, admin). La conexión con
+Supabase real ya está verificada (`docs/SUPABASE_VALIDATION.md`).
+Playwright no: ni el sandbox original ni el entorno cloud de Claude Code
+pueden descargar sus navegadores, y los E2E están diferidos a Fase 2 —
+cuando se retomen, verifícalo de verdad, no lo asumas.
 
 ## Alcance del MVP — qué NO construir todavía
 
@@ -234,11 +236,11 @@ para añadirse después sin reescritura — ver `docs/ROADMAP.md` y
 
 Ninguna funcionalidad de producto todavía (matching, habitaciones,
 intereses, chat, admin real son Fase 3 en adelante). Fase 0 completa.
-Fase 1 con código funcional pero checklist sin cerrar — ver arriba.
+Fase 1 completada — ver arriba.
 
 ## Funcionalidades pendientes
 
-Todo el roadmap de Fase 1 (cierre) a Fase 9 — ver `docs/ROADMAP.md`.
+Fases 2 a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 
@@ -250,5 +252,6 @@ Todo el roadmap de Fase 1 (cierre) a Fase 9 — ver `docs/ROADMAP.md`.
   hay que crearlas guiadas.
 - Confirmar o corregir las recomendaciones técnicas reversibles: magic
   link vs. contraseña, Mapbox vs. Google Maps.
-- Decidir y ejecutar la migración `middleware.ts` → `proxy.ts` (Next.js
-  16 lo deprecó, no lo eliminó — no es urgente pero sí deuda técnica).
+- Cuándo retomar Google OAuth y Apple OAuth (diferidos).
+- La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
+  en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.

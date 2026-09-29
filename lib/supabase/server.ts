@@ -31,7 +31,7 @@ export async function createClient() {
             );
           } catch {
             // Se puede llamar desde un Server Component puro, donde no se
-            // pueden escribir cookies — el middleware ya refresca la
+            // pueden escribir cookies — el proxy ya refresca la
             // sesión en cada request, así que esto es seguro de ignorar.
           }
         },

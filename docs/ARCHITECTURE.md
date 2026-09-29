@@ -113,7 +113,7 @@ arquitectura.
 Modelo de roles simple: `profiles.role` (`user` | `admin`), comprobado en
 RLS vía la función `is_admin()` (ver DATABASE.md). La ruta `/admin` se
 protege **dos veces**: RLS en la base de datos, y una comprobación de rol
-en el servidor (middleware o layout de `app/admin/`) antes de renderizar
+en el servidor (`proxy.ts` exige sesión; `app/admin/layout.tsx` comprueba el rol) antes de renderizar
 nada — nunca solo ocultar el enlace en el cliente. `docs/SECURITY.md`
 tiene el mapa punto por punto de qué política cubre cada requisito de
 autorización pedido (datos propios, mensajes entre participantes,

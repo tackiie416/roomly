@@ -1,5 +1,11 @@
 # HANDOFF — ROOMLY, de Claude Chat a Claude Code local
 
+> **Documento histórico (2026-09-25).** Describe el estado en el momento
+> de la transferencia. Casi todo lo que aquí figura como pendiente ya está
+> hecho: Foundation commiteado (`d1089aa`), Supabase real validado, CI en
+> verde en GitHub y `middleware.ts` migrado a `proxy.ts`. Estado actual:
+> `docs/ROADMAP.md` (Fase 1) y `PROGRESS.md` (última entrada).
+
 ## De dónde viene este proyecto
 
 Todo lo que hay aquí se diseñó y se construyó en una conversación con

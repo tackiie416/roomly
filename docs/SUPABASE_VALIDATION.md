@@ -42,11 +42,11 @@ porque ese proyecto no tiene la marca. Nunca se pone esta marca en otro
 proyecto.
 
 Verificado en local: el comentario lo lee cualquier rol (también uno sin
-privilegios) y solo el dueño de la base de datos puede cambiarlo. **Pendiente
-de confirmar en Supabase**: que el rol `postgres` del proyecto pueda
-ejecutar el `comment on database` (requiere ser dueño de la BD). Si falla con
-`must be owner of database postgres`, se detiene el checkpoint y se decide
-otra marca; no hay mecanismo alternativo automático.
+privilegios) y solo el dueño de la base de datos puede cambiarlo.
+**Confirmado en Supabase**: el rol `postgres` de `roomly-validation` pudo
+escribir la marca y la guarda la leyó correctamente. Si en otro proyecto
+fallara con `must be owner of database postgres`, se detiene el checkpoint y
+se decide otra marca; no hay mecanismo alternativo automático.
 
 ## Secrets (GitHub → Settings → Secrets and variables → Actions)
 
@@ -171,6 +171,15 @@ abortan antes de hacer nada.
 2. Asignar `role = 'admin'` a ese usuario desde el SQL Editor
    (operación de servidor) y recargar `/admin` → se ve el panel.
 3. Devolver `role = 'user'` y borrar el usuario.
+
+**Resultado (2026-09-29, ejecutado por el propietario)**: AU4 ✅ y AU5 ✅.
+`/admin` sin sesión → `/login?next=…`; enlace del email → sesión iniciada
+con cookie `sb-…-auth-token`; `/admin` sin admin → `/`; con `admin` → panel.
+Teardown: se borró el perfil y el usuario; 0 usuarios / 0 profiles. El
+usuario se creó desde el dashboard, así que el **registro** (alta por magic
+link con signups activos) no se probó: trasladado a Fase 2. Se hizo con `middleware.ts`; después
+se migró a `proxy.ts` sin cambios de lógica y se revalidó en local (ver
+`docs/TESTING.md`).
 
 Nota: el SQL Editor corre como `postgres`. Cualquier prueba de permisos
 escrita allí a mano solo vale si hace `set role authenticated` y fija

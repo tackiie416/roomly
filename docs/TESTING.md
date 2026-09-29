@@ -12,6 +12,42 @@
 - **E2E (Playwright)**: los 3 flujos completos que pide el brief
   (sección 39).
 
+## Estado actual (2026-09-29)
+
+| Comprobación | Resultado | Dónde |
+|---|---|---|
+| `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
+| `npm run test` | ✅ 39/39 | local y CI |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 58/58 | local y CI (`db-security`) |
+| Suite SQL `tests/db` con roles reales | ✅ 58/58 | `roomly-validation` |
+| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 | `roomly-validation` |
+| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 | `roomly-validation` y local tras `proxy.ts` |
+| AU4 magic link / AU5 con sesión | ✅ manual | `roomly-validation`, PC del propietario |
+| CI `ci.yml` en GitHub Actions | ✅ 6 runs en verde (PR + `master`) | GitHub |
+| `test:e2e` (Playwright) | ⏸ diferido a Fase 2 | no ejecutado con `playwright install` real |
+
+Las secciones siguientes son el registro histórico de cada sesión; lo que
+dicen como "pendiente" puede estar ya superado por esta tabla.
+
+## Migración `middleware.ts` → `proxy.ts` (2026-09-29)
+
+- `npm run build` con Next.js 16.3.6: `ƒ Proxy (Middleware)`, sin aviso
+  de deprecación. `.next/server/functions-config-manifest.json` registra el
+  proxy con `runtime: "nodejs"` y el mismo `matcher`; antes se compilaba
+  para Edge (`server/edge/…`).
+- Validación local (`next start` + Supabase **simulado** en
+  `localhost:54321`, nunca `roomly-validation`):
+  - `/admin` y `/admin/...` sin sesión → 307 a `/login?next=…`.
+  - Sesión con rol no admin → 307 a `/`; con rol admin → 200 y panel.
+  - Token caducado → el proxy pide `refresh_token` y responde con
+    `Set-Cookie` (también en rutas públicas): el refresco de sesión sigue
+    funcionando en Node.js.
+  - Callback sin `code` o con `code` inválido → `/login?error=auth_callback_failed`.
+  - `tests/supabase/auth-redirects.sh` → 6/6.
+- No verificado tras el cambio contra Supabase real (el propietario decidió
+  no repetir pruebas que escriben en `roomly-validation`). La lógica es la
+  misma que se validó allí como `middleware.ts`.
+
 ## Resultados reales — Fase 1, sesión de Foundation (2026-09-25)
 
 Nada de esto es teórico: son comandos ejecutados de verdad en el sandbox.
@@ -30,7 +66,8 @@ Nada de esto es teórico: son comandos ejecutados de verdad en el sandbox.
 - **`npm run test`** → pasa, 7/7 (`env.test.ts`, `cn.test.ts`).
 - **`npm run build`** → pasa, genera las 6 rutas esperadas. Aviso real
   encontrado (no cosmético del todo): Next.js 16.0.0 deprecó la
-  convención `middleware.ts` en favor de `proxy.ts` — confirmado leyendo
+  convención `middleware.ts` en favor de `proxy.ts` (**migrado el
+  2026-09-29**, ver arriba) — confirmado leyendo
   `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`,
   incluido en el propio paquete instalado. `middleware.ts` sigue
   funcionando (deprecado, no eliminado), pero la migración a `proxy.ts`
@@ -43,8 +80,8 @@ Nada de esto es teórico: son comandos ejecutados de verdad en el sandbox.
   vez. Quien continúe el proyecto (Claude Code local, con red real) debe
   ejecutarlo de verdad y sustituir esta nota por el resultado real.
 - **Tests de integración / RLS contra una base de datos real**: no
-  ejecutados — no hay proyecto Supabase real disponible desde este
-  entorno. Sigue pendiente para cuando exista.
+  ejecutados en esa sesión. Superado: ver "Validación contra Supabase
+  real" más abajo.
 
 ## Tests de seguridad/RLS — `tests/db/` (desde 2026-09-26)
 
@@ -82,10 +119,14 @@ tautología en `messages`, política recursiva, INSERT de mensajes sin
 comprobar participante, borrar el trigger de `rooms`, INSERT de reportes
 sin restringir) pone rojo su test correspondiente.
 
-**Limitación**: el shim no es Supabase. Cuando exista un proyecto real o
-`supabase start`, estos mismos tests deben correr también allí.
+**Limitación**: el shim no es Supabase. Por eso la misma suite se ha
+ejecutado también en `roomly-validation` con roles reales (58/58).
 
 ## Validación contra Supabase real (checkpoint previo a Fase 1)
+
+**Ejecutada** (2026-09-28, run `36493446123`): guarda F1 y P0–P5 ✅, suite
+SQL 58/58, supabase-js 46/46, AU3/AU5 6/6. AU4/AU5 con sesión, manual,
+2026-09-29 ✅. Teardown verificado (0 usuarios / 0 filas).
 
 Lo que el shim no puede demostrar (roles y `auth.uid()` reales, dueño de
 tablas, privilegios por defecto de Supabase, PostgREST/supabase-js, Auth)
@@ -105,7 +146,8 @@ matriz y secrets: `docs/SUPABASE_VALIDATION.md`.
   `tests/unit/safe-redirect.test.ts`, el validador del parámetro `next`
   del callback; con la lógica anterior fallan 24 de esos 32).
 - `build` → pasa también con `NEXT_PUBLIC_SUPABASE_*` vacías (como en CI
-  sin secrets). Sigue el aviso de `middleware` → `proxy`.
+  sin secrets). Seguía el aviso de `middleware` → `proxy` (resuelto el
+  2026-09-29).
 - `test:db` → 58/58 (ver arriba).
 - `test:e2e` → **con la configuración del repo falla en el entorno de
   Claude Code en la nube**: Playwright 1.63 busca `chromium-1243` y ese
@@ -114,21 +156,18 @@ matriz y secrets: `docs/SUPABASE_VALIDATION.md`.
   para ocultarlo. Con una config temporal fuera del repo que apunta al
   Chromium preinstalado, el smoke test pasa 2/2. Necesita
   `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY` definidas (aunque sean ficticias):
-  el middleware las valida en cada petición.
+  el proxy (entonces `middleware.ts`) las valida en cada petición.
 
-## Limitación conocida de este entorno
+## Limitación conocida de los entornos
 
-El sandbox de desarrollo actual no tiene salida de red hacia el CDN de
-Playwright, así que no puede descargar navegadores aquí. Los tests
-unitarios y de integración (Vitest) sí corren sin problema en este
-entorno. Los E2E se diseñan para correr en GitHub Actions (que sí tiene
-acceso) o en local — no bloquean el desarrollo diario, solo no se
-ejecutan dentro de este sandbox concreto.
+Ni el sandbox original ni el entorno cloud de Claude Code pueden
+descargar navegadores de Playwright (`playwright install`); el entorno
+cloud trae `chromium-1194` y Playwright 1.63 espera `chromium-1243`. Los
+E2E quedan **diferidos a Fase 2**: se incorporarán (en CI o en local con
+red real) cuando existan flujos reales de usuario.
 
-De forma similar, validar RLS de verdad requiere Postgres real (Supabase
-local con Docker — no disponible aquí — o un proyecto Supabase de test).
-Las políticas del borrador de Fase 0 se tratan como eso, un borrador,
-hasta que Fase 1 las valide con tests de integración reales.
+RLS ya no depende solo del shim: se validó en `roomly-validation` con
+roles, `auth.uid()` y PostgREST reales (ver arriba).
 
 ## Los 3 flujos E2E obligatorios
 
@@ -173,6 +212,8 @@ existe en este repositorio):
   `typecheck`, `test`, `build`.
 - `db-security`: `tests/db/run.sh` contra un servicio `postgres:16`.
 
-E2E todavía no está en CI (necesita un proyecto Supabase de test). El
-workflow no se ha ejecutado aún en GitHub Actions de verdad: sus pasos se
-han reproducido localmente, uno a uno, con resultado verde.
+El workflow se ha ejecutado en GitHub Actions de verdad: 6 runs, todos en
+verde (PR y push a `master` de los PRs #1, #2 y #3). E2E no está en CI:
+diferido a Fase 2. La validación contra Supabase real tiene su propio
+workflow manual (`supabase-validation.yml`), que nunca corre en push ni en
+PR.

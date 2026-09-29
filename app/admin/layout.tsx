@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 
 /**
  * Segunda capa de protección de /admin (la primera, "hay sesión?", vive
- * en middleware.ts). Aquí se comprueba el rol de verdad, consultando
+ * en proxy.ts). Aquí se comprueba el rol de verdad, consultando
  * `profiles.role` — nunca basta con "está logueado" para dejar pasar a
  * /admin. Esto es exactamente lo que faltaba en el hallazgo de escalado
  * de privilegios de la revisión anterior: la comprobación de admin tiene
