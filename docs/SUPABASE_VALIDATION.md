@@ -85,14 +85,21 @@ Orden de jobs (cada uno solo corre si el anterior pasa):
    `PROJECT_REF` + **marca de identidad leída del propio proyecto** (F1).
    Barrera contra ejecutar nada en otro proyecto.
 2. **migrate** (si `apply_migrations`) — `tests/supabase/apply-migrations.sh`:
-   las 3 migraciones existentes + seed en **una transacción**; se niega si el
+   todas las migraciones de `supabase/migrations/` + seed en **una transacción**; se niega si el
    esquema ya existe. (No usa `supabase db push`: el historial de migraciones
    de la CLI no se registra, aceptable en un proyecto desechable.)
 3. **preflight** — `tests/supabase/preflight.sql` (P0 identidad + P1–P5,
    solo lectura de catálogo). **Si falla, no se ejecuta ninguna suite.**
-4. **sql-suite** — `tests/supabase/run-sql-suite.sh`: la suite
-   `tests/db/0*.sql` (58 aserciones) con los roles, dueños y `auth.uid()`
-   REALES, sin shim, dentro de `BEGIN … ROLLBACK` (no deja datos).
+4. **sql-suite** — `tests/supabase/run-sql-suite.sh`: todos los
+   `tests/db/[0-9]*.sql` con los roles, dueños y `auth.uid()` REALES, sin
+   shim, dentro de `BEGIN … ROLLBACK` (no deja datos). Hoy son 119
+   aserciones (`01`–`06`). En `roomly-validation` solo se han ejecutado las
+   58 de `01`–`04` (run del 2026-09-28): `05` y `06` (Fase 2.0) **no se han
+   ejecutado allí**, y fallarían porque la migración
+   `20260929120000_phase2_data_hardening.sql` no está aplicada. Antes de
+   volver a lanzar el workflow hace falta una estrategia de migración
+   incremental (ver más abajo); `apply-migrations.sh` no sirve sobre un
+   esquema existente y no debe forzarse.
 5. **api-suite** — `npm run test:supabase`
    (`tests/integration/supabase-validation.test.ts`): PR, CH, RO, RE, AU2
    vía supabase-js/PostgREST con JWT reales. Lo primero que hace es ejecutar
@@ -110,7 +117,8 @@ Orden de jobs (cada uno solo corre si el anterior pasa):
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P1–P5 | `tests/supabase/preflight.sql` | Versión real, migraciones y seed aplicados, mismo dueño función/tabla y sin FORCE RLS (base de `is_conversation_participant`), RLS en 18/18 y 35 políticas, permisos de columna/función reales, equivalente SQL de los lints del Security Advisor |
-| C1, C2, C3, H5, M2 (SQL) | `tests/db/0*.sql` vía `run-sql-suite.sh` | Las mismas 58 aserciones del CI, ahora con los roles de Supabase |
+| C1, C2, C3, H5, M2 (SQL) | `tests/db/01`–`04` vía `run-sql-suite.sh` | Las 58 aserciones de `01`–`04`, ahora con los roles de Supabase (ejecutadas: 58/58) |
+| Fase 2.0 (SQL) | `tests/db/05`–`06` vía `run-sql-suite.sh` | 61 aserciones de preferencias, barrios y límites de perfil. **Pendientes**: no ejecutadas en `roomly-validation` (migración de 2.0 sin aplicar) |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
 | RO1–RO9 | api-suite | Propietario edita y pausa; no pone ni saca de `removed` (también vía upsert); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario |
@@ -194,6 +202,16 @@ escrita allí a mano solo vale si hace `set role authenticated` y fija
   inexacto. Implicación: un XSS podría leer la sesión, lo que refuerza la
   prioridad de la CSP y de no usar `dangerouslySetInnerHTML`. No se cambia
   `@supabase/ssr` ni el callback en este checkpoint.
+
+## Migraciones posteriores al checkpoint (pendiente)
+
+`roomly-validation` tiene aplicadas las tres migraciones del checkpoint,
+pero **no** `20260929120000_phase2_data_hardening.sql` (Fase 2.0).
+`apply-migrations.sh` está pensado para un proyecto vacío: aplica todas las
+migraciones desde cero y se niega si el esquema ya existe. No debe usarse ni
+forzarse sobre `roomly-validation`. Antes de la Fase 2.8 hay que decidir una
+estrategia de migración incremental; hasta entonces, las suites remotas no
+cubren `tests/db/05`–`06`.
 
 ## Después del checkpoint
 

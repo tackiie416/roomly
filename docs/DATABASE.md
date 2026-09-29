@@ -200,6 +200,21 @@ erDiagram
 
 **Identidad** — `profiles` (extiende `auth.users`; identidad/bio, nunca credenciales — esas las gestiona Supabase Auth), `housing_preferences` (criterios de búsqueda: presupuesto, fechas, zonas, ciudad, universidad), `compatibility_responses` (respuestas del test, JSONB versionado).
 
+**Dónde viven ciudad y universidad** (decisión del usuario, Fase 2): `city_id`
+y `university_id` son columnas de `housing_preferences`, no de `profiles`, y
+no se duplican. Dos comentarios de migraciones ya aplicadas no reflejan el
+modelo real y se dejan como están, porque las migraciones commiteadas no se
+reescriben:
+- `20260925120000_initial_schema.sql` dice que ciudad y universidad "quedan
+  en `profiles`": no es así, nunca fueron columnas de `profiles`;
+- `20260925120100_rls_policies.sql` dice que `public_profile_previews`
+  expone "nombre + avatar + universidad + ciudad": expone `id`,
+  `full_name`, `avatar_url` y `role` (ver H3).
+
+Como `housing_preferences` solo la lee su propietario, mostrar ciudad o
+universidad en tarjetas de otros usuarios (Fase 3) necesitará una consulta,
+servicio o vista diseñada para ello; no se resuelve moviendo las columnas.
+
 **Habitaciones** — `rooms`, `room_images`, `room_addresses` (dirección exacta, aislada), `favorites`.
 
 **Interés y matching** — `interests` (unifica interés en persona e interés vía habitación), `matches` (creado solo desde el servidor).

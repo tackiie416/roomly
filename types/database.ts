@@ -1,11 +1,12 @@
 /**
- * Tipos de la base de datos, escritos a mano a partir de
- * supabase/migrations/20260925120000_initial_schema.sql.
+ * Tipos de la base de datos, escritos y mantenidos A MANO (decisión del
+ * usuario, Fase 2: no se generan con `supabase gen types` por ahora). Reflejan
+ * el esquema resultante de TODAS las migraciones de supabase/migrations/, no
+ * solo la inicial, y los `Insert`/`Update` siguen los GRANT por columnas del
+ * rol `authenticated` (no lo que admitiría la tabla con service_role).
  *
- * IMPORTANTE: en cuanto exista un proyecto Supabase real, regenerar con
- *   npx supabase gen types typescript --project-id <id> > types/database.ts
- * y sustituir este archivo entero, para evitar que diverja del esquema
- * real. Mientras tanto, cualquier cambio al SQL debe reflejarse aquí a mano.
+ * Cualquier cambio de esquema o de GRANT en una migración debe reflejarse
+ * aquí en el mismo commit.
  *
  * NOTA sobre `Relationships: []`: postgrest-js (ver
  * node_modules/@supabase/postgrest-js/src/types/common/common.ts,

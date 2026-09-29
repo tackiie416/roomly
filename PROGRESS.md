@@ -6,6 +6,85 @@ próximos pasos.**
 
 ---
 
+## 2026-09-29 — Sesión 10: Fase 2.1 — validación y servicios de perfil y preferencias
+
+**Decisión de producto (usuario)**: el onboarding está completo cuando hay
+perfil con `full_name`, `date_of_birth` y `seeking_status` elegido, y una
+fila de `housing_preferences` con `city_id`. Universidad, estudios,
+presupuesto, fechas, barrios y compañeros son opcionales en el MVP.
+
+**Qué se hizo** (sin UI, sin Server Actions, sin tocar Auth, `proxy.ts`,
+migraciones ni Supabase remoto)
+- `lib/validation/common.ts`, `profile.ts` y `housing-preferences.ts` (Zod
+  4, esquemas `strict`):
+  - perfil: `full_name` (trim + espacios colapsados, 1–100), `date_of_birth`
+    (ISO real, no futura, ≥ 18 años calculado en UTC como `current_date`,
+    incluido el 29 de febrero), `bio` (≤ 500, vacío → `null`),
+    `seeking_status` (enum exacto, **sin valor por defecto**). Rechaza `id`,
+    `role`, `deleted_at`, timestamps, `onboarding_completed_at` y
+    `avatar_url`. `profileUpdateSchema` exige al menos un campo.
+  - preferencias: UUIDs normalizados, `field_of_study` ≤ 120, presupuesto y
+    compañeros enteros ≥ 0 con mínimo ≤ máximo **sin techo**, fechas con
+    entrada ≤ salida, barrios deduplicados **sin límite de cantidad** y que
+    exigen ciudad. Rechaza `profile_id`. La existencia de ciudad,
+    universidad y barrios la sigue comprobando PostgreSQL.
+  - Longitudes contadas como `char_length` (code points), no como UTF-16.
+  - Los enteros se limitan al rango de `integer` de PostgreSQL: es el tipo de
+    la columna, no un límite de producto.
+- `lib/services/result.ts`, `profile.ts` y `housing-preferences.ts` (con
+  `import "server-only"`):
+  - `getProfileState` (`no_profile` / `deleted` / `incomplete` con
+    `hasPreferences` / `complete`), `createProfile`, `updateProfile`,
+    `completeOnboarding`, `getHousingPreferences`,
+    `createHousingPreferences` y `updateHousingPreferences`.
+  - Usuario siempre de `auth.getUser()`; sin service_role; proyecciones
+    explícitas (sin `role`, nunca `*`); sin upsert (INSERT y, con `23505`,
+    UPDATE de campos permitidos; con perfil eliminado, `deleted` sin tocar
+    nada).
+  - Errores de base de datos traducidos a `fieldErrors` en español
+    (constraints, FKs y trigger de barrios), `42501` → `forbidden`, resto →
+    `unknown`. Nunca se devuelve el mensaje de Supabase.
+  - `completeOnboarding` fija `onboarding_completed_at` solo si sigue nulo
+    (dos peticiones simultáneas no pisan el timestamp) y es idempotente.
+- `vitest.config.ts`: alias de `server-only` a su propio `empty.js` (el que
+  Next.js usa en servidor). Sin dependencias nuevas.
+- Correcciones documentales de la auditoría (A.4): cabecera de
+  `types/database.ts` (tipos manuales, todas las migraciones),
+  `docs/ARCHITECTURE.md` (`/bienvenida/...`, `/perfil` propio),
+  `docs/SUPABASE_VALIDATION.md` (119 aserciones, `05`/`06` sin ejecutar en
+  remoto), `docs/ROADMAP.md` (2.0 cerrada en `feb08e4`) y
+  `docs/DATABASE.md` (ciudad y universidad en `housing_preferences`;
+  comentarios de migraciones inexactos).
+
+**Decisiones técnicas registradas**
+- `seeking_status`: la base de datos no distingue el default `flexible` de
+  una elección real. La elección explícita se garantiza en la entrada
+  (`profileCreateSchema` lo exige sin default); la UI de 2.3 no debe
+  preseleccionarlo. No hay migración para marcarlo.
+- Nuevo código de error `not_found` en `ServiceResult`:
+  `updateHousingPreferences` sin fila que actualizar (las preferencias no
+  existen todavía). No cambia la semántica de los demás.
+- Coherencia universidad–ciudad (`universities.city_id` frente a
+  `housing_preferences.city_id`): **no se comprueba en 2.1**. La base de
+  datos no la exige, un UPDATE parcial necesitaría leer la ciudad guardada,
+  y no es una regla de producto decidida. Se valora en 2.5 junto al
+  selector de universidad.
+- Los servicios reciben el cliente Supabase como parámetro (el de
+  `lib/supabase/server.ts`, comprobado con `tsc`), lo que permite testearlos
+  con un cliente simulado.
+
+**Resultados reales**: `test` 152/152 (39 anteriores + 61 de esquemas + 52
+de servicios); `format`, `lint`, `typecheck`, `build` y `test:db` 119/119
+en verde. Pruebas de mutación en los servicios (reactivar una cuenta
+eliminada, no exigir ciudad, INSERT sin `profile_id` de la sesión, editar
+un perfil eliminado, completar sin condición `is null`): cada una hace
+fallar su test.
+
+**Qué queda**: 2.2 (enrutamiento de Auth, `?next=`, logout, pantalla de
+cuenta desactivada). No empezada.
+
+---
+
 ## 2026-09-29 — Sesión 9: Fase 2.0 — endurecimiento de datos y RLS de preferencias
 
 **Decisiones del usuario para Fase 2** (tras la auditoría): ciudad y

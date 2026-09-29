@@ -33,11 +33,13 @@ contra un Supabase real (`roomly-validation`: SQL 58/58, supabase-js
   link (el login sí está validado; `roomly-validation` tiene signups
   desactivados). Ver `docs/ROADMAP.md`.
 
-**Fase 2 (User): en progreso, subfase 2.0** (endurecimiento de datos y
+**Fase 2 (User): en progreso.** 2.0 completada (endurecimiento de datos y
 RLS/GRANT de `profiles` y `housing_preferences`, integridad de barrios con
-triggers; `test:db` 119/119 en local). Sin UI, servicios ni cambios de Auth
-todavía. La migración de 2.0 **no está aplicada** en `roomly-validation`.
-Subfases y decisiones: `docs/ROADMAP.md`.
+triggers; `test:db` 119/119 en local) y 2.1 completada (validación Zod y
+servicios de perfil y preferencias en `lib/validation/*` y
+`lib/services/*`; `test` 152/152). Sin UI, Server Actions ni cambios de
+Auth todavía. La migración de 2.0 **no está aplicada** en
+`roomly-validation`. Subfases y decisiones: `docs/ROADMAP.md`.
 - **Diferido por decisión del usuario**: Google OAuth, Apple OAuth y
   E2E/Playwright en CI (este último, a Fase 2).
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
@@ -100,9 +102,9 @@ Antes de decir que algo está listo:
 Árbol completo y razonamiento en `docs/ARCHITECTURE.md`. Regla de oro:
 **Server Actions delgadas → `lib/services/*` con la lógica real →
 `lib/supabase/*` para acceso a datos.** Nunca lógica de negocio dentro de
-un archivo de `app/actions/` (esa carpeta existe en el esqueleto pero
-`lib/services/*` todavía no tiene contenido real — es Fase 2 en
-adelante).
+un archivo de `app/actions/` (esa carpeta existe en el esqueleto; los
+primeros servicios reales son `lib/services/{profile,housing-preferences}.ts`,
+de la Fase 2.1).
 
 Rutas de usuario (`app/(marketing)`, `app/(auth)`, `app/(app)`...) en
 español, para que coincidan con las URLs de SEO. Código interno (`lib/`,

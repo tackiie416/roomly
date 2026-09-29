@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 EN PROGRESO (2.0)
+## Fase 2 — User 🚧 EN PROGRESO (2.0 y 2.1 completadas; siguiente: 2.2)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -57,10 +57,15 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
 **Subfases** (plan aprobado el 2026-09-29, PROGRESS.md sesión 9):
 - 2.0 Endurecimiento de datos y RLS/GRANT de `profiles` y
   `housing_preferences`, integridad de barrios con triggers, + tests de base
-  de datos — 🚧 implementada y validada en local (`test:db` 119/119). Falta
-  aplicarla en `roomly-validation`, lo que requiere antes una estrategia de
-  migración incremental (ver PROGRESS.md sesión 9).
-- 2.1 Validación (Zod) y servicios de perfil/preferencias — sin empezar.
+  de datos — ✅ completada (`feb08e4`, `test:db` 119/119 en local). Queda
+  pendiente, para 2.8, aplicarla en `roomly-validation`, lo que requiere
+  antes una estrategia de migración incremental (ver PROGRESS.md sesión 9).
+- 2.1 Validación (Zod) y servicios de perfil/preferencias — ✅ completada
+  (PROGRESS.md sesión 10): `lib/validation/{profile,housing-preferences}.ts`,
+  `lib/services/{profile,housing-preferences}.ts`, sin UI ni Server Actions.
+  **Onboarding completo** (decisión de producto): perfil con `full_name`,
+  `date_of_birth` y `seeking_status` elegido, y fila de
+  `housing_preferences` con `city_id`; el resto de preferencias es opcional.
 - 2.2 Enrutamiento de Auth: estado de perfil tras el callback, `?next=`
   (M6), logout — sin empezar.
 - 2.3 Onboarding en `/bienvenida/...` — sin empezar.

@@ -218,8 +218,8 @@ roomly/
 ├── app/
 │   ├── (marketing)/[city]/{habitaciones,companeros-de-piso}/
 │   ├── (auth)/{login,registro,callback}/
-│   ├── (onboarding)/{perfil,test,preferencias}/
-│   ├── (app)/{matches,explorar,habitaciones,mensajes,perfil,ajustes}/
+│   ├── (onboarding)/bienvenida/{perfil,preferencias,test}/  # URLs /bienvenida/...
+│   ├── (app)/{matches,explorar,habitaciones,mensajes,perfil,ajustes}/  # /perfil = perfil propio
 │   ├── admin/{usuarios,habitaciones,reportes,metricas}/
 │   ├── api/webhooks/          # vacío en MVP; api/v1 se añade con Mobile
 │   └── actions/                # Server Actions, delgadas
@@ -236,6 +236,12 @@ roomly/
 ├── tests/{unit,integration,e2e}
 └── public/
 ```
+
+Rutas del onboarding (decisión de Fase 2): el onboarding vive en
+`/bienvenida/...` y `/perfil` queda reservado al perfil propio. Las carpetas
+vacías del esqueleto siguen en `app/(onboarding)/{perfil,preferencias,test}`
+(sin páginas); se mueven a `bienvenida/` cuando se implementen, en la Fase
+2.3.
 
 (Árbol completo generado en el sandbox — consultable con `find` en
 `/home/claude/roomly` o revisando el commit inicial en git.)

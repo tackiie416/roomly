@@ -17,7 +17,7 @@
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 39/39 | local y CI |
+| `npm run test` | ✅ 152/152 (39 de Fase 1 + 61 de esquemas Zod + 52 de servicios con cliente Supabase simulado, Fase 2.1) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
 | `npm run test:db` (PostgreSQL local con shim) | ✅ 119/119 (incluye `05`/`06` de Fase 2.0) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
 | Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`/`06`) | `roomly-validation`; la migración de Fase 2.0 no está aplicada allí |
 | `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 | `roomly-validation` |
