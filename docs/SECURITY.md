@@ -113,6 +113,43 @@ integridad inversa como servidor y como admin; `anon` sin acceso) y
 Fuera de la Fase 2.0: Storage (avatares), borrado de cuenta (H6),
 Auth/`?next=` (M6) y UI.
 
+## Fase 2.2 — enrutamiento de autenticación (2026-09-29)
+
+- **Redirects y open redirect**: todo destino sale de
+  `lib/auth/destination.ts`. `next` pasa siempre por `getSafeRedirectPath`
+  (H1, sin cambios) y además no puede apuntar a `/login`, `/callback`,
+  `/registro`, `/bienvenida/*` ni `/cuenta-desactivada` (se comprueba sin
+  barra final, en minúsculas y descodificado), así que no hay bucles ni
+  forma de saltarse la decisión por estado.
+- **`next` en cookie (M6)**: `roomly_next` guarda solo una ruta interna ya
+  saneada (1 h, `SameSite=Lax`, `Secure` en https). No es HttpOnly porque la
+  escribe el formulario, pero no contiene nada sensible y se vuelve a sanear
+  al leerla; el callback la borra siempre. El callback ya no acepta `next`
+  por query. Sin cambios en la configuración de Supabase.
+- **Errores**: `/login` y el callback solo muestran códigos propios con
+  mensajes fijos (`lib/auth/login-errors.ts`). Nunca se muestra
+  `error.message` de Supabase ni se reenvía `error_description`; cualquier
+  otro `?error=` se ignora.
+- **Cuentas eliminadas**: `deleted` tiene prioridad en todos los guards y
+  lleva a `/cuenta-desactivada`, que no ofrece reactivación.
+- **`/admin`**: `requireAdmin` exige `role = 'admin'` **y** `deleted_at`
+  nulo (antes solo se miraba el rol: un admin eliminado veía el panel). Es
+  una protección de routing/UI; `is_admin()` sigue siendo la defensa de los
+  datos en la base de datos.
+- **Regla nueva: el guard va en cada página, no solo en el layout.** Next.js
+  renderiza layout y página en paralelo: con el guard solo en
+  `app/admin/layout.tsx`, el contenido de la página viajaba en el cuerpo de
+  la respuesta 307 a usuarios no admin (comprobado con `curl`; ya pasaba en
+  Fase 1). Toda página protegida llama a su guard antes de cargar o
+  renderizar nada; `cache()` evita repetir la consulta.
+- **`proxy.ts`**: solo refresca la sesión y bloquea a anónimos en `/admin`,
+  `/perfil`, `/ajustes`, `/bienvenida` y `/cuenta-desactivada` (prefijo
+  exacto). No consulta la base de datos (lo comprueba
+  `tests/unit/auth-proxy.test.ts`).
+- **Logout**: Server Action (`app/actions/auth.ts`), con la comprobación de
+  origen de Next.js; una petición con otro `Origin` se aborta. Sin
+  service_role.
+
 ## Comprobación de coherencia final (antes de Fase 1)
 
 Auditoría de RLS pedida explícitamente antes de confirmar el esquema.

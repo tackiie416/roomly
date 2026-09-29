@@ -34,6 +34,8 @@ export function dbError(code: string, message = "error simulado"): FakeResponse 
 export function createFakeSupabase(options: {
   userId: string | null;
   respond?: Responder;
+  /** Error que devuelve `auth.exchangeCodeForSession` (sin él, el canje funciona). */
+  exchangeError?: { code?: string; message?: string };
 }) {
   const calls: Call[] = [];
   const respond: Responder = options.respond ?? (() => ({ data: null, error: null }));
@@ -85,17 +87,29 @@ export function createFakeSupabase(options: {
     return chain;
   }
 
+  const authCalls: Array<{ method: string; argument?: unknown }> = [];
+
   const client = {
     auth: {
       getUser: async () =>
         options.userId
           ? { data: { user: { id: options.userId } }, error: null }
           : { data: { user: null }, error: { message: "Auth session missing!" } },
+      exchangeCodeForSession: async (code: string) => {
+        authCalls.push({ method: "exchangeCodeForSession", argument: code });
+        return options.exchangeError
+          ? { data: { session: null, user: null }, error: options.exchangeError }
+          : { data: { session: {}, user: { id: options.userId } }, error: null };
+      },
+      signOut: async () => {
+        authCalls.push({ method: "signOut" });
+        return { error: null };
+      },
     },
     from: (table: string) => builder(table),
   };
 
-  return { client: client as unknown as DbClient, calls };
+  return { client: client as unknown as DbClient, calls, authCalls };
 }
 
 /** Todos los payloads de escritura (insert/update) registrados. */

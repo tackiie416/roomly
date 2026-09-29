@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 EN PROGRESO (2.0 y 2.1 completadas; siguiente: 2.2)
+## Fase 2 — User 🚧 EN PROGRESO (2.0, 2.1 y 2.2 completadas; siguiente: 2.3)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -61,13 +61,19 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   pendiente, para 2.8, aplicarla en `roomly-validation`, lo que requiere
   antes una estrategia de migración incremental (ver PROGRESS.md sesión 9).
 - 2.1 Validación (Zod) y servicios de perfil/preferencias — ✅ completada
-  (PROGRESS.md sesión 10): `lib/validation/{profile,housing-preferences}.ts`,
+  (`dae21e5`, PROGRESS.md sesión 10): `lib/validation/{profile,housing-preferences}.ts`,
   `lib/services/{profile,housing-preferences}.ts`, sin UI ni Server Actions.
   **Onboarding completo** (decisión de producto): perfil con `full_name`,
   `date_of_birth` y `seeking_status` elegido, y fila de
   `housing_preferences` con `city_id`; el resto de preferencias es opcional.
-- 2.2 Enrutamiento de Auth: estado de perfil tras el callback, `?next=`
-  (M6), logout — sin empezar.
+- 2.2 Enrutamiento de Auth — ✅ completada (PROGRESS.md sesión 11):
+  destino único (`lib/auth/destination.ts`), guards de servidor
+  (`lib/auth/session.ts`), `next` en cookie de corta duración sin cambios en
+  Supabase (M6), callback con errores propios, logout, `/cuenta-desactivada`,
+  páginas mínimas de `/bienvenida/{perfil,preferencias}` (solo el destino y
+  su guard), `/admin` con rol admin **y** cuenta no eliminada, y `proxy.ts`
+  protegiendo `/admin`, `/perfil`, `/ajustes`, `/bienvenida` y
+  `/cuenta-desactivada` sin consultar la base de datos.
 - 2.3 Onboarding en `/bienvenida/...` — sin empezar.
 - 2.4 Perfil propio en `/perfil` (sin perfiles de terceros: H3/H4) — sin empezar.
 - 2.5 Preferencias — sin empezar.

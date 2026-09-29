@@ -6,6 +6,92 @@ próximos pasos.**
 
 ---
 
+## 2026-09-29 — Sesión 11: Fase 2.2 — enrutamiento de autenticación
+
+**Decisiones del usuario**: `next` viaja en una cookie de corta duración
+(opción B, sin cambios remotos en Supabase); `emailRedirectTo` sigue siendo
+exactamente `/callback`.
+
+**Qué se hizo** (sin formularios de onboarding, perfil, preferencias ni
+ajustes; sin migraciones, RLS ni CI; sin tocar Supabase remoto)
+- `lib/auth/destination.ts` (función pura, fuente única de destinos):
+  `resolveDestination(state, next)` — `no_profile` → `/bienvenida/perfil`,
+  `incomplete` → `/bienvenida/preferencias`, `complete` → `next` saneado o
+  `/`, `deleted` → `/cuenta-desactivada`. `sanitizeNext` reutiliza
+  `getSafeRedirectPath` (sin modificarlo) y excluye `/login`, `/callback`,
+  `/registro`, `/bienvenida/*` y `/cuenta-desactivada`, también con barra
+  final, mayúsculas o codificación (`/%6cogin`). `loginPath()`.
+- `lib/auth/next-cookie.ts`: cookie `roomly_next` (1 h, `SameSite=Lax`,
+  `Path=/`, `Secure` en https), solo con la ruta ya saneada; se vuelve a
+  sanear al leerla y el callback la borra siempre.
+- `lib/auth/login-errors.ts`: códigos propios (`auth_callback_failed`,
+  `link_expired`, `rate_limited`, `invalid_email`, `send_failed`) con
+  mensajes fijos en español. Nunca se muestra `error.message` ni se reenvía
+  `error_description`.
+- `lib/auth/session.ts` (`server-only`): `getCurrentProfileState()` con
+  `cache()` de React sobre `getProfileState` (2.1); guards
+  `requireCompleteProfile`, `requireOnboardingStep`,
+  `requireDeletedAccount` y `requireAdmin`. Si el estado no se puede leer
+  (error de base de datos) lanzan un error genérico en vez de redirigir.
+- `lib/services/profile.ts`: `isActiveAdmin()` (lectura mínima de `role` y
+  `deleted_at`; `OwnProfile` sigue sin `role`).
+- `app/(auth)/login/page.tsx` pasa a componente de servidor (`searchParams`
+  asíncrono, `next` y `error` saneados, redirección por estado si ya hay
+  sesión) + `components/auth/login-form.tsx` (cliente; escribe la cookie).
+- `app/(auth)/callback/route.ts`: `error`/`error_code` → código propio;
+  sin `code` o canje fallido → `auth_callback_failed` (`link_expired` si el
+  enlace caducó); tras el canje, `getProfileState` + cookie +
+  `resolveDestination`. Ya no acepta `next` por query. Comentario de D14
+  corregido (las cookies de sesión NO son HttpOnly).
+- `app/actions/auth.ts` (`signOut`, Server Action) y
+  `components/auth/sign-out-button.tsx`.
+- `app/cuenta-desactivada/page.tsx` (sin reactivación) y páginas mínimas
+  `app/(onboarding)/bienvenida/{perfil,preferencias}/page.tsx` (solo el
+  destino y su guard; el formulario es de 2.3). Las carpetas vacías antiguas
+  `app/(onboarding)/{perfil,preferencias,test}` siguen sin tocar.
+- `/admin`: `requireAdmin` en el layout **y** en la página.
+- `proxy.ts`: bloquea a anónimos en `/admin`, `/perfil`, `/ajustes`,
+  `/bienvenida` y `/cuenta-desactivada` (`lib/auth/protected-routes.ts`,
+  por prefijo exacto: `/administracion` ya no cuenta como `/admin`). Sigue
+  sin consultar la base de datos.
+- `tests/supabase/auth-redirects.sh`: AU3f–g (errores de Supabase) y
+  AU5b–i (rutas protegidas nuevas, `/login` sin bucle).
+
+**Problema encontrado y corregido en esta fase**: con el guard solo en
+`app/admin/layout.tsx`, Next.js renderiza la página en paralelo y el
+contenido de `/admin/page.tsx` viajaba en el cuerpo del 307 a cualquier
+usuario autenticado no admin (comprobado con `curl`). Sin datos expuestos
+hoy (el panel es estático), pero lo habría expuesto en Fase 7. Ya existía
+con el guard de Fase 1. Corregido llamando a `requireAdmin()` también en la
+página; regla registrada en `docs/SECURITY.md`.
+
+**Resultados reales**: `test` 283/283 (152 anteriores + 131 nuevos);
+`format`, `lint`, `typecheck`, `build` y `test:db` 119/119 en verde;
+`auth-redirects.sh` 16/16 en local. Prueba local con `next start` y un
+Supabase simulado (nunca `roomly-validation`): cada estado (sin perfil,
+incompleto, completo, eliminado, admin activo, admin incompleto, admin
+eliminado) llega a su destino en `/bienvenida/*`, `/cuenta-desactivada`,
+`/admin` y `/login?next=`; ningún redirect lleva contenido protegido en el
+cuerpo; como mucho una llamada a Auth en el servidor por petición. Con
+Chromium: el login guarda la cookie solo con `next` válido, muestra
+mensajes propios (también ante un 429 real con texto crudo) y la petición
+OTP sale con `redirect_to` = `/callback`; el logout cierra la sesión y borra
+las cookies. Nueve mutaciones del código de Auth hacen fallar sus tests.
+
+**Decisiones técnicas**
+- Un admin con el onboarding sin completar sí entra a `/admin`:
+  `requireAdmin` exige rol y cuenta no eliminada, no onboarding (los admins
+  se crean desde el servidor).
+- `signOut()` usa el alcance por defecto de supabase-js (`global`: cierra
+  las sesiones de todos los dispositivos).
+- Si el estado del perfil no se puede leer tras el canje, el callback manda
+  a `/login?error=auth_callback_failed`; `/login` no redirige en ese caso,
+  así que no hay bucle.
+
+**Qué queda**: 2.3 (onboarding). No empezada.
+
+---
+
 ## 2026-09-29 — Sesión 10: Fase 2.1 — validación y servicios de perfil y preferencias
 
 **Decisión de producto (usuario)**: el onboarding está completo cuando hay

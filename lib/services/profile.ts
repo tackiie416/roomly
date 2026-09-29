@@ -255,3 +255,22 @@ export async function completeOnboarding(
   if (current.onboarding_completed_at !== null) return ok(current);
   return fail("unknown");
 }
+
+/**
+ * ¿La sesión es de un admin activo? Exige `role = 'admin'` **y**
+ * `deleted_at` nulo: un admin con la cuenta eliminada no lo es (igual que
+ * `is_admin()` en la base de datos, que sigue siendo la defensa real de los
+ * datos). Lectura mínima y separada para que `OwnProfile` no exponga `role`.
+ */
+export async function isActiveAdmin(supabase: DbClient): Promise<ServiceResult<boolean>> {
+  const userId = await getSessionUserId(supabase);
+  if (!userId) return fail("unauthenticated");
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("role, deleted_at")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) return mapDbError(error);
+  return ok(data !== null && data.role === "admin" && data.deleted_at === null);
+}
