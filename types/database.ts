@@ -115,7 +115,9 @@ export interface Database {
           date_of_birth: string;
           avatar_url?: string | null;
           bio?: string | null;
-          seeking_status?: SeekingStatus;
+          // Obligatorio: sin DEFAULT desde 20260930120000 (Fase 2.3), para que
+          // todo valor guardado haya sido elegido explícitamente.
+          seeking_status: SeekingStatus;
           email_notifications_enabled?: boolean;
           onboarding_completed_at?: string | null;
         };
@@ -124,6 +126,9 @@ export interface Database {
         // `created_at` y `updated_at` no se pueden enviar; los pone la base de
         // datos. Cambiar `role`/`deleted_at` es cosa del servidor con
         // service_role, nunca del flujo normal — ver SECURITY.md.
+        // `onboarding_completed_at` solo lo fija `completeOnboarding`, y el
+        // trigger `trg_profiles_onboarding_completion` exige preferencias con
+        // ciudad para ponerlo a no nulo.
         // Update, además, excluye `id` (GRANT de UPDATE).
         Update: Partial<
           Pick<

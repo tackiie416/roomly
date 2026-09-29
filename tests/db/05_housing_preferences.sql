@@ -8,9 +8,9 @@ reset role;
 insert into auth.users (id, email) values
   ('50000000-0000-0000-0000-00000000000a', 'hp-a@test'),
   ('50000000-0000-0000-0000-00000000000b', 'hp-b@test');
-insert into public.profiles (id, full_name, date_of_birth) values
-  ('50000000-0000-0000-0000-00000000000a', 'HP A', '2000-01-01'),
-  ('50000000-0000-0000-0000-00000000000b', 'HP B', '2000-01-01');
+insert into public.profiles (id, full_name, date_of_birth, seeking_status) values
+  ('50000000-0000-0000-0000-00000000000a', 'HP A', '2000-01-01', 'looking_for_room'),
+  ('50000000-0000-0000-0000-00000000000b', 'HP B', '2000-01-01', 'looking_for_room');
 -- Preferencias de B creadas por el servidor, para probar el acceso ajeno.
 insert into public.housing_preferences (profile_id, field_of_study)
   values ('50000000-0000-0000-0000-00000000000b', 'Medicina');
@@ -254,8 +254,8 @@ select roomly_test.expect_error(
 -- ... y como un admin autenticado, que por RLS NO ve las preferencias de A:
 -- el trigger debe detectar el uso igualmente (SECURITY DEFINER).
 insert into auth.users (id, email) values ('50000000-0000-0000-0000-0000000000ad', 'hp-admin@test');
-insert into public.profiles (id, full_name, date_of_birth, role)
-  values ('50000000-0000-0000-0000-0000000000ad', 'HP Admin', '1990-01-01', 'admin');
+insert into public.profiles (id, full_name, date_of_birth, seeking_status, role)
+  values ('50000000-0000-0000-0000-0000000000ad', 'HP Admin', '1990-01-01', 'looking_for_room', 'admin');
 set role authenticated;
 select roomly_test.login('50000000-0000-0000-0000-0000000000ad');
 select roomly_test.expect_rows(

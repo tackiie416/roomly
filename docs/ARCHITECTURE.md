@@ -238,10 +238,13 @@ roomly/
 ```
 
 Rutas del onboarding (decisión de Fase 2): el onboarding vive en
-`/bienvenida/...` y `/perfil` queda reservado al perfil propio. Las carpetas
-vacías del esqueleto siguen en `app/(onboarding)/{perfil,preferencias,test}`
-(sin páginas); se mueven a `bienvenida/` cuando se implementen, en la Fase
-2.3.
+`/bienvenida/...` y `/perfil` queda reservado al perfil propio. Desde la
+Fase 2.3, `app/(onboarding)/bienvenida/{perfil,preferencias}` tienen sus
+páginas (formularios en `components/onboarding/*`, Server Actions en
+`app/actions/onboarding.ts`, datos de referencia en
+`lib/services/reference-data.ts`); `bienvenida/test` sigue vacía hasta la
+Fase 3. Las carpetas antiguas `app/(onboarding)/{perfil,preferencias,test}`
+ya no existen.
 
 (Árbol completo generado en el sandbox — consultable con `find` en
 `/home/claude/roomly` o revisando el commit inicial en git.)

@@ -12,15 +12,16 @@
 - **E2E (Playwright)**: los 3 flujos completos que pide el brief
   (sección 39).
 
-## Estado actual (2026-09-29)
+## Estado actual (2026-09-30)
 
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 283/283 (39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2: destinos, cookie de `next`, errores de login, callback, guards, proxy sin consultas a la base de datos) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
-| `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fase 2.2); en `roomly-validation` se ejecutaron las 6 anteriores |
-| `npm run test:db` (PostgreSQL local con shim) | ✅ 119/119 (incluye `05`/`06` de Fase 2.0) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
-| Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`/`06`) | `roomly-validation`; la migración de Fase 2.0 no está aplicada allí |
+| `npm run test` | ✅ 347/347 (39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3: `FormData`, esquema de onboarding, datos de referencia, Server Actions, render de formularios, universidad y ciudad) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
+| `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
+| Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 136/136 (incluye `05`/`06` de Fase 2.0 y `07` de Fase 2.3) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
+| Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`–`07`) | `roomly-validation`; las migraciones de Fase 2.0 y 2.3 no están aplicadas allí |
 | `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 | `roomly-validation` |
 | AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 | `roomly-validation` y local tras `proxy.ts` |
 | AU4 magic link / AU5 con sesión | ✅ manual | `roomly-validation`, PC del propietario |
@@ -108,10 +109,16 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 | `04_reports_insert.sql` | crear reportes con campos de resolución |
 | `05_housing_preferences.sql` (Fase 2.0) | escribir, ver o reasignar preferencias ajenas; upsert; presupuesto y compañeros negativos o con mínimo > máximo (y que valores altos se aceptan: no hay techos); textos; FKs de ciudad/universidad; barrios inexistentes, `NULL`, de otra ciudad o sin ciudad (también en listas largas); array vacío aceptado; borrar/mover/cambiar el id de un barrio en uso (como servidor y como admin); `anon` sin acceso |
 | `06_profiles_constraints.sql` (Fase 2.0) | límites de `full_name`/`bio`/`avatar_url`, `chk_min_age`, y `role`/`deleted_at` siguen protegidos |
+| `07_onboarding_integrity.sql` (Fase 2.3) | perfil sin `seeking_status` (ya no hay default); `flexible` explícito aceptado; marcar `onboarding_completed_at` sin preferencias, sin ciudad o en el INSERT; completar el de otro; ejecutar la función del trigger directamente; el servidor tampoco se lo salta |
 
 `expect_error` exige un SQLSTATE concreto: un "fallo por el motivo
 equivocado" (p. ej. recursión infinita en vez de rechazo por RLS) hace
 fallar el test en vez de pasar por accidente.
+
+**Resultado real (2026-09-30, Fase 2.3)**: 136/136 aserciones (119 + 17 de
+`07`). Mutación en copias locales: con el default de `seeking_status` de
+vuelta falla `OB0`; sin el trigger de completitud, o deshabilitado, falla
+`OB3`.
 
 **Resultado real (2026-09-29, Fase 2.0)**: 119/119 aserciones (58 + 50 de
 `05` + 11 de `06`) en PostgreSQL 16 local. Mutación en copias locales:

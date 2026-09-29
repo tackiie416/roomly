@@ -8,10 +8,10 @@ insert into auth.users (id, email) values
   ('20000000-0000-0000-0000-00000000000a', 'c2-a@test'),
   ('20000000-0000-0000-0000-00000000000b', 'c2-b@test'),
   ('20000000-0000-0000-0000-00000000000c', 'c2-c@test');
-insert into public.profiles (id, full_name, date_of_birth) values
-  ('20000000-0000-0000-0000-00000000000a', 'A', '2000-01-01'),
-  ('20000000-0000-0000-0000-00000000000b', 'B', '2000-01-01'),
-  ('20000000-0000-0000-0000-00000000000c', 'C', '2000-01-01');
+insert into public.profiles (id, full_name, date_of_birth, seeking_status) values
+  ('20000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'looking_for_room'),
+  ('20000000-0000-0000-0000-00000000000b', 'B', '2000-01-01', 'looking_for_room'),
+  ('20000000-0000-0000-0000-00000000000c', 'C', '2000-01-01', 'looking_for_room');
 -- Conversaciones y participantes: solo los crea el servidor (no hay INSERT de cliente).
 insert into public.conversations (id) values
   ('21000000-0000-0000-0000-000000000001'),

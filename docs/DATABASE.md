@@ -170,6 +170,45 @@ escritura de esa fila la vuelve a validar. La comprobación inversa recorre
 `housing_preferences` sin índice sobre el array; si crece, se añade un
 índice GIN.
 
+## Fase 2.3 — integridad del onboarding (2026-09-30)
+
+Migración `supabase/migrations/20260930120000_phase2_onboarding_integrity.sql`
+(nueva; no toca RLS ni GRANT). Decisiones del usuario:
+
+- **`profiles.seeking_status` sin DEFAULT** (sigue `NOT NULL`). Antes, una
+  fila creada sin enviarlo quedaba con `'flexible'`, indistinguible de una
+  elección real. Ahora todo INSERT tiene que enviarlo (`23502` si falta), así
+  que cualquier valor guardado fue enviado explícitamente. Sin datos que
+  migrar. Consecuencia: los INSERT de perfiles de tests y fixtures envían
+  `seeking_status`, y `profiles.Insert` lo exige en `types/database.ts`.
+- **`trg_profiles_onboarding_completion`** (`BEFORE INSERT OR UPDATE OF
+  onboarding_completed_at` en `profiles`): si el valor pasa a no nulo, exige
+  una fila de `housing_preferences` del mismo perfil con `city_id`; si no,
+  `23514` (`onboarding_incomplete:`). Poner la columna a `NULL` o no tocarla
+  no se comprueba. En un INSERT con valor no nulo siempre falla (las
+  preferencias exigen que el perfil exista antes).
+  - Es una defensa de integridad: la operación normal y la regla completa
+    siguen en `completeOnboarding` (`lib/services/profile.ts`). El GRANT de
+    `authenticated` incluye la columna, así que sin el trigger una escritura
+    directa podía marcar como completo un onboarding sin ciudad.
+  - `SECURITY INVOKER`: solo lee la fila de preferencias del propio perfil,
+    que su dueño puede leer por RLS (`housing_preferences_own` no consulta
+    `profiles`: no hay recursión). Quien no puede leer esas preferencias
+    (p. ej. un admin editando el perfil de otro desde el cliente) no puede
+    marcarlo completo; el servidor con `service_role` no tiene RLS.
+  - No protege la dirección contraria: borrar las preferencias o vaciar
+    `city_id` después de completar sigue siendo posible para el propio
+    usuario (riesgo aceptado, ver PROGRESS.md sesión 12).
+
+Siguen siendo 18 tablas y 35 políticas; se añaden 1 función
+(`enforce_onboarding_completion`) y 1 trigger.
+
+Coherencia universidad ↔ ciudad de `housing_preferences`: a diferencia de
+los barrios (trigger de 2.0), no la impone la base de datos. La comprueba
+`checkUniversityCity` en `lib/services/housing-preferences.ts` antes de
+escribir (una universidad con `city_id` nulo vale con cualquier ciudad).
+Pasarla a un trigger sería una decisión aparte, no tomada.
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid

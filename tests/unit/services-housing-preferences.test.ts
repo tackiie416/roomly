@@ -44,8 +44,20 @@ function withProfile(
   },
   profile: { id: string; deleted_at: string | null } | null = activeProfile
 ) {
-  return (call: Call) =>
-    call.table === "profiles" ? { data: profile, error: null } : rest(call);
+  return (call: Call) => {
+    if (call.table === "profiles") return { data: profile, error: null };
+    // Lectura previa de checkUniversityCity: sin preferencias guardadas.
+    if (isUniversityCityRead(call)) return { data: null, error: null };
+    return rest(call);
+  };
+}
+
+function isUniversityCityRead(call: Call): boolean {
+  return (
+    call.table === "housing_preferences" &&
+    call.operation === "select" &&
+    call.columns === "city_id, university_id"
+  );
 }
 
 describe("getHousingPreferences", () => {
@@ -380,5 +392,89 @@ describe("updateHousingPreferences", () => {
         budget_max: ["El presupuesto máximo no puede ser menor que el mínimo"],
       },
     });
+  });
+});
+
+describe("universidad y ciudad (Fase 2.3)", () => {
+  const UNI = "c3d4e5f6-a7b8-4c9d-8e0f-2a3b4c5d6e7f";
+  const OTHER_CITY = "4a2d7b5f-9c3e-4d2b-8f8a-3b7c6d5e4f32";
+
+  /** Universidad `UNI` en `universityCity`; preferencias guardadas `saved`. */
+  function scenario(
+    universityCity: string | null,
+    saved: Partial<HousingPreferences> | null = null
+  ) {
+    return createFakeSupabase({
+      userId: USER,
+      respond: (call) => {
+        if (call.table === "profiles") return { data: activeProfile, error: null };
+        if (call.table === "universities")
+          return { data: { id: UNI, city_id: universityCity }, error: null };
+        if (isUniversityCityRead(call))
+          return {
+            data: saved && { city_id: null, university_id: null, ...saved },
+            error: null,
+          };
+        return { data: row({ university_id: UNI }), error: null };
+      },
+    });
+  }
+
+  it("universidad de otra ciudad → error de campo y no se escribe nada", async () => {
+    const { client, calls } = scenario(OTHER_CITY);
+    expect(
+      await createHousingPreferences(client, { city_id: CITY, university_id: UNI })
+    ).toEqual({
+      ok: false,
+      error: "validation",
+      fieldErrors: { university_id: ["La universidad no pertenece a la ciudad elegida"] },
+    });
+    expect(writePayloads(calls)).toHaveLength(0);
+  });
+
+  it("universidad con ciudad pero sin ciudad elegida → error", async () => {
+    const { client, calls } = scenario(CITY);
+    expect(
+      await createHousingPreferences(client, { city_id: null, university_id: UNI })
+    ).toMatchObject({ ok: false, error: "validation" });
+    expect(writePayloads(calls)).toHaveLength(0);
+  });
+
+  it("universidad de la misma ciudad o sin ciudad → se guarda", async () => {
+    for (const universityCity of [CITY, null]) {
+      const { client, calls } = scenario(universityCity);
+      expect(
+        await createHousingPreferences(client, { city_id: CITY, university_id: UNI })
+      ).toMatchObject({ ok: true });
+      expect(writePayloads(calls)).toHaveLength(1);
+    }
+  });
+
+  it("update: cambiar solo la ciudad con una universidad guardada de la anterior → error", async () => {
+    const { client, calls } = scenario(CITY, { city_id: CITY, university_id: UNI });
+    expect(await updateHousingPreferences(client, { city_id: OTHER_CITY })).toMatchObject(
+      {
+        ok: false,
+        error: "validation",
+        fieldErrors: { university_id: expect.any(Array) },
+      }
+    );
+    expect(writePayloads(calls)).toHaveLength(0);
+  });
+
+  it("update: cambiar solo la universidad se compara con la ciudad guardada", async () => {
+    const { client, calls } = scenario(OTHER_CITY, { city_id: CITY });
+    expect(await updateHousingPreferences(client, { university_id: UNI })).toMatchObject({
+      ok: false,
+      error: "validation",
+    });
+    expect(writePayloads(calls)).toHaveLength(0);
+  });
+
+  it("sin tocar ciudad ni universidad no hay consultas extra", async () => {
+    const { client, calls } = scenario(OTHER_CITY);
+    await updateHousingPreferences(client, { budget_max: 700 });
+    expect(calls.some((call) => call.table === "universities")).toBe(false);
+    expect(calls.some(isUniversityCityRead)).toBe(false);
   });
 });

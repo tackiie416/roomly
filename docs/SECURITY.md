@@ -150,6 +150,46 @@ Auth/`?next=` (M6) y UI.
   origen de Next.js; una petición con otro `Origin` se aborta. Sin
   service_role.
 
+## Fase 2.3 — onboarding (2026-09-30)
+
+- **Escrituras solo por Server Action** (`app/actions/onboarding.ts`): cada
+  acción vuelve a comprobar el paso con `requireOnboardingStep` (no basta con
+  el guard de la página) y delega en los servicios de 2.1. El usuario sale
+  de la sesión; `profile_id` nunca llega del formulario.
+- **Campos protegidos**: `lib/validation/form-data.ts` conserva las claves
+  inesperadas para que los esquemas `strict` las rechacen, así que un
+  `profile_id`, `role`, `deleted_at` u `onboarding_completed_at` inyectado
+  devuelve error y no se escribe nada (lo cubren tests y una mutación). Los
+  valores que se devuelven para rellenar el formulario son solo los de los
+  campos conocidos.
+- **`onboarding_completed_at`**: en la aplicación solo lo fija
+  `completeOnboarding` (idempotente: `UPDATE ... WHERE onboarding_completed_at
+  IS NULL`). `authenticated` mantiene el GRANT sobre la columna, así que por
+  PostgREST también se puede escribir, pero el trigger
+  `trg_profiles_onboarding_completion` impide ponerlo a no nulo sin
+  preferencias con ciudad, venga de donde venga. Reescribir el timestamp o
+  volver a ponerlo a nulo por PostgREST solo afecta al propio usuario
+  (riesgo aceptado, ver `PROGRESS.md`). La
+  función es `SECURITY INVOKER`, con `search_path` vacío y `EXECUTE`
+  revocado a `PUBLIC`, `anon` y `authenticated` (no se puede llamar
+  directamente).
+- **`seeking_status`** sin DEFAULT: ningún perfil nace con un valor que el
+  usuario no haya enviado; la UI no preselecciona ninguna opción.
+- **Cuentas eliminadas**: guards, acciones y servicios devuelven `deleted`
+  sin escribir nada; nunca se reactivan. Es una barrera de aplicación: las
+  políticas de `profiles` y `housing_preferences` no miran `deleted_at`
+  (pendiente de decisión, ver `PROGRESS.md`).
+- **Universidad y ciudad**: `checkUniversityCity`
+  (`lib/services/housing-preferences.ts`) rechaza una universidad de otra
+  ciudad antes de escribir; los barrios ya los valida el trigger de 2.0.
+- **Errores**: solo errores de campo y mensajes propios; ningún texto de
+  Supabase llega a la UI.
+- **Contenido en redirects**: los guards van en cada página de onboarding;
+  comprobado con `curl` que ningún 307 lleva el formulario en el cuerpo.
+- Sin `service_role`, sin `select("*")`, sin `upsert`. Los datos de
+  referencia (ciudades, universidades, barrios) se leen con el cliente
+  normal: son tablas de lectura pública.
+
 ## Comprobación de coherencia final (antes de Fase 1)
 
 Auditoría de RLS pedida explícitamente antes de confirmar el esquema.

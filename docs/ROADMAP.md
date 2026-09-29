@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 EN PROGRESO (2.0, 2.1 y 2.2 completadas; siguiente: 2.3)
+## Fase 2 — User 🚧 EN PROGRESO (2.0–2.3 completadas; siguiente: 2.4)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -66,7 +66,7 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   **Onboarding completo** (decisión de producto): perfil con `full_name`,
   `date_of_birth` y `seeking_status` elegido, y fila de
   `housing_preferences` con `city_id`; el resto de preferencias es opcional.
-- 2.2 Enrutamiento de Auth — ✅ completada (PROGRESS.md sesión 11):
+- 2.2 Enrutamiento de Auth — ✅ completada (`bd1cef7`, PROGRESS.md sesión 11):
   destino único (`lib/auth/destination.ts`), guards de servidor
   (`lib/auth/session.ts`), `next` en cookie de corta duración sin cambios en
   Supabase (M6), callback con errores propios, logout, `/cuenta-desactivada`,
@@ -74,7 +74,14 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   su guard), `/admin` con rol admin **y** cuenta no eliminada, y `proxy.ts`
   protegiendo `/admin`, `/perfil`, `/ajustes`, `/bienvenida` y
   `/cuenta-desactivada` sin consultar la base de datos.
-- 2.3 Onboarding en `/bienvenida/...` — sin empezar.
+- 2.3 Onboarding en `/bienvenida/...` — ✅ completada (PROGRESS.md sesión 12):
+  `/bienvenida/perfil` (nombre, fecha de nacimiento y `seeking_status` sin
+  preselección) → `/bienvenida/preferencias` (ciudad obligatoria, resto
+  opcional y sin techos) → `completeOnboarding` → `/`. Server Actions en
+  `app/actions/onboarding.ts`, formularios HTML que funcionan sin
+  JavaScript, datos de referencia en `lib/services/reference-data.ts`.
+  Migración `20260930120000`: `seeking_status` sin DEFAULT y trigger que
+  exige preferencias con ciudad para marcar el onboarding completo.
 - 2.4 Perfil propio en `/perfil` (sin perfiles de terceros: H3/H4) — sin empezar.
 - 2.5 Preferencias — sin empezar.
 - 2.6 Ajustes (sin borrado de cuenta: H6) — sin empezar.

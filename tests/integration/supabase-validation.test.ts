@@ -301,6 +301,8 @@ beforeAll(async () => {
       id: actors[k].id,
       full_name: `Validación ${k.toUpperCase()}`,
       date_of_birth: "2000-01-01",
+      // Sin DEFAULT desde la Fase 2.3: siempre se envía explícitamente.
+      seeking_status: "looking_for_room",
     }))
   );
   if (profilesError) throw new Error(`profiles: ${profilesError.message}`);
@@ -338,6 +340,7 @@ describe("Profiles (PR)", () => {
     id: A().id,
     full_name: "Validación A",
     date_of_birth: "2000-01-01",
+    seeking_status: "looking_for_room",
   });
 
   it("PR1: un usuario no puede crear su propio perfil con role=admin", async () => {

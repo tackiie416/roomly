@@ -16,7 +16,8 @@ export type Call = {
   operation: Operation;
   payload?: Record<string, unknown>;
   columns?: string;
-  filters: Array<{ kind: "eq" | "is"; column: string; value: unknown }>;
+  filters: Array<{ kind: "eq" | "is" | "in"; column: string; value: unknown }>;
+  order?: string;
   terminal: "single" | "maybeSingle" | "await";
 };
 
@@ -73,6 +74,14 @@ export function createFakeSupabase(options: {
       },
       is(column: string, value: unknown) {
         call.filters.push({ kind: "is", column, value });
+        return chain;
+      },
+      in(column: string, value: unknown[]) {
+        call.filters.push({ kind: "in", column, value });
+        return chain;
+      },
+      order(column: string) {
+        call.order = column;
         return chain;
       },
       single: () => finish("single"),

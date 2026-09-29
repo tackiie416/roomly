@@ -6,6 +6,123 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 12: Fase 2.3 — onboarding
+
+**Decisiones del usuario** (tras la revisión de solo lectura de 2.2):
+- `seeking_status`: opción A — sin DEFAULT, sigue NOT NULL, siempre enviado
+  explícitamente; radios sin preselección.
+- `onboarding_completed_at`: opción 1 — trigger de integridad; la lógica
+  sigue en `completeOnboarding`.
+- Onboarding completo = perfil válido (nombre, fecha, `seeking_status`
+  elegido) + fila de `housing_preferences` con `city_id`; el resto es
+  opcional. Al terminar se va a `/` (no se conserva `next`).
+
+**Qué se hizo**
+- Migración `20260930120000_phase2_onboarding_integrity.sql`:
+  - `profiles.seeking_status`: `drop default`.
+  - `trg_profiles_onboarding_completion`
+    (`BEFORE INSERT OR UPDATE OF onboarding_completed_at`): si pasa a no
+    nulo, exige `housing_preferences` del mismo perfil con `city_id`; si no,
+    `23514` (`onboarding_incomplete:`). `SECURITY INVOKER` (solo lee la fila
+    propia, que RLS permite; sin recursión), `search_path` vacío, `EXECUTE`
+    revocado a `PUBLIC`, `anon` y `authenticated`. Sin cambios en RLS ni
+    GRANT; siguen 18 tablas y 35 políticas.
+- `lib/validation/form-data.ts`: `FormData` → objeto (vacío → omitido o
+  `null`, números solo si el texto es numérico, listas, campos repetidos o
+  archivos se dejan para que la validación los rechace; claves inesperadas
+  se conservan para que el esquema `strict` las rechace, salvo las internas
+  de Next.js `$ACTION_*`) y `formDataValues` (solo campos conocidos, para
+  volver a rellenar el formulario).
+- `lib/validation/housing-preferences.ts`:
+  `housingPreferencesOnboardingSchema` (el de crear, con `city_id`
+  obligatorio).
+- `lib/services/reference-data.ts`: ciudades activas, universidades y
+  barrios de esas ciudades (una consulta cada uno, sin N+1, proyección
+  explícita, sin service_role).
+- `lib/services/profile.ts`: `completeOnboarding` traduce el error del
+  trigger a un error de campo.
+- `lib/services/housing-preferences.ts`: `checkUniversityCity` rechaza
+  (antes de escribir, en crear y en actualizar) una universidad que no es
+  de la ciudad elegida, comparando con el valor guardado si el input solo
+  trae uno de los dos campos. Una universidad sin ciudad vale con cualquier
+  ciudad. La base de datos no lo impone (a diferencia de los barrios, que ya
+  tienen trigger desde 2.0), y el filtro del formulario no bastaba.
+- `app/actions/onboarding.ts`: `submitOnboardingProfile` (guard del paso →
+  `createProfile` → `/bienvenida/preferencias`) y
+  `submitOnboardingPreferences` (guard → esquema de onboarding →
+  `createHousingPreferences` → `completeOnboarding` → `/`). Errores de
+  servicio → redirección (sin sesión, eliminado, sin perfil) o errores de
+  campo / mensaje genérico; nunca texto de Supabase.
+- `components/onboarding/{profile-form,preferences-form,form-controls}.tsx`
+  (`useActionState` + `useFormStatus`; formularios HTML que funcionan sin
+  JavaScript; radios de `seeking_status` sin preselección; universidad y
+  barrios filtrados por la ciudad elegida) y las páginas de
+  `/bienvenida/{perfil,preferencias}` (la segunda rellena el formulario con
+  lo ya guardado).
+- Carpetas vacías antiguas `app/(onboarding)/{perfil,preferencias}`
+  retiradas; `test` movida a `app/(onboarding)/bienvenida/test` (Fase 3).
+- Tipos: `profiles.Insert.seeking_status` obligatorio. Fixtures: los 17
+  INSERT de perfiles de `tests/db/01`–`06` y los de la suite de integración
+  envían `seeking_status` (dependían del default).
+
+**Resultados reales**: `test` 347/347 (283 anteriores + 64 nuevos);
+`test:db` 136/136 (119 anteriores + 17 de `07_onboarding_integrity.sql`);
+`format`, `lint`, `typecheck`, `build` en verde; `auth-redirects.sh` 16/16.
+Prueba local con `next start`, Supabase simulado con estado y Chromium,
+**con y sin JavaScript**: `no_profile → /bienvenida/perfil →
+/bienvenida/preferencias → /`, sin radio preseleccionado, errores del
+servidor que conservan lo escrito, sin ciudad no se guarda ni se completa,
+reanudar tras abandonar rellena lo guardado, volver al paso 1 con perfil
+lleva al paso 2, perfil completo o cuenta eliminada no entran al onboarding;
+ningún redirect lleva contenido protegido en el cuerpo. Mutaciones que
+hacen fallar sus tests: volver a poner el default, quitar o deshabilitar el
+trigger, ciudad no obligatoria, `onboarding_completed_at` aceptado desde el
+formulario, sin guard de paso, sin `completeOnboarding`, radio
+preseleccionado, sin la comprobación de universidad y ciudad (4 tests).
+Los fixtures de `tests/db` solo añaden `seeking_status` a los INSERT: los
+tests negativos exigen un SQLSTATE concreto (p. ej. `42501`), así que
+siguen fallando por la razón que prueban y no por el NOT NULL.
+
+**Desviaciones respecto al prompt**
+- Los campos se llaman como las columnas reales (`move_in_date`,
+  `move_out_date`, `roommates_wanted_min/max`), no `available_from/until`
+  ni `roommates_min/max`: no se renombra el esquema.
+- Las páginas de servidor leen datos de referencia y preferencias guardadas
+  a través de los servicios (lecturas, igual que los guards); toda escritura
+  va por Server Action.
+- `components/onboarding/form-controls.tsx` (errores de campo, error
+  general, botón con estado pendiente) compartido por los dos formularios.
+
+**Riesgos pendientes**
+- El trigger protege la escritura de `onboarding_completed_at`, no lo
+  contrario: un usuario puede, vía PostgREST, borrar sus preferencias o
+  vaciar `city_id` después de completar (solo le afecta a él). No se ha
+  añadido protección inversa (fuera de la decisión tomada).
+- La lista de ciudades es la de `is_active`, pero el servidor no rechaza
+  una ciudad inactiva enviada a mano (no es una regla decidida).
+- El seed no tiene barrios: el selector sale vacío en local/validación.
+- `authenticated` conserva el GRANT de INSERT/UPDATE sobre
+  `onboarding_completed_at` (necesario para completar sin service_role ni
+  `SECURITY DEFINER`, que se descartaron). Por PostgREST un usuario puede
+  completar directamente (siempre con preferencias con ciudad, lo impone el
+  trigger), reescribir su timestamp o volver a ponerlo a nulo. La
+  idempotencia la da `completeOnboarding` (`.is(null)`), no la base de
+  datos. Solo le afecta a él.
+- Cuentas eliminadas: la política `profiles_update_own` (anterior a 2.3) no
+  mira `deleted_at`, ni la de `housing_preferences`; el bloqueo es de la
+  aplicación (guards, acciones y servicios). Por PostgREST una cuenta
+  eliminada con sesión válida aún podría escribir sus filas. Decidir si se
+  cierra en base de datos (p. ej. en 2.6, junto al borrado de cuenta).
+- La comprobación de universidad y ciudad es de la aplicación
+  (lectura previa + escritura, sin transacción): no protege de PostgREST
+  directo ni de una carrera entre pestañas.
+- Nada de 2.3 se ha probado contra Supabase real (pendiente para 2.8,
+  junto con la migración incremental a `roomly-validation`).
+
+**Qué queda**: 2.4 (perfil propio). No empezada.
+
+---
+
 ## 2026-09-29 — Sesión 11: Fase 2.2 — enrutamiento de autenticación
 
 **Decisiones del usuario**: `next` viaja en una cookie de corta duración

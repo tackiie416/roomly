@@ -22,7 +22,8 @@ import {
  * Mismo patrón que el perfil: usuario de `auth.getUser()`, sin service_role,
  * sin upsert (el GRANT de UPDATE excluye `profile_id`). `profile_id` nunca
  * llega del input. La coherencia de barrios y las FKs las garantiza la base
- * de datos; aquí solo se traducen sus errores a errores de campo.
+ * de datos; aquí solo se traducen sus errores a errores de campo. La de
+ * universidad y ciudad se comprueba aquí (`checkUniversityCity`).
  */
 
 type HousingPreferencesRow = Database["public"]["Tables"]["housing_preferences"]["Row"];
@@ -137,6 +138,50 @@ async function requireActiveProfile(
   return ok(true);
 }
 
+const UNIVERSITY_CITY_MISMATCH = "La universidad no pertenece a la ciudad elegida";
+
+/**
+ * La universidad elegida debe ser de la ciudad elegida (Fase 2.3). A
+ * diferencia de los barrios, la base de datos no lo impone, así que se
+ * comprueba aquí antes de escribir. Una universidad sin ciudad
+ * (`universities.city_id` nulo) vale con cualquier ciudad. Si el input solo
+ * trae uno de los dos campos, el otro es el valor ya guardado.
+ */
+async function checkUniversityCity(
+  supabase: DbClient,
+  userId: string,
+  fields: { city_id?: string | null; university_id?: string | null }
+): Promise<ServiceResult<true>> {
+  if (fields.city_id === undefined && fields.university_id === undefined) return ok(true);
+
+  let cityId = fields.city_id;
+  let universityId = fields.university_id;
+  if (cityId === undefined || universityId === undefined) {
+    const { data: current, error } = await supabase
+      .from("housing_preferences")
+      .select("city_id, university_id")
+      .eq("profile_id", userId)
+      .maybeSingle();
+    if (error) return mapDbError(error);
+    if (cityId === undefined) cityId = current?.city_id ?? null;
+    if (universityId === undefined) universityId = current?.university_id ?? null;
+  }
+  if (!universityId) return ok(true);
+
+  const { data: university, error } = await supabase
+    .from("universities")
+    .select("id, city_id")
+    .eq("id", universityId)
+    .maybeSingle();
+  if (error) return mapDbError(error);
+  // Inexistente: lo rechaza la FK al escribir ("La universidad no existe").
+  if (!university || university.city_id === null) return ok(true);
+  if (university.city_id !== cityId) {
+    return fail("validation", { university_id: [UNIVERSITY_CITY_MISMATCH] });
+  }
+  return ok(true);
+}
+
 export async function getHousingPreferences(
   supabase: DbClient
 ): Promise<ServiceResult<HousingPreferences | null>> {
@@ -168,6 +213,9 @@ export async function createHousingPreferences(
 
   const profile = await requireActiveProfile(supabase, userId);
   if (!profile.ok) return profile;
+
+  const universityCity = await checkUniversityCity(supabase, userId, fields);
+  if (!universityCity.ok) return universityCity;
 
   const { data: created, error } = await supabase
     .from("housing_preferences")
@@ -209,6 +257,9 @@ export async function updateHousingPreferences(
 
   const profile = await requireActiveProfile(supabase, userId);
   if (!profile.ok) return profile;
+
+  const universityCity = await checkUniversityCity(supabase, userId, parsed.data);
+  if (!universityCity.ok) return universityCity;
 
   const { data: updated, error } = await supabase
     .from("housing_preferences")

@@ -84,6 +84,16 @@ const PROFILE_DB_RULES: DbFieldRule[] = [
   },
 ];
 
+/** Trigger de completitud del onboarding (Fase 2.3) → campo del formulario. */
+const ONBOARDING_DB_RULES: DbFieldRule[] = [
+  {
+    code: "23514",
+    match: "onboarding_incomplete:",
+    field: "city_id",
+    message: "Elige una ciudad para terminar",
+  },
+];
+
 /** 23514 no reconocido: sigue siendo un dato rechazado por la base de datos. */
 function mapProfileWriteError<T>(error: {
   code?: string;
@@ -246,7 +256,10 @@ export async function completeOnboarding(
     .is("onboarding_completed_at", null)
     .select(OWN_PROFILE_COLUMNS)
     .maybeSingle();
-  if (error) return mapDbError(error);
+  // El trigger trg_profiles_onboarding_completion (Fase 2.3) rechaza la
+  // escritura si, entre la comprobación y el UPDATE, faltan las preferencias
+  // o la ciudad (p. ej. se borraron en otra pestaña).
+  if (error) return mapDbError(error, ONBOARDING_DB_RULES);
   if (completed) return ok(completed);
 
   const { data: current, error: rereadError } = await readOwnProfile(supabase, userId);

@@ -9,17 +9,17 @@ set role authenticated;
 select roomly_test.login('60000000-0000-0000-0000-00000000000a');
 
 select roomly_test.expect_error(
-  $$insert into public.profiles (id, full_name, date_of_birth)
-    values ('60000000-0000-0000-0000-00000000000a', '   ', '2000-01-01')$$,
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status)
+    values ('60000000-0000-0000-0000-00000000000a', '   ', '2000-01-01', 'looking_for_room')$$,
   '23514', 'PC1: full_name vacío o solo espacios se rechaza');
 select roomly_test.expect_error(
-  $$insert into public.profiles (id, full_name, date_of_birth)
-    values ('60000000-0000-0000-0000-00000000000a', repeat('n', 101), '2000-01-01')$$,
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status)
+    values ('60000000-0000-0000-0000-00000000000a', repeat('n', 101), '2000-01-01', 'looking_for_room')$$,
   '23514', 'PC2: full_name de más de 100 caracteres se rechaza');
 
 select roomly_test.expect_affected(
-  $$insert into public.profiles (id, full_name, date_of_birth, bio, avatar_url)
-    values ('60000000-0000-0000-0000-00000000000a', repeat('n', 100), '2000-01-01',
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status, bio, avatar_url)
+    values ('60000000-0000-0000-0000-00000000000a', repeat('n', 100), '2000-01-01', 'looking_for_room',
             repeat('b', 500), 'https://example.com/a.png')$$,
   1, 'PC3: valores en el límite exacto se aceptan');
 

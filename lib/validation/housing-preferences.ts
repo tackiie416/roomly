@@ -118,6 +118,34 @@ export const housingPreferencesUpdateSchema = z
     }
   });
 
+/**
+ * Paso de preferencias del onboarding (Fase 2.3): el de crear, con `city_id`
+ * obligatorio (decisión de producto: sin ciudad no se completa el
+ * onboarding). Validarlo antes de guardar evita dejar preferencias a medias;
+ * `completeOnboarding` y el trigger de la base de datos siguen siendo las
+ * comprobaciones definitivas. El resto de campos sigue siendo opcional.
+ */
+export const housingPreferencesOnboardingSchema = z
+  .strictObject(
+    {
+      ...shape,
+      city_id: z
+        .uuid({
+          error: (issue) =>
+            issue.input === undefined || issue.input === null || issue.input === ""
+              ? "Elige una ciudad"
+              : "La ciudad no es válida",
+        })
+        .transform((value) => value.toLowerCase()),
+    },
+    { error: unknownKeyError }
+  )
+  .superRefine((value, ctx) => checkRanges(value, ctx));
+
+export type HousingPreferencesOnboardingInput = z.output<
+  typeof housingPreferencesOnboardingSchema
+>;
+
 export type HousingPreferencesCreateInput = z.output<
   typeof housingPreferencesCreateSchema
 >;

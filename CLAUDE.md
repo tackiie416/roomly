@@ -37,11 +37,13 @@ contra un Supabase real (`roomly-validation`: SQL 58/58, supabase-js
 RLS/GRANT de `profiles` y `housing_preferences`, integridad de barrios con
 triggers; `test:db` 119/119 en local) y 2.1 completada (validación Zod y
 servicios de perfil y preferencias en `lib/validation/*` y
-`lib/services/*`) y 2.2 completada (routing de Auth: `lib/auth/*`, guards de
-servidor, `next` en cookie, `/cuenta-desactivada`, logout; `test` 283/283).
-Los formularios de onboarding, perfil, preferencias y ajustes son 2.3–2.6.
-La migración de 2.0 **no está aplicada** en `roomly-validation`. Subfases y
-decisiones: `docs/ROADMAP.md`.
+`lib/services/*`), 2.2 completada (routing de Auth: `lib/auth/*`, guards de
+servidor, `next` en cookie, `/cuenta-desactivada`, logout) y 2.3 completada
+(onboarding en `/bienvenida/{perfil,preferencias}` con Server Actions;
+`seeking_status` sin DEFAULT y trigger que exige preferencias con ciudad
+para completar; `test` 347/347, `test:db` 136/136). Perfil propio,
+preferencias y ajustes son 2.4–2.6. Las migraciones de 2.0 y 2.3 **no están
+aplicadas** en `roomly-validation`. Subfases y decisiones: `docs/ROADMAP.md`.
 - **Diferido por decisión del usuario**: Google OAuth, Apple OAuth y
   E2E/Playwright en CI (este último, a Fase 2).
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
@@ -253,7 +255,7 @@ Fase 1 completada — ver arriba.
 
 ## Funcionalidades pendientes
 
-Resto de Fase 2 (2.3–2.8) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
+Resto de Fase 2 (2.4–2.8) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 
