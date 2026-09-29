@@ -18,8 +18,8 @@
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
 | `npm run test` | ✅ 39/39 | local y CI |
-| `npm run test:db` (PostgreSQL local con shim) | ✅ 58/58 | local y CI (`db-security`) |
-| Suite SQL `tests/db` con roles reales | ✅ 58/58 | `roomly-validation` |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 119/119 (incluye `05`/`06` de Fase 2.0) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
+| Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`/`06`) | `roomly-validation`; la migración de Fase 2.0 no está aplicada allí |
 | `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 | `roomly-validation` |
 | AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 | `roomly-validation` y local tras `proxy.ts` |
 | AU4 magic link / AU5 con sesión | ✅ manual | `roomly-validation`, PC del propietario |
@@ -105,10 +105,19 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 | `02_chat_rls.sql` | fuga de mensajes entre conversaciones, escritura en conversaciones ajenas, recursión RLS (y una guarda estática que detecta la tautología `x.conversation_id = x.conversation_id` en `pg_policies`) |
 | `03_rooms_moderation.sql` | reactivar una habitación que un admin marcó `removed` |
 | `04_reports_insert.sql` | crear reportes con campos de resolución |
+| `05_housing_preferences.sql` (Fase 2.0) | escribir, ver o reasignar preferencias ajenas; upsert; presupuesto y compañeros negativos o con mínimo > máximo (y que valores altos se aceptan: no hay techos); textos; FKs de ciudad/universidad; barrios inexistentes, `NULL`, de otra ciudad o sin ciudad (también en listas largas); array vacío aceptado; borrar/mover/cambiar el id de un barrio en uso (como servidor y como admin); `anon` sin acceso |
+| `06_profiles_constraints.sql` (Fase 2.0) | límites de `full_name`/`bio`/`avatar_url`, `chk_min_age`, y `role`/`deleted_at` siguen protegidos |
 
 `expect_error` exige un SQLSTATE concreto: un "fallo por el motivo
 equivocado" (p. ej. recursión infinita en vez de rechazo por RLS) hace
 fallar el test en vez de pasar por accidente.
+
+**Resultado real (2026-09-29, Fase 2.0)**: 119/119 aserciones (58 + 50 de
+`05` + 11 de `06`) en PostgreSQL 16 local. Mutación en copias locales:
+- sin la migración de Fase 2.0 fallan `05` y `06`;
+- sin el trigger de `housing_preferences` falla `HP11`;
+- sin el trigger de `neighborhoods` falla `HP-inv1`;
+- con la función inversa como `SECURITY INVOKER` falla `HP-inv4`.
 
 **Resultado real (2026-09-26)**: 58/58 aserciones en verde en PostgreSQL
 16.13, por socket local y por TCP (como el servicio `postgres:16` de CI).

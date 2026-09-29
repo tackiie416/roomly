@@ -115,15 +115,15 @@ export interface Database {
           avatar_url?: string | null;
           bio?: string | null;
           seeking_status?: SeekingStatus;
-          role?: UserRole;
           email_notifications_enabled?: boolean;
           onboarding_completed_at?: string | null;
-          created_at?: string;
-          updated_at?: string;
-          deleted_at?: string | null;
         };
-        // Nota: `role`, `id`, `created_at`, `deleted_at` están excluidas de
-        // UPDATE a nivel de GRANT para el rol authenticated — ver SECURITY.md.
+        // Insert refleja el GRANT de INSERT del rol authenticated
+        // (20260926120000_security_fixes.sql): `role`, `deleted_at`,
+        // `created_at` y `updated_at` no se pueden enviar; los pone la base de
+        // datos. Cambiar `role`/`deleted_at` es cosa del servidor con
+        // service_role, nunca del flujo normal — ver SECURITY.md.
+        // Update, además, excluye `id` (GRANT de UPDATE).
         Update: Partial<
           Pick<
             Database["public"]["Tables"]["profiles"]["Insert"],
@@ -165,9 +165,16 @@ export interface Database {
           preferred_neighborhood_ids?: string[];
           roommates_wanted_min?: number | null;
           roommates_wanted_max?: number | null;
-          updated_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["housing_preferences"]["Insert"]>;
+        // Insert/Update reflejan el GRANT por columnas de
+        // 20260929120000_phase2_data_hardening.sql: `updated_at` la pone la
+        // base de datos y `profile_id` no se puede cambiar con UPDATE.
+        Update: Partial<
+          Omit<
+            Database["public"]["Tables"]["housing_preferences"]["Insert"],
+            "profile_id"
+          >
+        >;
         Relationships: [];
       };
       compatibility_responses: {

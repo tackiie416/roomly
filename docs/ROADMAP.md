@@ -45,14 +45,34 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User (no iniciada)
+## Fase 2 — User 🚧 EN PROGRESO (2.0)
 
-Registro, login, recuperación de acceso, perfil (con foto), preferencias
-de vivienda, onboarding completo.
+Registro, login, recuperación de acceso, perfil (la foto queda fuera de
+Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
 
 **Recibido de Fase 1**: validar contra Supabase real el alta de un
 usuario nuevo por magic link (con signups activos) junto con la creación
 de perfil tras el primer login (M6), y los E2E con Playwright.
+
+**Subfases** (plan aprobado el 2026-09-29, PROGRESS.md sesión 9):
+- 2.0 Endurecimiento de datos y RLS/GRANT de `profiles` y
+  `housing_preferences`, integridad de barrios con triggers, + tests de base
+  de datos — 🚧 implementada y validada en local (`test:db` 119/119). Falta
+  aplicarla en `roomly-validation`, lo que requiere antes una estrategia de
+  migración incremental (ver PROGRESS.md sesión 9).
+- 2.1 Validación (Zod) y servicios de perfil/preferencias — sin empezar.
+- 2.2 Enrutamiento de Auth: estado de perfil tras el callback, `?next=`
+  (M6), logout — sin empezar.
+- 2.3 Onboarding en `/bienvenida/...` — sin empezar.
+- 2.4 Perfil propio en `/perfil` (sin perfiles de terceros: H3/H4) — sin empezar.
+- 2.5 Preferencias — sin empezar.
+- 2.6 Ajustes (sin borrado de cuenta: H6) — sin empezar.
+- 2.7 Shell autenticado y estados de carga/error/vacío — sin empezar.
+- 2.8 Validación real del alta (entorno con signups) y E2E — sin empezar.
+
+Fuera de Fase 2 por decisión del usuario: foto de perfil/Storage (M3) y
+borrado de cuenta (H6). Una cuenta con `deleted_at` verá una pantalla de
+cuenta desactivada (decisión de producto, se implementa en 2.2).
 
 **Criterios de aceptación**: un usuario real puede completar
 registro → perfil → preferencias sin errores, con validación Zod en

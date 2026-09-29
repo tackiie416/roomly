@@ -31,7 +31,13 @@ contra un Supabase real (`roomly-validation`: SQL 58/58, supabase-js
 46/46, AU2–AU5) y migración a `proxy.ts` (runtime Node.js).
 - **Trasladado a Fase 2**: el alta real de un usuario nuevo por magic
   link (el login sí está validado; `roomly-validation` tiene signups
-  desactivados). Ver `docs/ROADMAP.md`. Fase 2 no está iniciada.
+  desactivados). Ver `docs/ROADMAP.md`.
+
+**Fase 2 (User): en progreso, subfase 2.0** (endurecimiento de datos y
+RLS/GRANT de `profiles` y `housing_preferences`, integridad de barrios con
+triggers; `test:db` 119/119 en local). Sin UI, servicios ni cambios de Auth
+todavía. La migración de 2.0 **no está aplicada** en `roomly-validation`.
+Subfases y decisiones: `docs/ROADMAP.md`.
 - **Diferido por decisión del usuario**: Google OAuth, Apple OAuth y
   E2E/Playwright en CI (este último, a Fase 2).
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
@@ -240,7 +246,7 @@ Fase 1 completada — ver arriba.
 
 ## Funcionalidades pendientes
 
-Fases 2 a 9 — ver `docs/ROADMAP.md`.
+Resto de Fase 2 (2.1–2.8) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 

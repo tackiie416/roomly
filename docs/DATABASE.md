@@ -107,6 +107,69 @@ Siguen siendo 18 tablas y 35 políticas (8 redefinidas). Se añaden 2
 funciones (`is_conversation_participant`, `enforce_room_moderation`) y
 1 trigger (`trg_rooms_moderation`).
 
+## Fase 2.0 — endurecimiento de datos (2026-09-29)
+
+Migración `supabase/migrations/20260929120000_phase2_data_hardening.sql`
+(nueva; las anteriores no se tocan). Motivo: M4, porque una escritura
+directa vía PostgREST se salta Zod y la base de datos es la última
+barrera. No relaja ninguna política.
+
+| Tabla | Constraint | Regla |
+|---|---|---|
+| `profiles` | `chk_profiles_full_name` | `btrim(full_name)` entre 1 y 100 caracteres |
+| `profiles` | `chk_profiles_bio_length` | `bio` nula o ≤ 500 caracteres |
+| `profiles` | `chk_profiles_avatar_url` | `avatar_url` nula, o `https://…` de ≤ 2048 caracteres (impide `javascript:`/`data:` en una columna que escribe el propio usuario) |
+| `housing_preferences` | `chk_housing_preferences_field_of_study` | nulo, o `btrim` entre 1 y 120 caracteres |
+| `housing_preferences` | `chk_housing_preferences_budget_max_nonneg` | `budget_max` ≥ 0. Junto con los ya existentes `chk_budget_positive` (`budget_min` ≥ 0) y `chk_budget_range` (`budget_min` ≤ `budget_max`) |
+| `housing_preferences` | `chk_housing_preferences_roommates` | mínimo y máximo ≥ 0, y mínimo ≤ máximo |
+
+**Sin techos, a propósito**: presupuesto, número de compañeros y número de
+barrios preferidos no tienen máximo. Se valoraron topes (se propusieron y
+se descartaron el 2026-09-29) porque la especificación no define ninguno.
+Cualquier límite futuro tiene que ser una decisión explícita de producto,
+no un valor técnico. El array de barrios sigue siendo `uuid[]` `NOT NULL`
+y admite estar vacío.
+
+Sin cambios: `seeking_status` ya es un enum; `date_of_birth` ya tiene
+`chk_min_age`; `city_id` y `university_id` ya son FKs (una ciudad o
+universidad inexistente se rechaza con `23503`).
+
+Permisos de `housing_preferences` (detalle en `docs/SECURITY.md`): GRANT
+por columnas, `profile_id` fuera del UPDATE y `anon` sin ningún privilegio.
+Como en `profiles` (PR8), `upsert()` no sirve para esta tabla: los
+servicios de Fase 2 harán INSERT y UPDATE por separado.
+
+**Integridad de `preferred_neighborhood_ids`: triggers en las dos
+direcciones** (decisión del usuario; se descartó la tabla intermedia para
+no cambiar el esquema). Por qué no un CHECK ni una FK: comprobado en
+PostgreSQL 16, un CHECK no admite subconsultas (`cannot use subquery in
+check constraint`) y no existen FKs sobre elementos de un array (`uuid[]`
+frente a `uuid`). Un CHECK que llamara a una función declarada `immutable`
+con una consulta dentro sería una constraint falsa (Postgres no la
+revalida) y se descartó.
+
+- `trg_housing_preferences_neighborhoods` (`BEFORE INSERT OR UPDATE OF
+  city_id, preferred_neighborhood_ids` en `housing_preferences`):
+  - array vacío (el default; la columna es `NOT NULL`) → se acepta;
+  - barrios con `city_id` nulo → `23514`;
+  - algún UUID inexistente o `NULL` dentro del array → `23503`;
+  - algún barrio de otra ciudad → `23514`. Cubre también cambiar
+    `city_id` dejando barrios de la ciudad anterior.
+- `trg_neighborhoods_not_referenced` (`BEFORE DELETE OR UPDATE OF id,
+  city_id` en `neighborhoods`): si alguna preferencia usa el barrio,
+  borrarlo, cambiarle el `id` o moverlo de ciudad falla con `23503`
+  (`neighborhood_in_use`). **Sin cascadas**: quien administra decide qué
+  hacer con esas preferencias antes. Renombrarlo sí se permite. También
+  bloquea borrar una ciudad con barrios en uso (su borrado en cascada de
+  barrios dispara el trigger).
+
+Limitación conocida: no hay bloqueo entre las dos comprobaciones, así que
+una escritura de preferencias y un borrado de barrio simultáneos podrían
+cruzarse. Se acepta: solo un admin borra barrios, es raro, y la siguiente
+escritura de esa fila la vuelve a validar. La comprobación inversa recorre
+`housing_preferences` sin índice sobre el array; si crece, se añade un
+índice GIN.
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid

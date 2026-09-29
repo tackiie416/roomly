@@ -6,6 +6,72 @@ próximos pasos.**
 
 ---
 
+## 2026-09-29 — Sesión 9: Fase 2.0 — endurecimiento de datos y RLS de preferencias
+
+**Decisiones del usuario para Fase 2** (tras la auditoría): ciudad y
+universidad siguen en `housing_preferences`; foto/Storage y borrado de cuenta
+fuera de Fase 2; nada de perfiles de terceros (H3/H4); `?next=` (M6) en 2.2;
+PKCE sin cambios; onboarding en `/bienvenida/...` y `/perfil` para el perfil
+propio; cuenta con `deleted_at` → pantalla de cuenta desactivada; tipos
+manuales; alta real y E2E en 2.8; no tocar `roomly-validation`.
+
+**Qué se hizo** (solo base de datos, tests, tipos y docs)
+- Migración nueva `20260929120000_phase2_data_hardening.sql`:
+  - `profiles`: `chk_profiles_full_name` (1–100 tras `btrim`),
+    `chk_profiles_bio_length` (≤ 500), `chk_profiles_avatar_url` (`https://`,
+    ≤ 2048).
+  - `housing_preferences`: `field_of_study` (1–120); `budget_max` ≥ 0 (con
+    los ya existentes `budget_min` ≥ 0 y mínimo ≤ máximo); compañeros ≥ 0
+    con mínimo ≤ máximo.
+  - **Sin techos, por decisión del usuario**: se propusieron topes de
+    presupuesto, de compañeros y de número de barrios, y se eliminaron
+    porque la especificación no los define. Cualquier límite futuro será
+    una decisión explícita de producto.
+  - GRANT por columnas en `housing_preferences`: `anon` sin privilegios;
+    `authenticated` inserta columnas de datos y actualiza las mismas sin
+    `profile_id`. Política `housing_preferences_own` recreada `to
+    authenticated` con `using` y `with check` explícitos (siguen 35).
+  - Integridad de `preferred_neighborhood_ids` con triggers (decisión del
+    usuario, sin tabla intermedia): `trg_housing_preferences_neighborhoods`
+    rechaza barrios inexistentes, `NULL`, de otra ciudad o sin ciudad;
+    `trg_neighborhoods_not_referenced` (`SECURITY DEFINER`) impide borrar,
+    cambiar de `id` o mover de ciudad un barrio en uso, sin cascadas. Un
+    CHECK no puede expresarlo (sin subconsultas) y no hay FKs sobre arrays
+    (comprobado en PostgreSQL 16).
+- Tests nuevos: `tests/db/05_housing_preferences.sql` (50 aserciones,
+  incluidas las que comprueban que valores altos de presupuesto,
+  compañeros y número de barrios se aceptan) y
+  `tests/db/06_profiles_constraints.sql` (11).
+- Pruebas de mutación (copias locales, nunca en remoto): sin la migración
+  fallan `05` y `06`; sin `trg_housing_preferences_neighborhoods` falla
+  `HP11`; sin `trg_neighborhoods_not_referenced` falla `HP-inv1`; con la
+  función inversa como `SECURITY INVOKER` falla `HP-inv4` (el admin no ve
+  las preferencias ajenas y el borrado pasaría).
+- `types/database.ts`: `profiles.Insert` ya no admite `role`, `deleted_at`,
+  `created_at` ni `updated_at` (reflejo del GRANT de INSERT);
+  `housing_preferences.Insert` sin `updated_at` y `Update` sin `profile_id`.
+- Docs: `docs/DATABASE.md` y `docs/SECURITY.md` (§"Fase 2.0"),
+  `docs/ROADMAP.md`, `docs/TESTING.md`, `CLAUDE.md`, `README.md`.
+
+**Resultados reales**: `test:db` 119/119 en PostgreSQL 16 local (58
+anteriores + 61 nuevas). 18 tablas, 35 políticas, RLS en todas, ninguna
+función de `public` sin `search_path` fijo. `format`, `lint`, `typecheck`,
+`test` 39/39 y `build` en verde. No se ha ejecutado nada contra
+`roomly-validation`.
+
+**Validación remota: pendiente, sin resolver en esta sesión**
+- La migración `20260929120000` **no está aplicada** en `roomly-validation`.
+- `tests/supabase/apply-migrations.sh` aplica todo el esquema desde cero y
+  se niega si ya existe: **no debe usarse** (ni forzarse) sobre un esquema
+  existente.
+- Con el workflow actual, la suite SQL remota fallaría en `05`/`06`, y
+  `preflight.sql` (P1–P5) no conoce los objetos nuevos. Antes de 2.8 hace
+  falta una estrategia de migración incremental.
+
+**Fuera de 2.0**: Storage, borrado, Auth, callback, UI, servicios, CI.
+
+---
+
 ## 2026-09-29 — Sesión 8: AU4/AU5 manuales, migración `middleware.ts` → `proxy.ts` y cierre de Fase 1
 
 **Qué se hizo**

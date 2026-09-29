@@ -59,6 +59,60 @@ servidor o desde el SQL editor, nunca desde la app.
 o el soft-delete (`deleted_at`). `removed` queda como estado de
 moderación.
 
+## Fase 2.0 — permisos de `housing_preferences` (2026-09-29)
+
+Migración `20260929120000_phase2_data_hardening.sql`. Mismo patrón que
+`profiles`: RLS filtra filas y el GRANT limita columnas; las dos capas
+son independientes.
+
+- `anon`: `revoke all`. Antes RLS ya lo bloqueaba (`auth.uid()` nulo);
+  ahora tampoco tiene el privilegio.
+- `authenticated`, **INSERT**: solo columnas de datos (`profile_id`,
+  `city_id`, `university_id`, `field_of_study`, presupuesto, fechas,
+  barrios, compañeros). `updated_at` la pone la base de datos.
+- `authenticated`, **UPDATE**: las mismas **sin `profile_id`**. Una fila no
+  se puede reasignar a otra persona, aunque RLS fallara.
+- SELECT y DELETE: sin cambios, sujetos a RLS (solo la propia fila).
+- Política `housing_preferences_own`: mismo alcance, ahora `to
+  authenticated` y con `using` **y** `with check` explícitos (antes el
+  `with check` era implícito), con columnas cualificadas. Siguen siendo 35
+  políticas.
+- Admin: esta tabla no tenía ni tiene política de admin. Por el GRANT, un
+  admin desde el cliente tampoco puede reasignar `profile_id`; lo
+  administrativo se hace desde el servidor con `service_role`.
+
+**Triggers de integridad de barrios** (detalle en `docs/DATABASE.md`
+§"Fase 2.0"):
+- `enforce_housing_preferences_neighborhoods()` es `SECURITY INVOKER` (el
+  default): solo lee `neighborhoods`, que es de lectura pública. Se ejecuta
+  con los permisos de quien escribe, así que no sirve para saltarse RLS.
+- `enforce_neighborhood_not_referenced()` es `SECURITY DEFINER` a
+  propósito. `housing_preferences` solo la lee su propietario, y con los
+  permisos de un admin autenticado la comprobación no vería las
+  preferencias ajenas y dejaría borrar un barrio en uso (lo demuestra la
+  mutación: sin `SECURITY DEFINER` falla `HP-inv4`). Es segura porque:
+  - solo puede ejecutarse como trigger;
+  - no recibe parámetros del usuario;
+  - solo responde «¿se usa este barrio?», con un error sin datos de terceros;
+  - `search_path` vacío y nombres cualificados;
+  - sin SQL dinámico;
+  - `EXECUTE` revocado a `PUBLIC`, `anon` y `authenticated`.
+- Ninguno de los dos triggers escribe datos: solo validan y rechazan.
+  Administrar barrios sigue siendo cosa de admin (RLS de referencia); un
+  usuario normal no puede borrar ni editar barrios.
+
+Tests: `tests/db/05_housing_preferences.sql` (crear y editar las propias;
+no crear, ver, editar, borrar ni reasignar las ajenas; upsert rechazado;
+presupuesto y compañeros no negativos con mínimo ≤ máximo (sin techos, por
+decisión de producto), textos, FKs; barrios inexistentes, `NULL` o de otra
+ciudad;
+integridad inversa como servidor y como admin; `anon` sin acceso) y
+`tests/db/06_profiles_constraints.sql` (límites de `profiles`,
+`chk_min_age`, y `role`/`deleted_at` siguen protegidos).
+
+Fuera de la Fase 2.0: Storage (avatares), borrado de cuenta (H6),
+Auth/`?next=` (M6) y UI.
+
 ## Comprobación de coherencia final (antes de Fase 1)
 
 Auditoría de RLS pedida explícitamente antes de confirmar el esquema.

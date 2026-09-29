@@ -6,7 +6,7 @@ Plataforma para encontrar compañeros de piso compatibles y formar grupos
 de convivencia. Lanzamiento inicial: estudiantes en Barcelona.
 
 🚧 **Estado: Fase 0 (arquitectura) y Fase 1 (Foundation) completadas ·
-Fase 2 no iniciada.**
+Fase 2 (User) en progreso (subfase 2.0: base de datos).**
 Ver `docs/ROADMAP.md` y `PROGRESS.md` para el detalle exacto. `HANDOFF.md`
 es el registro histórico de la transferencia desde otro entorno.
 
