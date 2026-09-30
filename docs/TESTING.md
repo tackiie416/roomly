@@ -37,7 +37,7 @@
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
 | Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
 | Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E |
-| `npm run test:db` (PostgreSQL local con shim) | ✅ 192/192 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3, `08` de cuentas eliminadas, `09` de Fase 2.4 y `10` de Fase 2.5) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 204/204 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5 y `11` de ownership aislado) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
 | Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`–`10`) | `roomly-validation`; las migraciones de Fase 2 no están aplicadas allí |
 | `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 | `roomly-validation` |
 | AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 | `roomly-validation` y local tras `proxy.ts` |
@@ -127,6 +127,7 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 | `05_housing_preferences.sql` (Fase 2.0) | escribir, ver o reasignar preferencias ajenas; upsert; presupuesto y compañeros negativos o con mínimo > máximo (y que valores altos se aceptan: no hay techos); textos; FKs de ciudad/universidad; barrios inexistentes, `NULL`, de otra ciudad o sin ciudad (también en listas largas); array vacío aceptado; borrar/mover/cambiar el id de un barrio en uso (como servidor y como admin); `anon` sin acceso |
 | `06_profiles_constraints.sql` (Fase 2.0) | límites de `full_name`/`bio`/`avatar_url`, `chk_min_age`, y `role`/`deleted_at` siguen protegidos |
 | `07_onboarding_integrity.sql` (Fase 2.3) | perfil sin `seeking_status` (ya no hay default); `flexible` explícito aceptado; marcar `onboarding_completed_at` sin preferencias, sin ciudad o en el INSERT; completar el de otro; ejecutar la función del trigger directamente; el servidor tampoco se lo salta |
+| `11_housing_preferences_ownership.sql` | UPDATE o DELETE de la fila de otro usuario **con esa fila visible**: dentro de una transacción con `ROLLBACK` se añade una política de SELECT temporal abierta, así que el resultado ya no lo explica la lectura, solo la condición de dueño de `housing_preferences_update_own`/`_delete_own`; control positivo (el dueño sí puede en la misma situación) y comprobación final de que la política temporal no queda |
 | `10_preferences_integrity.sql` (Fase 2.5) | con el onboarding completado: quitar la ciudad (cliente y servidor), crear preferencias sin ciudad, borrarlas desde el cliente; que antes del onboarding todo siga siendo opcional y borrable; que el servidor pierda el borrado o la cascada del perfil; universidad de otra ciudad (y al cambiar solo la ciudad), universidad sin ciudad aceptada, FK intacta; barrio de otra ciudad; estructura de triggers, funciones y política |
 | `09_own_profile_update.sql` (Fase 2.4) | que una cuenta activa deje de poder escribir alguno de los campos de `/perfil`; que `id`, `created_at` o `updated_at` pasen a ser actualizables; editar un perfil ajeno; vaciar `seeking_status` o `email_notifications_enabled`; `bio` de más de 500 |
 | `08_deleted_account_writes.sql` (decisión B) | una cuenta eliminada que actualiza su perfil o crea, actualiza o borra sus preferencias por PostgREST (con el mismo JWT de antes de eliminarse); que la lectura propia o ajena cambie; que el admin o `service_role` pierdan sus escrituras; que vuelva una política `FOR ALL` en `housing_preferences` |
@@ -134,6 +135,19 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 `expect_error` exige un SQLSTATE concreto: un "fallo por el motivo
 equivocado" (p. ej. recursión infinita en vez de rechazo por RLS) hace
 fallar el test en vez de pasar por accidente.
+
+**Resultado real (2026-09-30, ownership aislado)**: 204/204 aserciones
+(192 + 12 de `11`). Por qué hacía falta: `HP5b`/`HP5c` (`05`) pasan aunque
+la política de UPDATE/DELETE no compruebe el dueño, porque la de SELECT ya
+oculta la fila ajena. Mutaciones en copias locales (con una migración
+extra), todas detectadas por `11` mientras `HP5b`/`HP5c` siguen en verde:
+- UPDATE sin la condición de dueño (en `USING` y `WITH CHECK`) → `OWN1`
+  (1 fila afectada en vez de 0);
+- UPDATE sin la condición solo en `USING` → el `WITH CHECK` sigue
+  exigiendo el dueño y la escritura se rechaza con `42501`; `OWN1` falla
+  porque cambia el comportamiento (error en vez de 0 filas), no porque se
+  cuele una escritura;
+- DELETE sin la condición de dueño → `OWN3` (1 fila borrada en vez de 0).
 
 **Resultado real (2026-09-30, Fase 2.5)**: 192/192 aserciones (168 + 24 de
 `10`). Mutación en copias locales (5, todas detectadas): sin el trigger de

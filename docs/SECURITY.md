@@ -255,12 +255,15 @@ NULL` = cuenta completamente desactivada. Migración
   - el servidor (`service_role`) puede dejar un perfil completado sin fila
     de preferencias (borrado de cuenta futuro); si el cliente la recrea, el
     trigger exige ciudad;
-  - las condiciones de dueño de las políticas de UPDATE y DELETE no tienen
-    un test que las aísle: hoy la política de SELECT también impide tocar
-    filas ajenas (PostgreSQL la aplica a las filas que lee el `WHERE`). Si
-    en el futuro se abre la lectura de preferencias a terceros, esas
-    condiciones pasan a ser la única barrera y `HP5b`/`HP5c` empiezan a
-    probarlas por sí solos;
+  - ~~las condiciones de dueño de UPDATE y DELETE no tenían un test que las
+    aislara~~ (la política de SELECT también impide tocar filas ajenas,
+    porque PostgreSQL la aplica a las filas que lee el `WHERE`, y
+    `HP5b`/`HP5c` no distinguían las dos barreras). **Cubierto desde la
+    sesión 18** por `tests/db/11_housing_preferences_ownership.sql`: con la
+    fila ajena visible (política de SELECT temporal, deshecha con
+    `ROLLBACK`), el UPDATE y el DELETE siguen afectando a 0 filas. Así, si en
+    el futuro se abre la lectura a terceros, la condición de dueño ya está
+    probada por sí sola;
   - nada de esto se ha validado contra Supabase real.
 - Sin `service_role`, sin `select("*")`, sin `upsert`.
 

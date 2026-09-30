@@ -6,6 +6,47 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 18: ownership aislado de `housing_preferences`
+
+Solo tests de base de datos y documentación: sin cambios de código
+productivo, políticas ni migraciones. `d9430ac` y `b3ad249` intactos.
+
+**Limitación que se cierra**: `HP5b`/`HP5c` (`05`) no aislaban la condición
+de dueño de `housing_preferences_update_own`/`_delete_own`. PostgreSQL
+aplica también la política de SELECT a las filas que lee el `WHERE` de un
+UPDATE o DELETE, así que la fila ajena era invisible y el resultado era 0
+filas con o sin esa condición (ya visto con la mutación M1d, sesión 16).
+
+**Qué se hizo**: `tests/db/11_housing_preferences_ownership.sql` (12
+aserciones). Dentro de una transacción con `ROLLBACK`, como superusuario, se
+crea una política de SELECT temporal abierta; A comprueba que **ve** la fila
+de B (`OWN0`/`OWN2`) y aun así su UPDATE (`OWN1`) y su DELETE (`OWN3`)
+afectan a 0 filas y la fila queda intacta. Control positivo: en la misma
+situación B sí puede, así que las demás condiciones (cuenta activa,
+onboarding sin completar) se cumplen y la única diferencia es el dueño. Al
+final (`OWN4`) se comprueba que la política temporal no existe, que siguen 4
+políticas, que la fila de B está como al principio y que A vuelve a no verla.
+
+**Mutaciones** (copias locales con una migración extra; nada persistente):
+UPDATE sin dueño en `USING` y `WITH CHECK` → falla `OWN1`; UPDATE sin dueño
+solo en `USING` → el `WITH CHECK` sigue rechazando con `42501` (la fila no
+cambia) y `OWN1` falla por el cambio de comportamiento; DELETE sin dueño →
+falla `OWN3`. En las tres, `HP5b`/`HP5c` siguen en verde: por eso hacía
+falta este archivo.
+
+**Resultados reales**: `npm run test:db` 204/204 (192 + 12), `npm test`
+469/469, `lint`, `typecheck`, `format:check` y `build` en verde.
+
+**Riesgos pendientes** (sin cambios, no se tocan aquí): carrera onboarding
+↔ ciudad; perfil completado sin fila de preferencias; ciudad activa solo en
+la aplicación; `preflight.sql` P3 con 35 políticas (hay 38); punto A de la
+auditoría de 2.3; nada probado contra Supabase real; decisión sobre
+mascotas, tabaco y "solo estudiantes"; alcance del logout; cuándo hacer push.
+
+**Qué queda**: 2.6 (ajustes). No empezada.
+
+---
+
 ## 2026-09-30 — Sesión 17: cierre formal de la Fase 2.5 y auditoría de transición
 
 Sin cambios de código productivo, tests ni base de datos: solo comprobación
