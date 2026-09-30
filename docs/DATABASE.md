@@ -209,6 +209,26 @@ los barrios (trigger de 2.0), no la impone la base de datos. La comprueba
 escribir (una universidad con `city_id` nulo vale con cualquier ciudad).
 Pasarla a un trigger sería una decisión aparte, no tomada.
 
+## Cuentas eliminadas: escrituras bloqueadas (2026-09-30)
+
+Migración `supabase/migrations/20260930130000_block_deleted_account_writes.sql`
+(nueva; no edita ninguna anterior). Cierra la decisión B de la auditoría de
+2.3: `deleted_at IS NOT NULL` significa cuenta desactivada, y la base de
+datos (no solo la aplicación) le impide escribir.
+
+- `profiles_update_own` se recrea con `profiles.deleted_at is null` en
+  `USING` y `WITH CHECK`.
+- `housing_preferences_own` (`FOR ALL`) se sustituye por
+  `housing_preferences_select_own` (misma condición que antes: lectura sin
+  cambios) y `housing_preferences_{insert,update,delete}_own`, que añaden
+  `exists (select 1 from public.profiles p where p.id = profile_id and
+  p.deleted_at is null)`.
+
+Sin cambios de tablas, columnas, GRANT, funciones ni triggers. Pasan a ser
+18 tablas y **38 políticas** (−1 +4). El trigger de onboarding de 2.3 lee
+`housing_preferences` con la política de SELECT, que no cambia. Detalle y
+razonamiento en `docs/SECURITY.md`.
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid

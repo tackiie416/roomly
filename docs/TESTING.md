@@ -20,7 +20,7 @@
 | `npm run test` | ✅ 347/347 (39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3: `FormData`, esquema de onboarding, datos de referencia, Server Actions, render de formularios, universidad y ciudad) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
-| `npm run test:db` (PostgreSQL local con shim) | ✅ 136/136 (incluye `05`/`06` de Fase 2.0 y `07` de Fase 2.3) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 158/158 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3 y `08` de cuentas eliminadas) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
 | Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`–`07`) | `roomly-validation`; las migraciones de Fase 2.0 y 2.3 no están aplicadas allí |
 | `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 | `roomly-validation` |
 | AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 | `roomly-validation` y local tras `proxy.ts` |
@@ -110,10 +110,18 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 | `05_housing_preferences.sql` (Fase 2.0) | escribir, ver o reasignar preferencias ajenas; upsert; presupuesto y compañeros negativos o con mínimo > máximo (y que valores altos se aceptan: no hay techos); textos; FKs de ciudad/universidad; barrios inexistentes, `NULL`, de otra ciudad o sin ciudad (también en listas largas); array vacío aceptado; borrar/mover/cambiar el id de un barrio en uso (como servidor y como admin); `anon` sin acceso |
 | `06_profiles_constraints.sql` (Fase 2.0) | límites de `full_name`/`bio`/`avatar_url`, `chk_min_age`, y `role`/`deleted_at` siguen protegidos |
 | `07_onboarding_integrity.sql` (Fase 2.3) | perfil sin `seeking_status` (ya no hay default); `flexible` explícito aceptado; marcar `onboarding_completed_at` sin preferencias, sin ciudad o en el INSERT; completar el de otro; ejecutar la función del trigger directamente; el servidor tampoco se lo salta |
+| `08_deleted_account_writes.sql` (decisión B) | una cuenta eliminada que actualiza su perfil o crea, actualiza o borra sus preferencias por PostgREST (con el mismo JWT de antes de eliminarse); que la lectura propia o ajena cambie; que el admin o `service_role` pierdan sus escrituras; que vuelva una política `FOR ALL` en `housing_preferences` |
 
 `expect_error` exige un SQLSTATE concreto: un "fallo por el motivo
 equivocado" (p. ej. recursión infinita en vez de rechazo por RLS) hace
 fallar el test en vez de pasar por accidente.
+
+**Resultado real (2026-09-30, cuentas eliminadas)**: 158/158 aserciones
+(136 + 22 de `08`). Mutación en copias locales (6, todas detectadas): sin
+`deleted_at is null` en `profiles_update_own` falla `DD1`; sin la
+comprobación de perfil activo en la política de INSERT falla `DE1`, en la
+de UPDATE `DD2` y en la de DELETE `DD3`; sin la migración falla `DD1`; y si
+la lectura de preferencias también exigiera cuenta activa falla `DD4`.
 
 **Resultado real (2026-09-30, Fase 2.3)**: 136/136 aserciones (119 + 17 de
 `07`). Mutación en copias locales: con el default de `seeking_status` de

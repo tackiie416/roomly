@@ -6,6 +6,59 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 13: bloquear escrituras de cuentas eliminadas (decisión B)
+
+**Decisión del usuario** (tras la auditoría de cierre de 2.3): `deleted_at
+IS NOT NULL` = cuenta completamente desactivada. No puede modificar su
+perfil ni crear, modificar o borrar `housing_preferences`, y la protección
+tiene que estar en la base de datos, sin depender de que el JWT caduque. Sin
+borrado de cuenta, RGPD ni cambios en el logout. Los puntos A y C de la
+auditoría no se tocan.
+
+**Qué se hizo** (sin tocar código de la aplicación, tipos ni migraciones
+anteriores)
+- Migración `20260930130000_block_deleted_account_writes.sql`:
+  - `profiles_update_own`: `USING`/`WITH CHECK` con `profiles.deleted_at is
+    null`.
+  - `housing_preferences_own` (`FOR ALL`) → `housing_preferences_select_own`
+    (condición idéntica a la anterior) + `insert_own`/`update_own`/
+    `delete_own`, que exigen el perfil de la sesión con `deleted_at` nulo
+    (subconsulta con RLS: falla cerrada; sin recursión).
+  - Sin cambios en GRANT, funciones, triggers, `profiles_insert_own` ni
+    `profiles_admin_all`. 18 tablas, 38 políticas (antes 35), RLS en todas.
+- `tests/db/08_deleted_account_writes.sql` (22 aserciones): cuenta activa
+  escribe perfil y preferencias; cuenta eliminada (con el mismo JWT de
+  antes de eliminarse) no actualiza su perfil ni actualiza, borra o crea
+  preferencias; la lectura propia y ajena no cambia; un admin sigue
+  editando perfiles y `service_role` actualiza, borra y crea; estructura
+  de políticas.
+- Documentación: `docs/DATABASE.md`, `docs/SECURITY.md`, `docs/TESTING.md`,
+  `docs/ROADMAP.md` y la línea de estado de `CLAUDE.md`.
+
+**Resultados reales**: `test:db` 158/158 (136 + 22), `test` 347/347,
+`lint`, `typecheck`, `format:check` y `build` en verde. Mutaciones en copias
+locales (6, todas detectadas): sin `deleted_at is null` en
+`profiles_update_own` → `DD1`; sin la comprobación en INSERT → `DE1`, en
+UPDATE → `DD2`, en DELETE → `DD3`; sin la migración → `DD1`; lectura
+restringida también → `DD4`.
+
+**Pendiente**
+- `tests/supabase/preflight.sql` (P3) espera 35 políticas: es lo correcto
+  para `roomly-validation` hoy (solo migraciones de Fase 1). Al aplicar allí
+  las migraciones de Fase 2 (2.8) hay que actualizarlo a 38 en el mismo
+  paso. No se ha tocado Supabase remoto.
+- La misma regla para el resto de tablas que escribe un usuario
+  (`compatibility_responses`, `favorites`, `interests`, `messages`,
+  `rooms`...) cuando tengan flujo (Fase 3+).
+- Revocar sesiones al eliminar una cuenta: fuera de alcance (borrado de
+  cuenta, H6).
+- Puntos A (`onboarding_completed_at` de una sola escritura, 2.8) y C
+  (preferencias tras completar, 2.5): sin cambios.
+
+**Qué queda**: 2.4 (perfil propio). No empezada.
+
+---
+
 ## 2026-09-30 — Sesión 12: Fase 2.3 — onboarding
 
 **Decisiones del usuario** (tras la revisión de solo lectura de 2.2):

@@ -8,15 +8,17 @@ corregidas están en `docs/DATABASE.md`.
 
 | Requisito pedido | Políticas que lo cumplen |
 |---|---|
-| Usuarios solo modifican sus propios datos | `profiles_update_own`, `housing_preferences_own`, `compatibility_responses_own`, `favorites_own`, `interests_insert_own`/`interests_delete_own`, `participants_update_own` |
+| Usuarios solo modifican sus propios datos | `profiles_update_own`, `housing_preferences_{insert,update,delete}_own` (las dos, solo con la cuenta activa desde `20260930130000`), `compatibility_responses_own`, `favorites_own`, `interests_insert_own`/`interests_delete_own`, `participants_update_own` |
 | Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations`, todas vía `is_conversation_participant()` — un tercero no puede leer ni escribir aunque conozca el UUID de la conversación. **Hasta la migración `20260926120000_security_fixes.sql` esto NO era cierto** (ver "Correcciones de la auditoría inicial" abajo) |
 | Habitaciones editables solo por su propietario | `rooms_owner_write`. La dirección exacta va un paso más allá: `room_addresses_owner_only`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
 | Información privada protegida | `profiles` completo exige sesión (vista `public_profile_previews` para lo estrictamente público de SEO); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
 
-Las 35 políticas están en
+Las políticas (38 desde `20260930130000`) están en
 `supabase/migrations/20260925120100_rls_policies.sql`, con 8 de ellas
-redefinidas en `supabase/migrations/20260926120000_security_fixes.sql` —
+redefinidas en `supabase/migrations/20260926120000_security_fixes.sql` y
+las de `housing_preferences` y `profiles_update_own` rehechas en las
+migraciones de Fase 2 —
 esta tabla es el mapa de lectura rápida, no la fuente de la verdad. Los
 tests de regresión de seguridad están en `tests/db/` (ver
 `docs/TESTING.md`).
@@ -176,9 +178,9 @@ Auth/`?next=` (M6) y UI.
 - **`seeking_status`** sin DEFAULT: ningún perfil nace con un valor que el
   usuario no haya enviado; la UI no preselecciona ninguna opción.
 - **Cuentas eliminadas**: guards, acciones y servicios devuelven `deleted`
-  sin escribir nada; nunca se reactivan. Es una barrera de aplicación: las
-  políticas de `profiles` y `housing_preferences` no miran `deleted_at`
-  (pendiente de decisión, ver `PROGRESS.md`).
+  sin escribir nada; nunca se reactivan. En 2.3 era solo una barrera de
+  aplicación; desde `20260930130000` también la impone RLS (sección
+  siguiente).
 - **Universidad y ciudad**: `checkUniversityCity`
   (`lib/services/housing-preferences.ts`) rechaza una universidad de otra
   ciudad antes de escribir; los barrios ya los valida el trigger de 2.0.
@@ -189,6 +191,39 @@ Auth/`?next=` (M6) y UI.
 - Sin `service_role`, sin `select("*")`, sin `upsert`. Los datos de
   referencia (ciudades, universidades, barrios) se leen con el cliente
   normal: son tablas de lectura pública.
+
+## Cuentas eliminadas: escrituras bloqueadas en RLS (2026-09-30)
+
+Decisión B de la auditoría de 2.3. Semántica: `profiles.deleted_at IS NOT
+NULL` = cuenta completamente desactivada. Migración
+`20260930130000_block_deleted_account_writes.sql`:
+
+- **`profiles_update_own`**: `USING` y `WITH CHECK` exigen además
+  `profiles.deleted_at is null`. Una cuenta eliminada no actualiza su perfil
+  (0 filas afectadas).
+- **`housing_preferences`**: la política `FOR ALL` se divide en cuatro. La
+  de SELECT conserva exactamente la condición anterior. INSERT, UPDATE y
+  DELETE exigen que el perfil de la sesión exista con `deleted_at` nulo
+  (INSERT rechazado con `42501`; UPDATE y DELETE afectan a 0 filas).
+- **No depende del JWT**: RLS lee `deleted_at` en cada consulta. Un token
+  emitido antes de eliminar la cuenta sigue autenticando, pero ya no
+  escribe (test `DD1`–`DD3`, que no vuelve a hacer login).
+- **Sin cambios**: lectura (el propietario sigue viendo sus filas aunque
+  esté eliminado; privacidad H3/H4 intacta), `profiles_insert_own`,
+  `profiles_admin_all` (un admin activo sigue editando perfiles, también de
+  cuentas eliminadas; un admin eliminado ya no es admin por `is_admin()`),
+  GRANTs, funciones y triggers. `service_role` (BYPASSRLS) conserva todas
+  sus escrituras; la aplicación no lo usa.
+- **Por qué una subconsulta y no una función `SECURITY DEFINER`**: se
+  evalúa con el RLS de `profiles`, que deja al propietario leer su fila
+  aunque esté eliminada. Si esa lectura se quitara, la condición fallaría
+  cerrada (nadie escribe), no abierta. Sin recursión: ninguna política de
+  `profiles` consulta `housing_preferences`.
+- **Fuera de alcance**: borrado de cuenta completo, RGPD, revocación de
+  sesiones y alcance del logout. El resto de tablas que escribe un usuario
+  (`compatibility_responses`, `favorites`, `interests`, mensajes, rooms...)
+  no se ha tocado: cuando tengan flujo (Fase 3 en adelante) habrá que
+  aplicarles la misma regla.
 
 ## Comprobación de coherencia final (antes de Fase 1)
 

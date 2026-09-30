@@ -82,6 +82,12 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   JavaScript, datos de referencia en `lib/services/reference-data.ts`.
   Migración `20260930120000`: `seeking_status` sin DEFAULT y trigger que
   exige preferencias con ciudad para marcar el onboarding completo.
+- Endurecimiento entre 2.3 y 2.4 — ✅ (PROGRESS.md sesión 13): decisión B
+  de la auditoría de 2.3. Migración `20260930130000`: una cuenta con
+  `deleted_at` no puede actualizar su perfil ni crear, actualizar o borrar
+  sus preferencias, también por PostgREST (RLS). Los puntos A
+  (`onboarding_completed_at` de una sola escritura) y C (preferencias tras
+  completar) siguen pendientes, para 2.8 y 2.5.
 - 2.4 Perfil propio en `/perfil` (sin perfiles de terceros: H3/H4) — sin empezar.
 - 2.5 Preferencias — sin empezar.
 - 2.6 Ajustes (sin borrado de cuenta: H6) — sin empezar.

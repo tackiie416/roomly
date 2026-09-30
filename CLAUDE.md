@@ -41,8 +41,10 @@ servicios de perfil y preferencias en `lib/validation/*` y
 servidor, `next` en cookie, `/cuenta-desactivada`, logout) y 2.3 completada
 (onboarding en `/bienvenida/{perfil,preferencias}` con Server Actions;
 `seeking_status` sin DEFAULT y trigger que exige preferencias con ciudad
-para completar; `test` 347/347, `test:db` 136/136). Perfil propio,
-preferencias y ajustes son 2.4–2.6. Las migraciones de 2.0 y 2.3 **no están
+para completar; `test` 347/347). Después de 2.3, las escrituras de cuentas
+con `deleted_at` se bloquean también en RLS (`profiles_update_own` y
+`housing_preferences`; `test:db` 158/158). Perfil propio,
+preferencias y ajustes son 2.4–2.6. Las migraciones de Fase 2 (2.0, 2.3 y la de cuentas eliminadas) **no están
 aplicadas** en `roomly-validation`. Subfases y decisiones: `docs/ROADMAP.md`.
 - **Diferido por decisión del usuario**: Google OAuth, Apple OAuth y
   E2E/Playwright en CI (este último, a Fase 2).
