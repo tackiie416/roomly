@@ -225,6 +225,29 @@ NULL` = cuenta completamente desactivada. Migración
   no se ha tocado: cuando tengan flujo (Fase 3 en adelante) habrá que
   aplicarles la misma regla.
 
+## Fase 2.5 — preferencias de vivienda (2026-09-30)
+
+- **`/preferencias`**: guard `requireOwnProfile("/preferencias")` en la
+  propia página; solo lee las preferencias de la sesión
+  (`getHousingPreferences`, RLS de lectura sin cambios). Ningún id de la URL
+  se usa. Escritura por `submitOwnPreferences` → `updateHousingPreferences`
+  o, si no existen, `createHousingPreferences`; nunca upsert. `profile_id`
+  sale de la sesión; los esquemas `strict` rechazan `profile_id`, `role`,
+  `deleted_at`, `onboarding_completed_at` o cualquier otra clave. La acción
+  nunca escribe en `profiles`.
+- **Riesgo C (auditoría de 2.3) resuelto**: con el onboarding completado no
+  se puede quitar la ciudad (servicio + trigger para todos los roles) ni
+  borrar las preferencias desde el cliente (servicio sin función de borrado
+  + política de DELETE). Detalle y razonamiento en `docs/DATABASE.md`.
+- **Referencias**: universidad de la ciudad elegida (servicio + trigger),
+  barrios de la ciudad (trigger de 2.0), ciudad nueva activa (servicio;
+  la ya guardada se conserva). IDs mal formados los rechaza Zod; inexistentes,
+  las FKs.
+- **Privacidad (H4)**: no hay ninguna consulta nueva de datos ajenos; las
+  preferencias siguen siendo legibles solo por su dueño. No se ha cambiado
+  `public_profile_previews`.
+- Sin `service_role`, sin `select("*")`, sin `upsert`.
+
 ## Comprobación de coherencia final (antes de Fase 1)
 
 Auditoría de RLS pedida explícitamente antes de confirmar el esquema.

@@ -71,14 +71,19 @@ export type EditableProfileState = Extract<
   { status: "incomplete" } | { status: "complete" }
 >;
 
+export const OWN_PREFERENCES_PATH = "/preferencias";
+
 /**
- * Perfil propio (`/perfil`, Fase 2.4): siempre el de la sesión, nunca un id
- * de la URL. Sin perfil → paso 1 del onboarding; cuenta eliminada →
- * pantalla de cuenta desactivada. Incompleto y completo pueden editarlo
- * (con el onboarding sin terminar, la página lo indica).
+ * Datos propios editables (`/perfil`, Fase 2.4; `/preferencias`, Fase 2.5):
+ * siempre los de la sesión, nunca un id de la URL. Sin perfil → paso 1 del
+ * onboarding; cuenta eliminada → pantalla de cuenta desactivada. Incompleto
+ * y completo pueden editar (con el onboarding sin terminar, la página lo
+ * indica). `currentPath` solo sirve para volver tras el login.
  */
-export async function requireOwnProfile(): Promise<EditableProfileState> {
-  const state = await requireSessionState(OWN_PROFILE_PATH);
+export async function requireOwnProfile(
+  currentPath: typeof OWN_PROFILE_PATH | typeof OWN_PREFERENCES_PATH = OWN_PROFILE_PATH
+): Promise<EditableProfileState> {
+  const state = await requireSessionState(currentPath);
   if (state.status === "no_profile" || state.status === "deleted") {
     redirect(resolveDestination(state));
   }

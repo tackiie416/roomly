@@ -17,11 +17,12 @@
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 416/416 (39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4: esquema de edición, casillas en `FormData`, guard `requireOwnProfile`, página, Server Action y render del formulario) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
+| `npm run test` | ✅ 464/464 (39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 48 de preferencias, Fase 2.5: reglas del servicio, Server Action, página, formulario, datos de referencia y proxy) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
-| Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
-| `npm run test:db` (PostgreSQL local con shim) | ✅ 168/168 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3, `08` de cuentas eliminadas y `09` de Fase 2.4) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
+| Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) |
+| Flujo de `/preferencias` en Chromium | ✅ 35/35 (18 con y 17 sin JavaScript; el filtro dinámico solo aplica con JavaScript) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 192/192 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3, `08` de cuentas eliminadas, `09` de Fase 2.4 y `10` de Fase 2.5) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
 | Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`–`07`) | `roomly-validation`; las migraciones de Fase 2.0 y 2.3 no están aplicadas allí |
 | `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 | `roomly-validation` |
 | AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 | `roomly-validation` y local tras `proxy.ts` |
@@ -111,12 +112,25 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 | `05_housing_preferences.sql` (Fase 2.0) | escribir, ver o reasignar preferencias ajenas; upsert; presupuesto y compañeros negativos o con mínimo > máximo (y que valores altos se aceptan: no hay techos); textos; FKs de ciudad/universidad; barrios inexistentes, `NULL`, de otra ciudad o sin ciudad (también en listas largas); array vacío aceptado; borrar/mover/cambiar el id de un barrio en uso (como servidor y como admin); `anon` sin acceso |
 | `06_profiles_constraints.sql` (Fase 2.0) | límites de `full_name`/`bio`/`avatar_url`, `chk_min_age`, y `role`/`deleted_at` siguen protegidos |
 | `07_onboarding_integrity.sql` (Fase 2.3) | perfil sin `seeking_status` (ya no hay default); `flexible` explícito aceptado; marcar `onboarding_completed_at` sin preferencias, sin ciudad o en el INSERT; completar el de otro; ejecutar la función del trigger directamente; el servidor tampoco se lo salta |
+| `10_preferences_integrity.sql` (Fase 2.5) | con el onboarding completado: quitar la ciudad (cliente y servidor), crear preferencias sin ciudad, borrarlas desde el cliente; que antes del onboarding todo siga siendo opcional y borrable; que el servidor pierda el borrado o la cascada del perfil; universidad de otra ciudad (y al cambiar solo la ciudad), universidad sin ciudad aceptada, FK intacta; barrio de otra ciudad; estructura de triggers, funciones y política |
 | `09_own_profile_update.sql` (Fase 2.4) | que una cuenta activa deje de poder escribir alguno de los campos de `/perfil`; que `id`, `created_at` o `updated_at` pasen a ser actualizables; editar un perfil ajeno; vaciar `seeking_status` o `email_notifications_enabled`; `bio` de más de 500 |
 | `08_deleted_account_writes.sql` (decisión B) | una cuenta eliminada que actualiza su perfil o crea, actualiza o borra sus preferencias por PostgREST (con el mismo JWT de antes de eliminarse); que la lectura propia o ajena cambie; que el admin o `service_role` pierdan sus escrituras; que vuelva una política `FOR ALL` en `housing_preferences` |
 
 `expect_error` exige un SQLSTATE concreto: un "fallo por el motivo
 equivocado" (p. ej. recursión infinita en vez de rechazo por RLS) hace
 fallar el test en vez de pasar por accidente.
+
+**Resultado real (2026-09-30, Fase 2.5)**: 192/192 aserciones (168 + 24 de
+`10`). Mutación en copias locales (5, todas detectadas): sin el trigger de
+ciudad → `PC1`; política de DELETE sin la condición de onboarding → `PC3`;
+sin el trigger de universidad → `PU1`; trigger de ciudad solo en UPDATE →
+`PC5`; trigger de universidad sin dejar paso a la FK de ciudad → `HP9` (de
+2.0). Mutaciones de código (9, todas detectadas por `npm run test`): sin la
+regla de ciudad tras el onboarding, sin la de ciudad activa, sin la de
+universidad en el servicio, onboarding siempre "sin completar", acción sin
+INSERT cuando no existen, ciudad siempre obligatoria en la página, esquema
+de edición no estricto, sin guard en la acción (lo detecta "eliminada entre
+el guard y la escritura") y cuenta eliminada no bloqueada en el servicio.
 
 **Resultado real (2026-09-30, Fase 2.4)**: 168/168 aserciones (158 + 10 de
 `09`). Mutación en una copia local: con una migración extra que concede

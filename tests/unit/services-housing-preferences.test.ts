@@ -34,7 +34,20 @@ function row(overrides: Partial<HousingPreferences> = {}): HousingPreferences {
   };
 }
 
-const activeProfile = { id: USER, deleted_at: null };
+type ProfileFixture = {
+  id: string;
+  deleted_at: string | null;
+  onboarding_completed_at: string | null;
+};
+const activeProfile: ProfileFixture = {
+  id: USER,
+  deleted_at: null,
+  onboarding_completed_at: null,
+};
+const completedProfile = {
+  ...activeProfile,
+  onboarding_completed_at: "2026-09-20T10:00:00Z",
+};
 
 /** Responde a la comprobación de perfil y delega el resto en `rest`. */
 function withProfile(
@@ -42,10 +55,17 @@ function withProfile(
     data: unknown;
     error: { code?: string; message?: string } | null;
   },
-  profile: { id: string; deleted_at: string | null } | null = activeProfile
+  profile: {
+    id: string;
+    deleted_at: string | null;
+    onboarding_completed_at?: string | null;
+  } | null = activeProfile
 ) {
   return (call: Call) => {
     if (call.table === "profiles") return { data: profile, error: null };
+    // Comprobación de ciudad activa de checkPreferenceRules.
+    if (call.table === "cities")
+      return { data: { id: CITY, is_active: true }, error: null };
     // Lectura previa de checkUniversityCity: sin preferencias guardadas.
     if (isUniversityCityRead(call)) return { data: null, error: null };
     return rest(call);
@@ -408,6 +428,8 @@ describe("universidad y ciudad (Fase 2.3)", () => {
       userId: USER,
       respond: (call) => {
         if (call.table === "profiles") return { data: activeProfile, error: null };
+        if (call.table === "cities")
+          return { data: { id: CITY, is_active: true }, error: null };
         if (call.table === "universities")
           return { data: { id: UNI, city_id: universityCity }, error: null };
         if (isUniversityCityRead(call))
@@ -476,5 +498,124 @@ describe("universidad y ciudad (Fase 2.3)", () => {
     await updateHousingPreferences(client, { budget_max: 700 });
     expect(calls.some((call) => call.table === "universities")).toBe(false);
     expect(calls.some(isUniversityCityRead)).toBe(false);
+  });
+});
+
+describe("reglas de Fase 2.5 (ciudad tras el onboarding, ciudad activa)", () => {
+  const OTHER_CITY = "4a2d7b5f-9c3e-4d2b-8f8a-3b7c6d5e4f32";
+
+  function scenario(options: {
+    profile?: ProfileFixture;
+    saved?: Partial<HousingPreferences> | null;
+    cityActive?: boolean;
+  }) {
+    return createFakeSupabase({
+      userId: USER,
+      respond: (call) => {
+        if (call.table === "profiles")
+          return { data: options.profile ?? activeProfile, error: null };
+        if (call.table === "cities")
+          return {
+            data: { id: OTHER_CITY, is_active: options.cityActive ?? true },
+            error: null,
+          };
+        if (isUniversityCityRead(call))
+          return {
+            data:
+              options.saved === undefined
+                ? { city_id: CITY, university_id: null }
+                : options.saved,
+            error: null,
+          };
+        return { data: row(), error: null };
+      },
+    });
+  }
+
+  it("onboarding completado: quitar la ciudad → error de campo, sin escribir", async () => {
+    const { client, calls } = scenario({ profile: completedProfile });
+    expect(await updateHousingPreferences(client, { city_id: null })).toEqual({
+      ok: false,
+      error: "validation",
+      fieldErrors: {
+        city_id: [
+          "La ciudad es obligatoria: la necesitamos para buscarte piso y compañeros",
+        ],
+      },
+    });
+    expect(writePayloads(calls)).toHaveLength(0);
+  });
+
+  it("onboarding completado: crear sin ciudad (fila borrada por el servidor) → error", async () => {
+    const { client, calls } = scenario({ profile: completedProfile, saved: null });
+    expect(await createHousingPreferences(client, { city_id: null })).toMatchObject({
+      ok: false,
+      error: "validation",
+      fieldErrors: { city_id: expect.any(Array) },
+    });
+    expect(writePayloads(calls)).toHaveLength(0);
+  });
+
+  it("onboarding completado: editar otros campos (sin tocar la ciudad) funciona", async () => {
+    const { client, calls } = scenario({ profile: completedProfile });
+    expect(
+      await updateHousingPreferences(client, { budget_max: 25000, field_of_study: null })
+    ).toMatchObject({ ok: true });
+    expect(writePayloads(calls)[0].payload).toEqual({
+      budget_max: 25000,
+      field_of_study: null,
+    });
+  });
+
+  it("antes del onboarding: quitar la ciudad está permitido", async () => {
+    const { client, calls } = scenario({});
+    expect(await updateHousingPreferences(client, { city_id: null })).toMatchObject({
+      ok: true,
+    });
+    expect(writePayloads(calls)[0].payload).toEqual({ city_id: null });
+  });
+
+  it("una ciudad nueva inactiva → error de campo, sin escribir", async () => {
+    const { client, calls } = scenario({ cityActive: false });
+    expect(await updateHousingPreferences(client, { city_id: OTHER_CITY })).toEqual({
+      ok: false,
+      error: "validation",
+      fieldErrors: { city_id: ["Esta ciudad todavía no está disponible"] },
+    });
+    expect(writePayloads(calls)).toHaveLength(0);
+  });
+
+  it("la ciudad ya guardada se conserva aunque se haya desactivado", async () => {
+    const { client, calls } = scenario({
+      cityActive: false,
+      saved: { city_id: OTHER_CITY, university_id: null },
+    });
+    expect(
+      await updateHousingPreferences(client, { city_id: OTHER_CITY, budget_max: 500 })
+    ).toMatchObject({ ok: true });
+    expect(calls.some((call) => call.table === "cities")).toBe(false);
+    expect(writePayloads(calls)).toHaveLength(1);
+  });
+
+  it("errores de los triggers de 2.5 → errores de campo propios", async () => {
+    for (const [message, field] of [
+      [
+        "housing_city_required: con el onboarding completado la ciudad es obligatoria",
+        "city_id",
+      ],
+      [
+        "housing_university: la universidad no pertenece a la ciudad elegida",
+        "university_id",
+      ],
+    ] as const) {
+      const { client } = createFakeSupabase({
+        userId: USER,
+        respond: withProfile(() => dbError("23514", message)),
+      });
+      const result = await updateHousingPreferences(client, { budget_max: 1 });
+      expect(result).toMatchObject({ ok: false, error: "validation" });
+      expect(result.ok ? {} : result.fieldErrors).toHaveProperty(field);
+      expect(JSON.stringify(result)).not.toContain("housing_");
+    }
   });
 });

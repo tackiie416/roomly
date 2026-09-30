@@ -6,6 +6,7 @@
 export const PROTECTED_PREFIXES = [
   "/admin",
   "/perfil",
+  "/preferencias",
   "/ajustes",
   "/bienvenida",
   "/cuenta-desactivada",

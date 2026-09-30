@@ -207,7 +207,9 @@ Coherencia universidad ↔ ciudad de `housing_preferences`: a diferencia de
 los barrios (trigger de 2.0), no la impone la base de datos. La comprueba
 `checkUniversityCity` en `lib/services/housing-preferences.ts` antes de
 escribir (una universidad con `city_id` nulo vale con cualquier ciudad).
-Pasarla a un trigger sería una decisión aparte, no tomada.
+Pasarla a un trigger sería una decisión aparte, no tomada. **Actualización
+(Fase 2.5)**: desde `20260930140000` también la impone la base de datos (ver
+"Fase 2.5" abajo).
 
 ## Cuentas eliminadas: escrituras bloqueadas (2026-09-30)
 
@@ -228,6 +230,53 @@ Sin cambios de tablas, columnas, GRANT, funciones ni triggers. Pasan a ser
 18 tablas y **38 políticas** (−1 +4). El trigger de onboarding de 2.3 lee
 `housing_preferences` con la política de SELECT, que no cambia. Detalle y
 razonamiento en `docs/SECURITY.md`.
+
+## Fase 2.5 — integridad de las preferencias (2026-09-30)
+
+Migración `supabase/migrations/20260930140000_phase2_preferences_integrity.sql`
+(nueva; no edita ninguna anterior). Resuelve el riesgo C de la auditoría de
+2.3 y lleva a la base de datos la regla universidad ↔ ciudad.
+
+| Regla | Mecanismo | Alcance |
+|---|---|---|
+| Con `onboarding_completed_at` no nulo, `housing_preferences.city_id` no puede ser `NULL` | `trg_housing_preferences_city_required` (`BEFORE INSERT OR UPDATE OF city_id`) → `23514` `housing_city_required:` | todos los roles, también `service_role`: es un invariante de los datos |
+| Con el onboarding completado, el cliente no borra sus preferencias | `housing_preferences_delete_own` (RLS) exige además `p.onboarding_completed_at is null` → el DELETE afecta a 0 filas | solo `authenticated`; `service_role` y la cascada del perfil no se ven afectados |
+| Una universidad con ciudad solo vale con esa ciudad | `trg_housing_preferences_university` (`BEFORE INSERT OR UPDATE OF city_id, university_id`) → `23514` `housing_university:` | todos los roles; universidad sin ciudad vale con cualquiera; universidad o ciudad inexistentes las rechaza su FK (`23503`) |
+
+**Por qué RLS para el DELETE y no un trigger ni un `REVOKE`**: un trigger
+`BEFORE DELETE` también bloquearía el borrado en cascada de un perfil
+(`on delete cascade`, el futuro borrado de cuenta con `service_role`), y
+revocar DELETE a `authenticated` quitaría también el borrado antes del
+onboarding, que es inofensivo y ya estaba probado (`08`, `DA4`). La
+política solo restringe al cliente. Consecuencia aceptada: el servidor
+puede dejar a un perfil completado sin fila de preferencias (p. ej. al
+borrar la cuenta); si luego el cliente la recrea, el trigger exige ciudad.
+
+**Por qué trigger para la ciudad**: la regla depende de otra tabla
+(`profiles`) y tiene que aplicar también al INSERT de una fila nueva;
+un `WITH CHECK` de RLS daría un `42501` genérico y no cubriría al servidor.
+El trigger da un error propio (`housing_city_required:`) que el servicio
+traduce a un error de campo.
+
+Ambas funciones son `SECURITY INVOKER`, con `search_path` vacío y `EXECUTE`
+revocado; solo leen la fila del propio perfil y `universities`/`cities`
+(lectura pública). Sin recursión. Siguen 18 tablas y **38 políticas** (se
+recrea una). El fixture `HP-barrios` de `tests/db/05` que dejaba
+`city_id = null` con una universidad de Barcelona ahora también vacía
+`university_id`: ese estado ya lo rechazaba la aplicación desde 2.3 y ahora
+también la base de datos; lo que prueba el test (barrios vacíos sin ciudad)
+no cambia.
+
+`cities.is_active` (rollout ciudad a ciudad) se comprueba en la aplicación,
+no en la base de datos: una ciudad **nueva** tiene que estar activa, pero
+una ya guardada que después se desactiva se puede conservar
+(`checkPreferenceRules`). `universities` y `neighborhoods` no tienen
+`is_active`.
+
+**No existen en `housing_preferences`**: mascotas, tabaco y "solo
+estudiantes" (`pets_allowed`, `smoking_allowed`, `students_only`) son
+columnas de `rooms` (Fase 4). No se añaden como preferencias en 2.5:
+sería un cambio de esquema pendiente de decisión.
 
 ## Diagrama de entidades (simplificado)
 

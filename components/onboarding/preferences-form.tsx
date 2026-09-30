@@ -1,10 +1,8 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import {
-  submitOnboardingPreferences,
-  type OnboardingFormState,
-} from "@/app/actions/onboarding";
+import { submitOnboardingPreferences } from "@/app/actions/onboarding";
+import type { PreferencesFormState } from "@/lib/validation/preferences-form";
 import { Input } from "@/components/ui/input";
 import {
   FieldError,
@@ -15,10 +13,12 @@ import {
 } from "./form-controls";
 
 /**
- * Paso 2 del onboarding. Ciudad obligatoria; el resto, opcional y sin techos
+ * Formulario de preferencias de vivienda: paso 2 del onboarding (por
+ * defecto) y `/preferencias` (Fase 2.5, con otra acción y texto). Ciudad
+ * obligatoria salvo `cityRequired={false}`; el resto, opcional y sin techos
  * (solo mínimos ≥ 0 y mínimo ≤ máximo, como en la base de datos). Universidad
  * y barrios se filtran por la ciudad elegida; la coherencia real la comprueban
- * la validación del servidor y el trigger de barrios.
+ * el servidor y los triggers de la base de datos.
  */
 
 type Option = { id: string; name: string };
@@ -29,20 +29,32 @@ export type PreferencesInitialValues = Record<string, string | string[]>;
 const selectClass =
   "mt-1 w-full rounded-[var(--radius)] border border-[var(--border)] bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]";
 
-const initialState: OnboardingFormState = {};
+const initialState: PreferencesFormState = {};
+
+type PreferencesAction = (
+  state: PreferencesFormState,
+  formData: FormData
+) => Promise<PreferencesFormState>;
 
 export function PreferencesForm({
   cities,
   universities,
   neighborhoods,
   initialValues,
+  submitAction = submitOnboardingPreferences,
+  submitLabel = "Terminar",
+  cityRequired = true,
 }: {
   cities: Option[];
   universities: CityScopedOption[];
   neighborhoods: CityScopedOption[];
   initialValues: PreferencesInitialValues;
+  submitAction?: PreferencesAction;
+  submitLabel?: string;
+  /** El `required` del navegador; la regla real la aplica el servidor. */
+  cityRequired?: boolean;
 }) {
-  const [state, action] = useActionState(submitOnboardingPreferences, initialState);
+  const [state, action] = useActionState(submitAction, initialState);
   const values = state.values ?? initialValues;
   const errors = state.fieldErrors ?? {};
   const text = (key: string) =>
@@ -112,7 +124,7 @@ export function PreferencesForm({
         <select
           id="city_id"
           name="city_id"
-          required
+          required={cityRequired}
           defaultValue={cityId}
           onChange={(event) => setCityId(event.target.value)}
           aria-invalid={Boolean(errors.city_id)}
@@ -239,7 +251,12 @@ export function PreferencesForm({
       </fieldset>
 
       <FormError message={state.formError} />
-      <SubmitButton label="Terminar" pendingLabel="Guardando…" />
+      {state.success ? (
+        <p role="status" className="text-sm text-green-700">
+          {state.success}
+        </p>
+      ) : null}
+      <SubmitButton label={submitLabel} pendingLabel="Guardando…" />
     </form>
   );
 }

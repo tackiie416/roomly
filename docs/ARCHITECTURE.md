@@ -255,6 +255,14 @@ compartido por la página y la acción). Reutiliza los controles de
 `components/onboarding/form-controls.tsx`. `app/(app)/perfil/[id]` sigue
 vacía: perfiles de terceros (H3/H4) no están en Fase 2.
 
+Preferencias propias (Fase 2.5): `app/(app)/preferencias/page.tsx` (mismo
+guard, `requireOwnProfile("/preferencias")`), Server Action
+`app/actions/housing-preferences.ts` → servicios de
+`lib/services/housing-preferences.ts`, y campos y valores del formulario en
+`lib/validation/preferences-form.ts`. El formulario es el de
+`components/onboarding/preferences-form.tsx`, con acción, texto del botón y
+ciudad obligatoria como props (por defecto, las del onboarding).
+
 (Árbol completo generado en el sandbox — consultable con `find` en
 `/home/claude/roomly` o revisando el commit inicial en git.)
 

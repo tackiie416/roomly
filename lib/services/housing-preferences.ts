@@ -22,8 +22,11 @@ import {
  * Mismo patrón que el perfil: usuario de `auth.getUser()`, sin service_role,
  * sin upsert (el GRANT de UPDATE excluye `profile_id`). `profile_id` nunca
  * llega del input. La coherencia de barrios y las FKs las garantiza la base
- * de datos; aquí solo se traducen sus errores a errores de campo. La de
- * universidad y ciudad se comprueba aquí (`checkUniversityCity`).
+ * de datos; aquí solo se traducen sus errores a errores de campo. Antes de
+ * escribir, `checkPreferenceRules` comprueba también (Fases 2.3 y 2.5) que la
+ * universidad sea de la ciudad, que una ciudad nueva esté activa y que, con
+ * el onboarding completado, no se quite la ciudad; las dos reglas de datos
+ * las repite la base de datos (`20260930140000`).
  */
 
 type HousingPreferencesRow = Database["public"]["Tables"]["housing_preferences"]["Row"];
@@ -32,11 +35,27 @@ export type HousingPreferences = HousingPreferencesRow;
 const HOUSING_PREFERENCES_COLUMNS =
   "profile_id, city_id, university_id, field_of_study, budget_min, budget_max, move_in_date, move_out_date, preferred_neighborhood_ids, roommates_wanted_min, roommates_wanted_max, updated_at" as const;
 
+const CITY_REQUIRED_AFTER_ONBOARDING =
+  "La ciudad es obligatoria: la necesitamos para buscarte piso y compañeros";
+const CITY_NOT_AVAILABLE = "Esta ciudad todavía no está disponible";
+
 /**
  * Errores conocidos → campo. El orden importa: el mensaje de "barrios sin
  * ciudad" es más concreto que el prefijo genérico del trigger.
  */
 const HOUSING_DB_RULES: DbFieldRule[] = [
+  {
+    code: "23514",
+    match: "housing_city_required:",
+    field: "city_id",
+    message: CITY_REQUIRED_AFTER_ONBOARDING,
+  },
+  {
+    code: "23514",
+    match: "housing_university:",
+    field: "university_id",
+    message: "La universidad no pertenece a la ciudad elegida",
+  },
   {
     code: "23514",
     match: "housing_neighborhoods: no se pueden elegir barrios sin ciudad",
@@ -122,52 +141,79 @@ function mapHousingWriteError<T>(error: {
   return mapped;
 }
 
-/** Perfil propio existente y no eliminado; si no, el error correspondiente. */
+/**
+ * Perfil propio existente y no eliminado; si no, el error correspondiente.
+ * Devuelve si el onboarding está completado (Fase 2.5: cambia qué se puede
+ * vaciar).
+ */
 async function requireActiveProfile(
   supabase: DbClient,
   userId: string
-): Promise<ServiceResult<true>> {
+): Promise<ServiceResult<{ onboardingCompleted: boolean }>> {
   const { data: profile, error } = await supabase
     .from("profiles")
-    .select("id, deleted_at")
+    .select("id, deleted_at, onboarding_completed_at")
     .eq("id", userId)
     .maybeSingle();
   if (error) return mapDbError(error);
   if (!profile) return fail("no_profile");
   if (profile.deleted_at !== null) return fail("deleted");
-  return ok(true);
+  return ok({ onboardingCompleted: profile.onboarding_completed_at != null });
 }
 
 const UNIVERSITY_CITY_MISMATCH = "La universidad no pertenece a la ciudad elegida";
 
 /**
- * La universidad elegida debe ser de la ciudad elegida (Fase 2.3). A
- * diferencia de los barrios, la base de datos no lo impone, así que se
- * comprueba aquí antes de escribir. Una universidad sin ciudad
- * (`universities.city_id` nulo) vale con cualquier ciudad. Si el input solo
- * trae uno de los dos campos, el otro es el valor ya guardado.
+ * Reglas que dependen de otros datos, antes de escribir. Si el input solo
+ * trae uno de los campos, el otro es el valor ya guardado.
+ *   - Con el onboarding completado, la ciudad no se puede quitar (Fase 2.5,
+ *     riesgo C; también `trg_housing_preferences_city_required`).
+ *   - Una ciudad nueva (distinta de la guardada) tiene que estar activa
+ *     (`cities.is_active`, el rollout ciudad a ciudad). Una ciudad ya
+ *     guardada que después se desactivó se puede conservar. Una inexistente
+ *     la rechaza la FK al escribir ("La ciudad no existe").
+ *   - La universidad tiene que ser de la ciudad elegida (Fase 2.3; también
+ *     `trg_housing_preferences_university`). Una universidad sin ciudad vale
+ *     con cualquiera.
  */
-async function checkUniversityCity(
+async function checkPreferenceRules(
   supabase: DbClient,
   userId: string,
-  fields: { city_id?: string | null; university_id?: string | null }
+  fields: { city_id?: string | null; university_id?: string | null },
+  options: { onboardingCompleted: boolean }
 ): Promise<ServiceResult<true>> {
   if (fields.city_id === undefined && fields.university_id === undefined) return ok(true);
 
-  let cityId = fields.city_id;
-  let universityId = fields.university_id;
-  if (cityId === undefined || universityId === undefined) {
-    const { data: current, error } = await supabase
-      .from("housing_preferences")
-      .select("city_id, university_id")
-      .eq("profile_id", userId)
+  if (fields.city_id === null && options.onboardingCompleted) {
+    return fail("validation", { city_id: [CITY_REQUIRED_AFTER_ONBOARDING] });
+  }
+
+  const { data: current, error: currentError } = await supabase
+    .from("housing_preferences")
+    .select("city_id, university_id")
+    .eq("profile_id", userId)
+    .maybeSingle();
+  if (currentError) return mapDbError(currentError);
+  const cityId =
+    fields.city_id === undefined ? (current?.city_id ?? null) : fields.city_id;
+  const universityId =
+    fields.university_id === undefined
+      ? (current?.university_id ?? null)
+      : fields.university_id;
+
+  if (fields.city_id && fields.city_id !== current?.city_id) {
+    const { data: city, error } = await supabase
+      .from("cities")
+      .select("id, is_active")
+      .eq("id", fields.city_id)
       .maybeSingle();
     if (error) return mapDbError(error);
-    if (cityId === undefined) cityId = current?.city_id ?? null;
-    if (universityId === undefined) universityId = current?.university_id ?? null;
+    if (city && !city.is_active) {
+      return fail("validation", { city_id: [CITY_NOT_AVAILABLE] });
+    }
   }
-  if (!universityId) return ok(true);
 
+  if (!universityId) return ok(true);
   const { data: university, error } = await supabase
     .from("universities")
     .select("id, city_id")
@@ -214,8 +260,8 @@ export async function createHousingPreferences(
   const profile = await requireActiveProfile(supabase, userId);
   if (!profile.ok) return profile;
 
-  const universityCity = await checkUniversityCity(supabase, userId, fields);
-  if (!universityCity.ok) return universityCity;
+  const rules = await checkPreferenceRules(supabase, userId, fields, profile.data);
+  if (!rules.ok) return rules;
 
   const { data: created, error } = await supabase
     .from("housing_preferences")
@@ -258,8 +304,8 @@ export async function updateHousingPreferences(
   const profile = await requireActiveProfile(supabase, userId);
   if (!profile.ok) return profile;
 
-  const universityCity = await checkUniversityCity(supabase, userId, parsed.data);
-  if (!universityCity.ok) return universityCity;
+  const rules = await checkPreferenceRules(supabase, userId, parsed.data, profile.data);
+  if (!rules.ok) return rules;
 
   const { data: updated, error } = await supabase
     .from("housing_preferences")

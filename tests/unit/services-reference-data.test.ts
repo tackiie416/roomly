@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   listActiveCities,
+  listCitiesByIds,
   listNeighborhoods,
   listUniversities,
 } from "@/lib/services/reference-data";
@@ -46,6 +47,27 @@ describe("reference-data", () => {
         filters: [{ kind: "in", column: "city_id", value: [CITY] }],
       }),
     ]);
+  });
+
+  it("listCitiesByIds (Fase 2.5): solo las ciudades pedidas, activas o no, sin N+1", async () => {
+    const { client, calls } = createFakeSupabase({
+      userId: null,
+      respond: () => ({ data: [{ id: CITY, name: "Madrid" }], error: null }),
+    });
+    expect(await listCitiesByIds(client, [CITY])).toEqual({
+      ok: true,
+      data: [{ id: CITY, name: "Madrid" }],
+    });
+    expect(calls).toEqual([
+      expect.objectContaining({
+        table: "cities",
+        columns: "id, name",
+        filters: [{ kind: "in", column: "id", value: [CITY] }],
+      }),
+    ]);
+    const empty = createFakeSupabase({ userId: null });
+    expect(await listCitiesByIds(empty.client, [])).toEqual({ ok: true, data: [] });
+    expect(empty.calls).toHaveLength(0);
   });
 
   it("sin ciudades no consulta nada", async () => {

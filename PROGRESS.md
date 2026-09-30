@@ -6,6 +6,109 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 15: Fase 2.5 — preferencias de vivienda
+
+**Alcance pedido**: `/preferencias` para consultar y editar las
+preferencias propias con los servicios existentes; resolver el riesgo C de
+la auditoría de 2.3 en la aplicación y en la base de datos; validar en el
+servidor universidad, barrios y ciudad. Sin 2.6, sin cambios remotos.
+
+**Comprobaciones previas**
+- `housing_preferences` tiene: `city_id`, `university_id`,
+  `field_of_study`, `budget_min/max`, `move_in_date/move_out_date`,
+  `preferred_neighborhood_ids`, `roommates_wanted_min/max`. **Mascotas,
+  tabaco y "solo estudiantes" no existen ahí**: son columnas de `rooms`
+  (`pets_allowed`, `smoking_allowed`, `students_only`). No se han inventado
+  ni añadido (ver "Pendiente de decisión").
+- Solo `cities` tiene `is_active`.
+- Privacidad (H4): la lectura de `housing_preferences` sigue siendo solo del
+  dueño; no hay consultas de preferencias ajenas.
+
+**Qué se hizo**
+- Migración `20260930140000_phase2_preferences_integrity.sql`:
+  `trg_housing_preferences_city_required` (ciudad obligatoria con el
+  onboarding completado, todos los roles), `housing_preferences_delete_own`
+  recreada (el cliente no borra tras completar; la cascada y el servidor
+  sí) y `trg_housing_preferences_university` (universidad de la ciudad). 38
+  políticas, sin cambios de GRANT. Razonamiento en `docs/DATABASE.md`.
+- `lib/services/housing-preferences.ts`: `checkPreferenceRules` sustituye a
+  `checkUniversityCity` (ciudad obligatoria tras el onboarding, ciudad nueva
+  activa, universidad de la ciudad); `requireActiveProfile` devuelve si el
+  onboarding está completado; errores de los triggers nuevos → errores de
+  campo.
+- `lib/services/reference-data.ts`: `listCitiesByIds` (mostrar la ciudad
+  guardada aunque ya no esté activa).
+- `lib/auth/session.ts`: `requireOwnProfile(currentPath)` y
+  `OWN_PREFERENCES_PATH`; `lib/auth/protected-routes.ts` y `proxy.ts`:
+  `/preferencias` exige sesión.
+- `app/(app)/preferencias/page.tsx`, `app/actions/housing-preferences.ts`
+  (`submitOwnPreferences`: UPDATE o, si no existen, INSERT; éxito
+  "Preferencias guardadas."; nunca escribe en `profiles`) y
+  `lib/validation/preferences-form.ts`.
+- `components/onboarding/preferences-form.tsx`: props opcionales
+  `submitAction`, `submitLabel`, `cityRequired` y mensaje de éxito; por
+  defecto, el comportamiento de 2.3 sin cambios.
+- Tests: `tests/db/10_preferences_integrity.sql` (24),
+  `tests/unit/preferences-actions.test.ts`,
+  `tests/unit/preferences-page.test.tsx`, casos nuevos en
+  `services-housing-preferences`, `services-reference-data`,
+  `onboarding-forms` y `auth-proxy`.
+
+**Resultados reales**: `test` 464/464 (416 + 48), `test:db` 192/192
+(168 + 24), `lint`, `typecheck`, `format:check` y `build` en verde. Chromium
+local con Supabase simulado que emula los triggers: 35/35 con y sin
+JavaScript (sin sesión, sin perfil, eliminada, incompleto sin preferencias,
+filtro ciudad → barrios/universidades, guardar sin ciudad antes del
+onboarding, completo con datos, edición, error de rango, quitar la ciudad
+tras el onboarding, `profile_id`/universidad/barrio/ciudad inactiva
+inyectados, `?profile_id=` en la URL, eliminada con la página abierta,
+logout) y regresión del onboarding 2/2. Ningún 307 de `/preferencias` lleva
+contenido. Mutaciones: 5 de base de datos y 9 de código, todas detectadas.
+
+**Cambios en fases cerradas (necesarios, con motivo)**
+- `tests/db/05` (`HP-barrios`): el fixture que dejaba `city_id = null` con
+  una universidad de Barcelona ahora vacía también `university_id`. Ese
+  estado ya lo rechazaba la aplicación desde 2.3 y ahora también la base de
+  datos; lo que prueba el test no cambia.
+- El trigger de universidad deja pasar las ciudades inexistentes para que
+  sea la FK quien las rechace (`23503`): sin eso fallaba `HP9` de 2.0.
+- `checkUniversityCity` (2.3) se integra en `checkPreferenceRules`; el
+  formulario de 2.3 gana props opcionales (sin cambiar su comportamiento,
+  comprobado con sus tests y en Chromium).
+
+**Decisiones propias**
+- DELETE bloqueado con RLS y no con trigger ni `REVOKE` (cascada del perfil
+  y borrado antes del onboarding). Ciudad obligatoria con trigger (depende
+  de `profiles`, cubre el INSERT y da un error propio).
+- `/preferencias` no completa el onboarding (nunca toca
+  `onboarding_completed_at`): con el onboarding sin terminar todo es
+  opcional y se enlaza a `/bienvenida/preferencias`.
+- Ciudad inactiva: se rechaza al elegirla; la ya guardada se conserva y se
+  muestra.
+- Un campo que no llega en el formulario no se toca (misma semántica que
+  2.3 y 2.4); el navegador siempre los envía todos.
+
+**Riesgos pendientes**
+- Carrera entre completar el onboarding y quitar la ciudad en dos
+  peticiones simultáneas (cada trigger lee el estado de la otra tabla sin
+  bloqueo): muy improbable y solo afecta al propio usuario.
+- La regla de ciudad activa es solo de la aplicación: por PostgREST se
+  puede guardar una ciudad inactiva (solo afecta al propio usuario).
+- El servidor puede dejar un perfil completado sin fila de preferencias
+  (borrado de cuenta futuro); aceptado y documentado.
+- Nada de 2.5 se ha probado contra Supabase real (2.8). `preflight.sql` P3
+  sigue esperando 35 políticas (se actualiza al aplicar las migraciones de
+  Fase 2 en `roomly-validation`). El punto A de la auditoría de 2.3 sigue
+  pendiente.
+
+**Pendiente de decisión**: si mascotas, tabaco y "solo estudiantes" deben
+ser preferencias de búsqueda (nuevas columnas en `housing_preferences`) o
+solo filtros de habitaciones (Fase 4).
+
+**Qué queda**: 2.6 (ajustes). No empezada.
+
+---
+
 ## 2026-09-30 — Sesión 14: Fase 2.4 — perfil propio
 
 **Alcance pedido**: `/perfil` para consultar y editar solo el perfil de la

@@ -26,6 +26,25 @@ export async function listActiveCities(
   return ok(data ?? []);
 }
 
+/**
+ * Ciudades concretas, activas o no (Fase 2.5): para mostrar en `/preferencias`
+ * la ciudad ya guardada aunque después se haya desactivado. Nunca se usa para
+ * ofrecer ciudades nuevas: esas salen de `listActiveCities`.
+ */
+export async function listCitiesByIds(
+  supabase: DbClient,
+  cityIds: string[]
+): Promise<ServiceResult<CityOption[]>> {
+  if (cityIds.length === 0) return ok([]);
+  const { data, error } = await supabase
+    .from("cities")
+    .select("id, name")
+    .in("id", cityIds)
+    .order("name");
+  if (error) return mapDbError(error);
+  return ok(data ?? []);
+}
+
 /** Universidades de las ciudades indicadas (una sola consulta, sin N+1). */
 export async function listUniversities(
   supabase: DbClient,

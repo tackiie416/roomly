@@ -167,7 +167,8 @@ set role authenticated;
 select roomly_test.login('50000000-0000-0000-0000-00000000000a');
 
 select roomly_test.expect_affected(
-  $$update public.housing_preferences set preferred_neighborhood_ids = '{}', city_id = null
+  $$update public.housing_preferences
+    set preferred_neighborhood_ids = '{}', city_id = null, university_id = null
     where profile_id = '50000000-0000-0000-0000-00000000000a'$$,
   1, 'HP-barrios: array vacío se acepta (también sin ciudad)');
 select roomly_test.expect_affected(

@@ -43,6 +43,7 @@ describe("proxy — sin sesión", () => {
     ["/admin", "/login?next=%2Fadmin"],
     ["/admin/usuarios", "/login?next=%2Fadmin%2Fusuarios"],
     ["/perfil", "/login?next=%2Fperfil"],
+    ["/preferencias", "/login?next=%2Fpreferencias"],
     ["/ajustes?tab=cuenta", "/login?next=%2Fajustes%3Ftab%3Dcuenta"],
     ["/bienvenida/perfil", "/login"],
     ["/bienvenida/preferencias", "/login"],

@@ -11,7 +11,7 @@ import { loginPath } from "@/lib/auth/destination";
  * 1. Refrescar la sesión de Supabase (patrón estándar de @supabase/ssr:
  *    sin esto, las sesiones expiran de forma impredecible).
  * 2. Primera capa de protección de las rutas que exigen sesión
- *    (lib/auth/protected-routes.ts: /admin, /perfil, /ajustes, /bienvenida,
+ *    (lib/auth/protected-routes.ts: /admin, /perfil, /preferencias, /ajustes, /bienvenida,
  *    /cuenta-desactivada): sin sesión, redirige a /login?next=<ruta>.
  *    La segunda capa — el estado del perfil y, en /admin, el rol — vive en
  *    los guards de lib/auth/session.ts. Aquí NUNCA se consulta la base de

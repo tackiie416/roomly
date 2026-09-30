@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 EN PROGRESO (2.0–2.4 completadas; siguiente: 2.5)
+## Fase 2 — User 🚧 EN PROGRESO (2.0–2.5 completadas; siguiente: 2.6)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -85,9 +85,9 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
 - Endurecimiento entre 2.3 y 2.4 — ✅ (PROGRESS.md sesión 13): decisión B
   de la auditoría de 2.3. Migración `20260930130000`: una cuenta con
   `deleted_at` no puede actualizar su perfil ni crear, actualizar o borrar
-  sus preferencias, también por PostgREST (RLS). Los puntos A
-  (`onboarding_completed_at` de una sola escritura) y C (preferencias tras
-  completar) siguen pendientes, para 2.8 y 2.5.
+  sus preferencias, también por PostgREST (RLS). El punto A
+  (`onboarding_completed_at` de una sola escritura) sigue pendiente, para
+  2.8; el C se resolvió en 2.5.
 - 2.4 Perfil propio en `/perfil` (sin perfiles de terceros: H3/H4) — ✅
   completada (PROGRESS.md sesión 14): consultar y editar `full_name`,
   `date_of_birth`, `seeking_status`, `bio` y `email_notifications_enabled`
@@ -95,7 +95,12 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   Sin perfil → onboarding; cuenta eliminada → `/cuenta-desactivada`;
   incompleto → editable, con aviso para terminar las preferencias. Sin
   migración.
-- 2.5 Preferencias — sin empezar.
+- 2.5 Preferencias en `/preferencias` — ✅ completada (PROGRESS.md sesión 15):
+  consultar y editar las preferencias propias (ciudad, universidad,
+  estudios, presupuesto, fechas, barrios y compañeros) con los servicios de
+  2.1 y una Server Action; reutiliza el formulario del onboarding. Migración
+  `20260930140000`: riesgo C resuelto (ciudad obligatoria y sin borrado del
+  cliente tras el onboarding) y universidad ↔ ciudad en la base de datos.
 - 2.6 Ajustes (sin borrado de cuenta: H6) — sin empezar.
 - 2.7 Shell autenticado y estados de carga/error/vacío — sin empezar.
 - 2.8 Validación real del alta (entorno con signups) y E2E — sin empezar.

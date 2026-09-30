@@ -105,3 +105,36 @@ describe("PreferencesForm", () => {
     expect(html).not.toMatch(/type="number"[^>]*max=/);
   });
 });
+
+describe("PreferencesForm en /preferencias (Fase 2.5)", () => {
+  const props = {
+    cities: [{ id: CITY, name: "Barcelona" }],
+    universities: [],
+    neighborhoods: [],
+  };
+  const custom = async () => ({});
+
+  it("por defecto (onboarding): ciudad obligatoria y botón 'Terminar'", () => {
+    const html = renderToStaticMarkup(<PreferencesForm {...props} initialValues={{}} />);
+    expect(html).toMatch(
+      /<select[^>]*required[^>]*id="city_id"|<select[^>]*id="city_id"[^>]*required/
+    );
+    expect(html).toContain("Terminar");
+  });
+
+  it("cityRequired={false}: la ciudad no lleva required; texto del botón propio", () => {
+    const html = renderToStaticMarkup(
+      <PreferencesForm
+        {...props}
+        initialValues={{}}
+        submitAction={custom}
+        submitLabel="Guardar preferencias"
+        cityRequired={false}
+      />
+    );
+    const select = html.match(/<select[^>]*id="city_id"[^>]*>/)?.[0] ?? "";
+    expect(select).not.toContain("required");
+    expect(html).toContain("Guardar preferencias");
+    expect(html).not.toContain("Terminar");
+  });
+});
