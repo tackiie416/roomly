@@ -273,3 +273,47 @@ describe("formDataValues", () => {
     expect(values).toEqual({ full_name: "Ana", preferred_neighborhood_ids: [N1] });
   });
 });
+
+describe("formDataToObject — casillas (Fase 2.4)", () => {
+  const FIELDS: FormFields = { email_notifications_enabled: "checkbox" };
+
+  it("marcada ('on') → true; sin marcar (ausente) → false, con cualquier emptyAs", () => {
+    for (const emptyAs of ["omit", "null"] as const) {
+      expect(
+        formDataToObject(form([["email_notifications_enabled", "on"]]), FIELDS, {
+          emptyAs,
+        })
+      ).toEqual({ email_notifications_enabled: true });
+      expect(formDataToObject(form([]), FIELDS, { emptyAs })).toEqual({
+        email_notifications_enabled: false,
+      });
+    }
+  });
+
+  it("otros valores o repetida se pasan tal cual para que la validación los rechace", () => {
+    expect(
+      formDataToObject(form([["email_notifications_enabled", "false"]]), FIELDS, {
+        emptyAs: "null",
+      }).email_notifications_enabled
+    ).toBe("false");
+    expect(
+      formDataToObject(
+        form([
+          ["email_notifications_enabled", "on"],
+          ["email_notifications_enabled", "on"],
+        ]),
+        FIELDS,
+        { emptyAs: "null" }
+      ).email_notifications_enabled
+    ).toEqual(["on", "on"]);
+  });
+
+  it("formDataValues: 'on' si está marcada, '' si no", () => {
+    expect(formDataValues(form([["email_notifications_enabled", "on"]]), FIELDS)).toEqual(
+      {
+        email_notifications_enabled: "on",
+      }
+    );
+    expect(formDataValues(form([]), FIELDS)).toEqual({ email_notifications_enabled: "" });
+  });
+});

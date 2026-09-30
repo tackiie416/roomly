@@ -16,7 +16,13 @@ export type FieldKind =
   /** Número: se convierte si el texto es numérico; si no, se deja para que falle la validación. */
   | "number"
   /** Lista (checkboxes/select múltiple): siempre un array de strings no vacíos. */
-  | "list";
+  | "list"
+  /**
+   * Casilla única (Fase 2.4): marcada (`on`, el valor por defecto del
+   * navegador) → `true`; sin marcar el navegador no la envía → `false`.
+   * Cualquier otro valor se deja tal cual para que la validación lo rechace.
+   */
+  | "checkbox";
 
 export type FormFields = Record<string, FieldKind>;
 
@@ -43,6 +49,14 @@ export function formDataToObject(
 
   for (const [key, kind] of Object.entries(fields)) {
     const values = formData.getAll(key);
+    if (kind === "checkbox") {
+      // Ausente = sin marcar, con cualquier `emptyAs`: el formulario siempre
+      // la contiene, así que no enviarla es una respuesta, no un campo omitido.
+      if (values.length === 0) result[key] = false;
+      else if (values.length === 1 && values[0] === "on") result[key] = true;
+      else result[key] = values.length === 1 ? values[0] : values;
+      continue;
+    }
     if (kind === "list") {
       // Checkboxes sin marcar no se envían: con "null", ausente = lista vacía
       // (para poder vaciarla); con "omit", ausente = no se toca.
@@ -99,6 +113,7 @@ export function formDataValues(
       .getAll(key)
       .filter((value): value is string => typeof value === "string");
     if (kind === "list") values[key] = raw;
+    else if (kind === "checkbox") values[key] = raw.length > 0 ? "on" : "";
     else if (raw.length > 0) values[key] = raw[0];
   }
   return values;

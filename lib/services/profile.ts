@@ -181,8 +181,8 @@ export async function updateProfile(
   const { data: existing, error: readError } = await readOwnProfile(supabase, userId);
   if (readError) return mapDbError(readError);
   if (!existing) return fail("no_profile");
-  // RLS permite hoy editar la propia fila aunque tenga deleted_at: el
-  // servicio lo bloquea.
+  // Una cuenta eliminada no edita: lo bloquea el servicio y, desde
+  // 20260930130000, también RLS (`profiles_update_own`).
   if (existing.deleted_at !== null) return fail("deleted");
 
   const parsed = profileUpdateSchema.safeParse(input);

@@ -286,7 +286,7 @@ describe("updateProfile", () => {
     expect(writePayloads(calls)).toHaveLength(0);
   });
 
-  it("perfil eliminado → deleted, sin UPDATE (aunque RLS lo permitiría)", async () => {
+  it("perfil eliminado → deleted, sin UPDATE (también lo bloquea RLS)", async () => {
     const { client, calls } = createFakeSupabase({
       userId: USER,
       respond: () => ({
@@ -332,6 +332,27 @@ describe("updateProfile", () => {
       expect(result).toMatchObject({ ok: false, error: "validation" });
       expect(writePayloads(calls)).toHaveLength(0);
     }
+  });
+
+  it("todos los campos editables de /perfil (Fase 2.4) en un solo UPDATE", async () => {
+    const { client, calls } = createFakeSupabase({
+      userId: USER,
+      respond: () => ({ data: profile(), error: null }),
+    });
+    await updateProfile(client, {
+      full_name: "Ana López",
+      date_of_birth: "1999-01-02",
+      seeking_status: "flexible",
+      bio: null,
+      email_notifications_enabled: false,
+    });
+    expect(writePayloads(calls)[0].payload).toEqual({
+      full_name: "Ana López",
+      date_of_birth: "1999-01-02",
+      seeking_status: "flexible",
+      bio: null,
+      email_notifications_enabled: false,
+    });
   });
 
   it("23514 de la base de datos → validation con el campo", async () => {

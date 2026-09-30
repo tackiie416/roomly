@@ -15,6 +15,7 @@ import {
   requireCompleteProfile,
   requireDeletedAccount,
   requireOnboardingStep,
+  requireOwnProfile,
 } from "@/lib/auth/session";
 import { isActiveAdmin } from "@/lib/services/profile";
 
@@ -74,6 +75,100 @@ describe("requireCompleteProfile", () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).not.toContain("detalle interno");
     expect(error).not.toHaveProperty("url");
+  });
+});
+
+describe("requireOwnProfile (/perfil, Fase 2.4)", () => {
+  it("sin sesión → /login?next=/perfil", async () => {
+    as("anonymous");
+    await expect(requireOwnProfile()).rejects.toEqual(
+      redirectsTo("/login?next=%2Fperfil")
+    );
+  });
+
+  it.each([
+    ["no_profile", "/bienvenida/perfil"],
+    ["deleted", "/cuenta-desactivada"],
+  ] as const)("%s → %s", async (fixture, expected) => {
+    as(fixture);
+    await expect(requireOwnProfile()).rejects.toEqual(redirectsTo(expected));
+  });
+
+  it.each(["incomplete", "complete"] as const)(
+    "%s → devuelve el perfil propio (editable)",
+    async (fixture) => {
+      as(fixture);
+      await expect(requireOwnProfile()).resolves.toMatchObject({
+        status: fixture,
+        profile: { id: TEST_USER },
+      });
+    }
+  );
+});
+
+describe("requireOwnProfile: siempre el perfil de la sesión", () => {
+  const OTHER_USER = "99999999-8888-4777-8666-555555555555";
+
+  it("lee profiles solo por el id de auth.getUser()", async () => {
+    const { calls } = as("complete");
+    await requireOwnProfile();
+    const profileReads = calls.filter((call) => call.table === "profiles");
+    expect(profileReads.length).toBeGreaterThan(0);
+    for (const call of profileReads) {
+      expect(call.filters).toEqual([{ kind: "eq", column: "id", value: TEST_USER }]);
+    }
+  });
+
+  it("/perfil ignora cualquier profile_id o id de la URL y carga el perfil propio", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: OwnProfilePage } = await import("@/app/(app)/perfil/page");
+    const { calls } = as("complete");
+    // La página no declara props: aunque Next.js le pasara searchParams o
+    // params con otro id, no los usa.
+    const page = OwnProfilePage as unknown as (
+      props: unknown
+    ) => Promise<React.ReactElement>;
+    const html = renderToStaticMarkup(
+      await page({
+        params: Promise.resolve({ id: OTHER_USER }),
+        searchParams: Promise.resolve({ profile_id: OTHER_USER, id: OTHER_USER }),
+      })
+    );
+    expect(html).toContain('value="Ana García"');
+    expect(calls.every((call) => call.filters.every((f) => f.value !== OTHER_USER))).toBe(
+      true
+    );
+  });
+});
+
+describe("/perfil: la página aplica el guard antes de renderizar", () => {
+  it.each([
+    ["anonymous", "/login?next=%2Fperfil"],
+    ["no_profile", "/bienvenida/perfil"],
+    ["deleted", "/cuenta-desactivada"],
+  ] as const)("%s → %s, sin renderizar el formulario", async (fixture, expected) => {
+    const { default: OwnProfilePage } = await import("@/app/(app)/perfil/page");
+    as(fixture);
+    await expect(OwnProfilePage()).rejects.toEqual(redirectsTo(expected));
+  });
+
+  it("incompleto: formulario con sus datos y aviso para completar las preferencias", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: OwnProfilePage } = await import("@/app/(app)/perfil/page");
+    as("incomplete");
+    const html = renderToStaticMarkup(await OwnProfilePage());
+    expect(html).toContain('value="Ana García"');
+    expect(html).toContain('href="/bienvenida/preferencias"');
+  });
+
+  it("completo: formulario sin aviso y sin mostrar el rol", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: OwnProfilePage } = await import("@/app/(app)/perfil/page");
+    as("complete", "admin");
+    const html = renderToStaticMarkup(await OwnProfilePage());
+    expect(html).toContain('value="Ana García"');
+    expect(html).not.toContain("/bienvenida/preferencias");
+    expect(html).not.toMatch(/admin|name="role"/i);
   });
 });
 

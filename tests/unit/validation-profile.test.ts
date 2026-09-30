@@ -213,3 +213,49 @@ describe("profileUpdateSchema", () => {
     }
   });
 });
+
+describe("profileUpdateSchema — edición en /perfil (Fase 2.4)", () => {
+  it("acepta email_notifications_enabled booleano", () => {
+    expect(profileUpdateSchema.parse({ email_notifications_enabled: false })).toEqual({
+      email_notifications_enabled: false,
+    });
+  });
+
+  it.each([null, "on", "true", 1])(
+    "rechaza email_notifications_enabled no booleano (%s)",
+    (value) => {
+      expect(
+        profileUpdateSchema.safeParse({ email_notifications_enabled: value }).success
+      ).toBe(false);
+    }
+  );
+
+  it("edición parcial sin seeking_status: la salida no incluye la clave (no se toca)", () => {
+    const parsed = profileUpdateSchema.parse({ full_name: "Ana", bio: "x" });
+    expect(parsed).toEqual({ full_name: "Ana", bio: "x" });
+    expect(parsed).not.toHaveProperty("seeking_status");
+  });
+
+  it("seeking_status no admite null (columna NOT NULL)", () => {
+    expect(profileUpdateSchema.safeParse({ seeking_status: null }).success).toBe(false);
+  });
+
+  it("bio vacía → null (se borra)", () => {
+    expect(profileUpdateSchema.parse({ bio: "   " })).toEqual({ bio: null });
+  });
+
+  it.each([
+    "id",
+    "profile_id",
+    "role",
+    "deleted_at",
+    "created_at",
+    "updated_at",
+    "onboarding_completed_at",
+    "avatar_url",
+  ])("rechaza %s junto a un cambio válido", (key) => {
+    expect(profileUpdateSchema.safeParse({ full_name: "Ana", [key]: "x" }).success).toBe(
+      false
+    );
+  });
+});

@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 EN PROGRESO (2.0–2.3 completadas; siguiente: 2.4)
+## Fase 2 — User 🚧 EN PROGRESO (2.0–2.4 completadas; siguiente: 2.5)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -88,7 +88,13 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   sus preferencias, también por PostgREST (RLS). Los puntos A
   (`onboarding_completed_at` de una sola escritura) y C (preferencias tras
   completar) siguen pendientes, para 2.8 y 2.5.
-- 2.4 Perfil propio en `/perfil` (sin perfiles de terceros: H3/H4) — sin empezar.
+- 2.4 Perfil propio en `/perfil` (sin perfiles de terceros: H3/H4) — ✅
+  completada (PROGRESS.md sesión 14): consultar y editar `full_name`,
+  `date_of_birth`, `seeking_status`, `bio` y `email_notifications_enabled`
+  del perfil de la sesión, con `updateProfile` (2.1) y una Server Action.
+  Sin perfil → onboarding; cuenta eliminada → `/cuenta-desactivada`;
+  incompleto → editable, con aviso para terminar las preferencias. Sin
+  migración.
 - 2.5 Preferencias — sin empezar.
 - 2.6 Ajustes (sin borrado de cuenta: H6) — sin empezar.
 - 2.7 Shell autenticado y estados de carga/error/vacío — sin empezar.

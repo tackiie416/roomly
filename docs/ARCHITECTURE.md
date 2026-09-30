@@ -246,6 +246,15 @@ páginas (formularios en `components/onboarding/*`, Server Actions en
 Fase 3. Las carpetas antiguas `app/(onboarding)/{perfil,preferencias,test}`
 ya no existen.
 
+Perfil propio (Fase 2.4): `app/(app)/perfil/page.tsx` (guard
+`requireOwnProfile` en la propia página; no hay layout de `(app)` todavía,
+el shell es 2.7), Server Action `app/actions/profile.ts` → `updateProfile`
+de `lib/services/profile.ts`, formulario en `components/profile/` y campos
+y valores del formulario en `lib/validation/own-profile-form.ts` (sin E/S,
+compartido por la página y la acción). Reutiliza los controles de
+`components/onboarding/form-controls.tsx`. `app/(app)/perfil/[id]` sigue
+vacía: perfiles de terceros (H3/H4) no están en Fase 2.
+
 (Árbol completo generado en el sandbox — consultable con `find` en
 `/home/claude/roomly` o revisando el commit inicial en git.)
 

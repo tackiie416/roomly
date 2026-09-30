@@ -63,6 +63,28 @@ export async function requireCompleteProfile(currentPath?: string): Promise<OwnP
   return state.profile;
 }
 
+export const OWN_PROFILE_PATH = "/perfil";
+
+/** Estados en los que existe un perfil propio activo que se puede editar. */
+export type EditableProfileState = Extract<
+  ProfileState,
+  { status: "incomplete" } | { status: "complete" }
+>;
+
+/**
+ * Perfil propio (`/perfil`, Fase 2.4): siempre el de la sesión, nunca un id
+ * de la URL. Sin perfil → paso 1 del onboarding; cuenta eliminada →
+ * pantalla de cuenta desactivada. Incompleto y completo pueden editarlo
+ * (con el onboarding sin terminar, la página lo indica).
+ */
+export async function requireOwnProfile(): Promise<EditableProfileState> {
+  const state = await requireSessionState(OWN_PROFILE_PATH);
+  if (state.status === "no_profile" || state.status === "deleted") {
+    redirect(resolveDestination(state));
+  }
+  return state;
+}
+
 const ONBOARDING_STEP_PATHS = {
   perfil: ONBOARDING_PROFILE_PATH,
   preferencias: ONBOARDING_PREFERENCES_PATH,

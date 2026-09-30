@@ -75,6 +75,15 @@ export const profileCreateSchema = z.strictObject(
   { error: unknownKeyError }
 );
 
+/** Aviso por email (columna `email_notifications_enabled`, `NOT NULL`). */
+export const emailNotificationsSchema = z.boolean({
+  error: "Indica si quieres recibir avisos por email",
+});
+
+/**
+ * Edición del perfil propio (`/perfil`, Fase 2.4). `seeking_status` y
+ * `email_notifications_enabled` no admiten `null` (columnas `NOT NULL`).
+ */
 export const profileUpdateSchema = z
   .strictObject(
     {
@@ -82,6 +91,7 @@ export const profileUpdateSchema = z
       date_of_birth: dateOfBirthSchema.optional(),
       seeking_status: seekingStatusSchema.optional(),
       bio: bioSchema.optional(),
+      email_notifications_enabled: emailNotificationsSchema.optional(),
     },
     { error: unknownKeyError }
   )

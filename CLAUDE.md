@@ -43,8 +43,9 @@ servidor, `next` en cookie, `/cuenta-desactivada`, logout) y 2.3 completada
 `seeking_status` sin DEFAULT y trigger que exige preferencias con ciudad
 para completar; `test` 347/347). Después de 2.3, las escrituras de cuentas
 con `deleted_at` se bloquean también en RLS (`profiles_update_own` y
-`housing_preferences`; `test:db` 158/158). Perfil propio,
-preferencias y ajustes son 2.4–2.6. Las migraciones de Fase 2 (2.0, 2.3 y la de cuentas eliminadas) **no están
+`housing_preferences`; `test:db` 158/158). 2.4 completada (perfil propio en
+`/perfil`: `requireOwnProfile`, `app/actions/profile.ts`; `test` 416/416,
+`test:db` 168/168). Preferencias y ajustes son 2.5–2.6. Las migraciones de Fase 2 (2.0, 2.3 y la de cuentas eliminadas) **no están
 aplicadas** en `roomly-validation`. Subfases y decisiones: `docs/ROADMAP.md`.
 - **Diferido por decisión del usuario**: Google OAuth, Apple OAuth y
   E2E/Playwright en CI (este último, a Fase 2).
@@ -257,7 +258,7 @@ Fase 1 completada — ver arriba.
 
 ## Funcionalidades pendientes
 
-Resto de Fase 2 (2.4–2.8) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
+Resto de Fase 2 (2.5–2.8) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 

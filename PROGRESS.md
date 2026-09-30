@@ -6,6 +6,107 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 14: Fase 2.4 — perfil propio
+
+**Alcance pedido**: `/perfil` para consultar y editar solo el perfil de la
+sesión, reutilizando servicios y validaciones. Campos editables:
+`full_name`, `date_of_birth`, `bio`, `seeking_status` y
+`email_notifications_enabled`. Sin 2.5, sin ajustes de 2.6, sin perfiles de
+terceros (H3/H4), sin migraciones y sin tocar Supabase remoto.
+
+**Qué se hizo**
+- `lib/auth/session.ts`: `requireOwnProfile()` (+ `OWN_PROFILE_PATH`,
+  `EditableProfileState`). Sin sesión → `/login?next=/perfil`; sin perfil →
+  `/bienvenida/perfil`; cuenta eliminada → `/cuenta-desactivada`;
+  incompleto y completo → se puede editar.
+- `app/(app)/perfil/page.tsx`: guard en la propia página (no hay layout de
+  `(app)`), formulario con los datos guardados y, si el onboarding no está
+  terminado, aviso con enlace a `/bienvenida/preferencias`. La ruta no tiene
+  ningún parámetro de perfil; `perfil/[id]` sigue vacía.
+- `app/actions/profile.ts`: `submitOwnProfile` (guard → `FormData` →
+  `updateProfile` de 2.1 → estado). Éxito: "Cambios guardados." y los
+  valores guardados; `revalidatePath("/perfil")`. Errores: de campo,
+  generales ("Campo no permitido: …") o genérico, nunca texto de Supabase;
+  sin sesión, sin perfil o eliminada → redirección.
+- `components/profile/own-profile-form.tsx`: formulario HTML + Server Action
+  (funciona sin JavaScript), etiquetas asociadas, `aria-invalid` /
+  `aria-describedby`, estado de guardado (`useFormStatus`), éxito con
+  `role="status"`, vuelve a rellenarse con lo enviado si hay errores.
+  Reutiliza los controles y las opciones de `seeking_status` de
+  `components/onboarding/*`.
+- `lib/validation/own-profile-form.ts`: campos del formulario y
+  `ownProfileFormValues` (perfil → valores), sin E/S.
+- `lib/validation/profile.ts`: `profileUpdateSchema` acepta
+  `email_notifications_enabled` (booleano; ver desviaciones).
+- `lib/validation/form-data.ts`: tipo de campo `checkbox` (marcada `on` →
+  `true`; ausente → `false`; cualquier otro valor se deja para que la
+  validación lo rechace).
+- `lib/services/profile.ts`: solo un comentario que quedó obsoleto con la
+  sesión 13 (RLS ya bloquea la edición de cuentas eliminadas).
+- Tests: `tests/unit/profile-actions.test.ts`,
+  `tests/unit/own-profile-form.test.tsx`, casos nuevos en
+  `auth-session`, `services-profile`, `validation-profile` y
+  `validation-form-data`; `tests/db/09_own_profile_update.sql` (10
+  aserciones, sin migración).
+
+**Resultados reales**: `test` 416/416 (347 + 69), `test:db` 168/168
+(158 + 10), `lint`, `typecheck`, `format:check` y `build` en verde. Flujo en
+Chromium con `next start` y Supabase simulado con estado, con y sin
+JavaScript (24/24): sin sesión, sin perfil y eliminada redirigen; incompleto
+muestra el aviso; completo carga los datos; guardar muestra el éxito y
+persiste; menor de 18 da error de campo sin guardar y conserva lo escrito;
+un `role` inyectado se rechaza; la cuenta eliminada con la página abierta
+acaba en `/cuenta-desactivada` sin cambios; el logout desde `/perfil` borra
+la sesión y `/perfil` vuelve a pedir login. Con `curl`, ningún 307 de
+`/perfil` lleva el formulario en el cuerpo, y `/perfil?profile_id=<otro>`
+carga el perfil propio (la única consulta a `profiles` filtra por el id de
+la sesión).
+
+**Revisión de cierre** (antes del commit): `email_notifications_enabled`
+está en el esquema, el `FormData`, la acción y la UI, con tests de los
+tres; `seeking_status` ausente no se toca (test de validación y de
+acción); `requireOwnProfile` y `/perfil` solo leen por el id de
+`auth.getUser()`, con test de un `profile_id`/`id` ajeno en la URL; cuenta
+eliminada bloqueada en página, acción, servicio y RLS (`08` sigue en
+verde); `id`, `role`, `deleted_at`, `created_at`, `updated_at` y
+`onboarding_completed_at` rechazados desde el formulario (tests de acción) y
+por GRANT/RLS (`01`, `06`, `09`). Sin `upsert`, `select("*")`,
+`service_role`, cambios de RLS ni de `public_profile_previews`. Mutaciones: 8 de código y 1 de
+base de datos, todas detectadas (detalle en `docs/TESTING.md`).
+
+**Desviaciones y decisiones propias**
+- `email_notifications_enabled` no estaba en `profileUpdateSchema` (2.1),
+  aunque el GRANT de UPDATE ya lo incluía. Como el alcance de 2.4 lo lista
+  como editable, se añade al esquema (booleano, sin `null`). No es un ajuste
+  completo de 2.6: es la columna ya existente.
+- Campos ausentes = sin cambios (el esquema de edición es parcial): si
+  alguien quita a mano el radio de `seeking_status`, no se toca la columna;
+  nunca se envía `null`. El formulario siempre llega con el valor actual.
+- `toFormState` se duplica en `app/actions/profile.ts` en vez de extraerlo
+  de `app/actions/onboarding.ts`, para no modificar 2.3.
+- Controles de formulario y opciones de `seeking_status` importados de
+  `components/onboarding/*`; moverlos a un sitio común queda para el shell
+  (2.7).
+- Sin `loading.tsx`: crearía un límite de Suspense y los guards dejarían de
+  responder con un 307 limpio.
+- La navegación no enlaza todavía a `/perfil` (shell autenticado: 2.7).
+
+**Riesgos pendientes**
+- Si la cuenta se elimina entre la lectura del servicio y el UPDATE, RLS no
+  actualiza ninguna fila y se muestra el error genérico (no la redirección);
+  la siguiente navegación lleva a `/cuenta-desactivada`.
+- `date_of_birth` es editable por el usuario (lo pide el alcance); solo lo
+  limita `chk_min_age`. H4 (cualquier usuario autenticado lee
+  `date_of_birth` de todos) sigue abierto, igual que antes: 2.4 no lo empeora
+  ni lo resuelve.
+- Nada de 2.4 se ha probado contra Supabase real (2.8).
+- Siguen igual: puntos A y C de la auditoría de 2.3, y P3 de
+  `tests/supabase/preflight.sql` (35 políticas).
+
+**Qué queda**: 2.5 (preferencias). No empezada.
+
+---
+
 ## 2026-09-30 — Sesión 13: bloquear escrituras de cuentas eliminadas (decisión B)
 
 **Decisión del usuario** (tras la auditoría de cierre de 2.3): `deleted_at
