@@ -6,6 +6,33 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 20: verificación de la Fase 2.6 (`4c40595`)
+
+Sin cambios de código productivo, RLS ni migraciones; `4c40595` no se toca.
+
+- `tests/db/12_settings_notifications.sql` reforzado (+6 aserciones): el
+  cambio legítimo de A se relee (persiste), B ve la fila de A (SELECT no la
+  oculta) y aun así no puede cambiar su aviso (ni junto con otro campo), y
+  la fila de A queda intacta. Antes solo se probaba A→B y se contaban filas
+  afectadas.
+- Mutaciones: `profiles_update_own` sin dueño → `ST6`, y `ST10` por separado
+  (copia sin `ST6`); UPDATE de `updateProfile` sin `.eq("id", userId)` → 5
+  tests unitarios, 2 de `/ajustes`.
+- Revisión de `app/actions/settings.ts`: usuario de `auth.getUser()`, solo
+  `email_notifications_enabled`, esquema estricto, UPDATE filtrado por la
+  sesión, errores propios; sin `upsert`, `service_role` ni `select("*")`;
+  una sola implementación de logout (`app/actions/auth.ts`).
+- Navegación: no existe navegación entre pantallas autenticadas (el `nav`
+  es estático y el shell es 2.7; `/perfil` y `/preferencias`, cerradas, solo
+  enlazan al onboarding). No se añade ningún enlace: `/ajustes` se abre por
+  su ruta y enlaza a `/perfil`.
+- Resultados: `npm test` 515/515, `npm run test:db` 218/218, `lint`,
+  `typecheck`, `format:check` y `build` en verde; Chromium `/perfil` 24/24 y
+  `/ajustes` 24/24 (con y sin JavaScript); ningún 307 de `/ajustes` con
+  contenido.
+
+---
+
 ## 2026-09-30 — Sesión 19: Fase 2.6 — ajustes
 
 **Alcance** (auditoría previa y decisión del usuario): el plan aprobado de

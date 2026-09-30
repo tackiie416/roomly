@@ -1,7 +1,8 @@
 -- Fase 2.6 — ajustes: email_notifications_enabled. Sin migración nueva: fija
 -- en la base de datos lo que usa /ajustes (y /perfil desde 2.4). Debe fallar
--- si un usuario activo deja de poder cambiar su propio aviso, si puede
--- cambiar el de otro o si el valor puede quedar nulo.
+-- si un usuario activo deja de poder cambiar su propio aviso (o el cambio no
+-- persiste), si puede cambiar el de otro en cualquier dirección o si el valor
+-- puede quedar nulo.
 --
 -- Ownership sin depender de la lectura: en `profiles`, a diferencia de
 -- `housing_preferences`, la política de SELECT deja a cualquier usuario
@@ -52,7 +53,43 @@ select roomly_test.ok(
    from public.profiles where id = 'c0000000-0000-0000-0000-00000000000b'),
   'ST6: el perfil de B queda intacto');
 
--- 3. Cambiar el aviso no toca el estado del onboarding.
+-- 3. Dirección B → A, con persistencia comprobada leyendo el valor.
+--    A cambia su aviso (legítimo) y se lee que quedó guardado; B, que ve la
+--    fila de A (H4), intenta cambiarlo y no afecta a ninguna fila; la fila
+--    de A sigue exactamente como la dejó A.
+set role authenticated;
+select roomly_test.login('c0000000-0000-0000-0000-00000000000a');
+select roomly_test.expect_affected(
+  $$update public.profiles set email_notifications_enabled = false
+    where id = 'c0000000-0000-0000-0000-00000000000a'$$,
+  1, 'ST8: A desactiva su aviso');
+select roomly_test.expect_rows(
+  $$select 1 from public.profiles
+    where id = 'c0000000-0000-0000-0000-00000000000a'
+      and email_notifications_enabled = false$$,
+  1, 'ST8: el cambio legítimo de A persiste (se lee false)');
+
+select roomly_test.login('c0000000-0000-0000-0000-00000000000b');
+select roomly_test.expect_rows(
+  $$select 1 from public.profiles
+    where id = 'c0000000-0000-0000-0000-00000000000a'
+      and email_notifications_enabled = false$$,
+  1, 'ST9: B ve la fila de A y su valor (SELECT no la oculta)');
+select roomly_test.expect_affected(
+  $$update public.profiles set email_notifications_enabled = true
+    where id = 'c0000000-0000-0000-0000-00000000000a'$$,
+  0, 'ST10: B NO puede cambiar el aviso de A (ownership de profiles_update_own)');
+select roomly_test.expect_affected(
+  $$update public.profiles set email_notifications_enabled = true, full_name = 'Suplantado'
+    where id = 'c0000000-0000-0000-0000-00000000000a'$$,
+  0, 'ST10: ni junto con otro campo');
+reset role;
+select roomly_test.ok(
+  (select email_notifications_enabled = false and full_name = 'Ajustes A'
+   from public.profiles where id = 'c0000000-0000-0000-0000-00000000000a'),
+  'ST11: la fila de A queda intacta tras los intentos de B (sigue en false, mismo nombre)');
+
+-- 4. Cambiar el aviso no toca el estado del onboarding.
 select roomly_test.ok(
   (select onboarding_completed_at is null from public.profiles
    where id = 'c0000000-0000-0000-0000-00000000000a'),
