@@ -14,16 +14,31 @@
 
 ## Estado actual (2026-09-30)
 
+**Qué demuestra cada capa** (no confundirlas):
+- `npm run test` (Vitest): lógica de la aplicación con un cliente Supabase
+  **simulado**. Cuando un test depende de una regla de la base de datos
+  (FKs, triggers de barrios, universidad o ciudad), el mock la **emula**:
+  prueba que la aplicación traduce bien el error, no que la regla exista.
+- `npm run test:db`: PostgreSQL 16 local de verdad, con todas las
+  migraciones y un shim de Supabase (roles, `auth.uid()`). Es la única capa
+  que demuestra RLS, GRANT, FKs y triggers. No es Supabase real.
+- Chromium: `next start` real contra el mismo Supabase simulado con estado
+  (también emula los triggers). Los scripts viven en el scratchpad de cada
+  sesión, no en el repositorio; no son la suite E2E de 2.8 ni se ejecutan
+  en CI.
+- Supabase real (`roomly-validation`): solo Fase 1 (ver abajo).
+
+
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
 | `npm run test` | ✅ 469/469 (39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
-| Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) |
-| Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
+| Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
+| Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E |
 | `npm run test:db` (PostgreSQL local con shim) | ✅ 192/192 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3, `08` de cuentas eliminadas, `09` de Fase 2.4 y `10` de Fase 2.5) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
-| Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`–`07`) | `roomly-validation`; las migraciones de Fase 2.0 y 2.3 no están aplicadas allí |
+| Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`–`10`) | `roomly-validation`; las migraciones de Fase 2 no están aplicadas allí |
 | `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 | `roomly-validation` |
 | AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 | `roomly-validation` y local tras `proxy.ts` |
 | AU4 magic link / AU5 con sesión | ✅ manual | `roomly-validation`, PC del propietario |

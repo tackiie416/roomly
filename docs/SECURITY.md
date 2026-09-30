@@ -246,6 +246,22 @@ NULL` = cuenta completamente desactivada. Migración
 - **Privacidad (H4)**: no hay ninguna consulta nueva de datos ajenos; las
   preferencias siguen siendo legibles solo por su dueño. No se ha cambiado
   `public_profile_previews`.
+- **Limitaciones que siguen abiertas** (detalle en `PROGRESS.md`, sesiones 15
+  y 17):
+  - la regla de ciudad **activa** es solo de la aplicación: por PostgREST
+    se puede guardar una ciudad inactiva (afecta solo al propio usuario);
+  - carrera teórica entre completar el onboarding y quitar la ciudad en dos
+    peticiones simultáneas (cada trigger lee la otra tabla sin bloqueo);
+  - el servidor (`service_role`) puede dejar un perfil completado sin fila
+    de preferencias (borrado de cuenta futuro); si el cliente la recrea, el
+    trigger exige ciudad;
+  - las condiciones de dueño de las políticas de UPDATE y DELETE no tienen
+    un test que las aísle: hoy la política de SELECT también impide tocar
+    filas ajenas (PostgreSQL la aplica a las filas que lee el `WHERE`). Si
+    en el futuro se abre la lectura de preferencias a terceros, esas
+    condiciones pasan a ser la única barrera y `HP5b`/`HP5c` empiezan a
+    probarlas por sí solos;
+  - nada de esto se ha validado contra Supabase real.
 - Sin `service_role`, sin `select("*")`, sin `upsert`.
 
 ## Comprobación de coherencia final (antes de Fase 1)

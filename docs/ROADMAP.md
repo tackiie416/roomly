@@ -95,7 +95,8 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   Sin perfil → onboarding; cuenta eliminada → `/cuenta-desactivada`;
   incompleto → editable, con aviso para terminar las preferencias. Sin
   migración.
-- 2.5 Preferencias en `/preferencias` — ✅ completada (PROGRESS.md sesión 15):
+- 2.5 Preferencias en `/preferencias` — ✅ completada (`d9430ac`, verificación
+  reforzada en `b3ad249`; PROGRESS.md sesiones 15–17):
   consultar y editar las preferencias propias (ciudad, universidad,
   estudios, presupuesto, fechas, barrios y compañeros) con los servicios de
   2.1 y una Server Action; reutiliza el formulario del onboarding. Migración

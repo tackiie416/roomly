@@ -6,6 +6,54 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 17: cierre formal de la Fase 2.5 y auditoría de transición
+
+Sin cambios de código productivo, tests ni base de datos: solo comprobación
+y correcciones de documentación. Commits de 2.5: `d9430ac` (implementación)
+y `b3ad249` (verificación reforzada), ninguno modificado.
+
+**Reproducido**: `npm test` 469/469, `npm run test:db` 192/192 (ejecutado
+como `postgres` con `PGHOST=/var/run/postgresql`), `lint`, `typecheck`,
+`format:check` y `build` en verde. Estructura en una base temporal con todas
+las migraciones: 18 tablas, 0 sin RLS, 38 políticas; en
+`housing_preferences`, 4 políticas (select/insert/update/delete) y los
+triggers `city_required`, `neighborhoods`, `university` y `updated_at`
+activos; FKs de `city_id`, `university_id` y `profile_id`. Las 36 funciones
+de `public` sin `search_path` son todas de `pgcrypto`; ninguna propia.
+
+**Auditoría** (sin fallos de seguridad; nada que reabrir):
+- Código productivo sin `upsert`, `select("*")` ni `service_role`
+  (`createAdminClient` no se importa en ningún sitio); `profile_id` solo
+  sale de `auth.getUser()`.
+- Observación sin cambio: `createHousingPreferences` hace
+  `insert({ profile_id: userId, ...fields })`; si `fields` trajera
+  `profile_id` lo sobrescribiría. No es explotable: el esquema `strict` lo
+  rechaza (mutación M2 detectada) y `WITH CHECK auth.uid() = profile_id`
+  lo bloquea en la base de datos (`HP3`). Invertir el orden sería una
+  defensa extra si se decide tocar el servicio.
+- Tests que no aíslan lo que su nombre sugiere: `HP5b`/`HP5c` pasan
+  también con la política de UPDATE/DELETE abierta, porque la de SELECT
+  oculta la fila ajena. Documentado en `docs/SECURITY.md` y
+  `docs/TESTING.md`; no es un hueco de protección hoy.
+
+**Documentación corregida**: en `docs/TESTING.md`, la fila de Chromium de
+`/perfil` había perdido su columna "Dónde" (quedó pegada a la de
+`/preferencias` al editar en `d9430ac`); la fila de `roomly-validation` decía
+"sin `05`–`07`" y "Fase 2.0 y 2.3"; se añade qué demuestra cada capa (mock,
+PostgreSQL local, Chromium en el scratchpad). En `docs/SECURITY.md`, las
+limitaciones de 2.5. En `docs/ROADMAP.md`, los commits de 2.5.
+
+**Riesgos pendientes** (sin cambios): carrera onboarding ↔ ciudad; perfil
+completado sin fila de preferencias por el servidor; ciudad activa solo en
+la aplicación; `preflight.sql` P3 con 35 políticas; punto A de la auditoría
+de 2.3; nada de Fase 2 probado contra Supabase real. Pendiente de decisión:
+mascotas, tabaco y "solo estudiantes" como preferencias (hoy solo son
+columnas de `rooms`).
+
+**Qué queda**: 2.6 (ajustes). No empezada.
+
+---
+
 ## 2026-09-30 — Sesión 16: refuerzo de las verificaciones de 2.5
 
 Sin cambios de código productivo, de base de datos ni de documentación de
