@@ -6,6 +6,50 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 16: refuerzo de las verificaciones de 2.5
+
+Sin cambios de código productivo, de base de datos ni de documentación de
+diseño: solo verificación. `d9430ac` no se toca (commit nuevo, sin amend).
+
+**Mutaciones pendientes, ejecutadas de verdad** (cada archivo restaurado y
+comprobado con hash; las de base de datos, en copias locales con una
+migración extra):
+- Sin filtro por usuario en el servicio: en la lectura
+  (`getHousingPreferences`) fallan 2 tests (página y servicio); en el UPDATE,
+  2 (acción y servicio). En la base de datos, con la política de SELECT
+  abierta falla `HP5a` (y `08`); con la de UPDATE abierta falla `08` (`DD2`),
+  mientras `HP5b` sigue en verde porque el UPDATE también aplica la política
+  de SELECT a las filas que lee: dos capas, no un test vacío (la fila ajena
+  existe).
+- `profile_id` aceptado en el esquema de entrada: fallan 6 tests (acción de
+  preferencias, acción del onboarding, servicio y validación).
+- Sin el trigger de barrios (2.0): fallan `05` (`HP11`, primero) y `10`
+  (`PN1`). La regla de barrios solo vive en la base de datos (la aplicación
+  traduce su error); por eso no la detecta la suite unitaria, que la emula.
+
+**Tests nuevos de la Server Action** (`tests/unit/preferences-actions.test.ts`,
++5): `city_id` inexistente (al actualizar y al crear), `university_id`
+inexistente, barrio inexistente, y ciudad/universidad/barrio incompatibles
+entre sí. Todos comprueban error de campo propio, sin éxito, sin cambios
+guardados, sin `revalidatePath` y sin texto de Supabase. El mock en memoria
+emula ahora también las FKs de ciudad y universidad.
+
+**Chromium**: escenario nuevo en el flujo de `/preferencias` (perfil con el
+onboarding completado y sin fila de preferencias → estado vacío con ciudad
+obligatoria → crear → `city_id` guardado y onboarding intacto → recargar →
+quitar la ciudad sigue rechazado), con y sin JavaScript. El script vive en el
+scratchpad de la sesión (Supabase simulado con estado), no en el repositorio:
+no es la suite E2E de 2.8.
+
+**Resultados reales**: `test` 469/469 (464 + 5), `test:db` 192/192 (sin
+cambios), `lint`, `typecheck`, `format:check` y `build` en verde; Chromium
+43/43 (35 + 4 comprobaciones nuevas en cada modo) y regresión del onboarding
+2/2.
+
+**Qué queda**: 2.6 (ajustes). No empezada.
+
+---
+
 ## 2026-09-30 — Sesión 15: Fase 2.5 — preferencias de vivienda
 
 **Alcance pedido**: `/preferencias` para consultar y editar las

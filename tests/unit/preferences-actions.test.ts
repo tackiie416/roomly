@@ -72,9 +72,10 @@ const eqValue = (call: Call, column: string) =>
     string | undefined;
 
 /**
- * Perfil, preferencias y datos de referencia en memoria. Emula el trigger de
- * barrios (2.0) y el de universidad (2.5) para comprobar que sus errores se
- * traducen, aunque el servicio compruebe antes lo que puede.
+ * Perfil, preferencias y datos de referencia en memoria. Emula las FKs de
+ * ciudad y universidad (23503), el trigger de barrios (2.0) y el de
+ * universidad (2.5) para comprobar que sus errores se traducen, aunque el
+ * servicio compruebe antes lo que puede.
  */
 function fakeDb(options: {
   userId?: string | null;
@@ -90,7 +91,21 @@ function fakeDb(options: {
     preferences: options.preferences === undefined ? prefsRow() : options.preferences,
   };
   const triggers = (next: Row): FakeResponse["error"] | undefined => {
+    if (next.city_id && !CITIES[next.city_id as string])
+      return {
+        code: "23503",
+        message:
+          'insert or update on table "housing_preferences" violates foreign key constraint "housing_preferences_city_id_fkey"',
+      };
+    if (next.university_id && !UNIVERSITIES[next.university_id as string])
+      return {
+        code: "23503",
+        message:
+          'insert or update on table "housing_preferences" violates foreign key constraint "housing_preferences_university_id_fkey"',
+      };
     const ids = (next.preferred_neighborhood_ids as string[] | undefined) ?? [];
+    if (ids.some((id) => !NEIGHBORHOOD_CITY[id]))
+      return { code: "23503", message: "housing_neighborhoods: algún barrio no existe" };
     if (ids.some((id) => NEIGHBORHOOD_CITY[id] !== next.city_id))
       return {
         code: "23514",
@@ -391,6 +406,90 @@ describe("submitOwnPreferences — referencias de otra ciudad", () => {
     const state = await submitOwnPreferences({}, withEntry("city_id", "barcelona"));
     expect(writes(calls)).toHaveLength(0);
     expect(state.fieldErrors?.city_id).toBeDefined();
+  });
+});
+
+describe("submitOwnPreferences — referencias inexistentes o incompatibles", () => {
+  const NONEXISTENT = "e5f6a7b8-c9d0-4e1f-8a2b-4c5d6e7f8091";
+
+  /** Error de campo, sin éxito, sin cambios guardados y sin texto de Supabase. */
+  async function expectRejected(
+    entries: FormData,
+    field: string,
+    message: string,
+    options: Parameters<typeof fakeDb>[0] = {}
+  ) {
+    const { db } = fakeDb(options);
+    const before = JSON.stringify(db.preferences);
+    const state = await submitOwnPreferences({}, entries);
+    expect(state.success).toBeUndefined();
+    expect(state.fieldErrors?.[field]).toEqual([message]);
+    expect(JSON.stringify(db.preferences)).toBe(before);
+    expect(JSON.stringify(state)).not.toMatch(/fkey|housing_|violates/);
+    expect(cacheMock.revalidatePath).not.toHaveBeenCalled();
+    return state;
+  }
+
+  it("city_id inexistente → 'La ciudad no existe' (FK)", async () => {
+    await expectRejected(
+      form([
+        ["city_id", NONEXISTENT],
+        ["university_id", ""],
+      ]),
+      "city_id",
+      "La ciudad no existe"
+    );
+  });
+
+  it("city_id inexistente también al crear (sin preferencias previas)", async () => {
+    await expectRejected(
+      form([["city_id", NONEXISTENT]]),
+      "city_id",
+      "La ciudad no existe",
+      {
+        preferences: null,
+      }
+    );
+  });
+
+  it("university_id inexistente → 'La universidad no existe' (FK)", async () => {
+    await expectRejected(
+      withEntry("university_id", NONEXISTENT),
+      "university_id",
+      "La universidad no existe"
+    );
+  });
+
+  it("barrio inexistente → 'Algún barrio no existe' (trigger)", async () => {
+    await expectRejected(
+      withEntry("preferred_neighborhood_ids", NONEXISTENT),
+      "preferred_neighborhood_ids",
+      "Algún barrio no existe"
+    );
+  });
+
+  it("ciudad, universidad y barrio incompatibles entre sí → rechazado", async () => {
+    // Ciudad de Barcelona con universidad y barrio de Madrid.
+    await expectRejected(
+      form([
+        ["city_id", BCN],
+        ["university_id", UCM],
+        ["preferred_neighborhood_ids", N_MAD],
+      ]),
+      "university_id",
+      "La universidad no pertenece a la ciudad elegida"
+    );
+    // Universidad correcta pero barrio de otra ciudad.
+    await expectRejected(
+      form([
+        ["city_id", BCN],
+        ["university_id", UPC],
+        ["preferred_neighborhood_ids", N_BCN],
+        ["preferred_neighborhood_ids", N_MAD],
+      ]),
+      "preferred_neighborhood_ids",
+      "Algún barrio no pertenece a la ciudad elegida"
+    );
   });
 });
 

@@ -17,11 +17,11 @@
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 464/464 (39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 48 de preferencias, Fase 2.5: reglas del servicio, Server Action, página, formulario, datos de referencia y proxy) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
+| `npm run test` | ✅ 469/469 (39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
 | Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) |
-| Flujo de `/preferencias` en Chromium | ✅ 35/35 (18 con y 17 sin JavaScript; el filtro dinámico solo aplica con JavaScript) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
+| Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
 | `npm run test:db` (PostgreSQL local con shim) | ✅ 192/192 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3, `08` de cuentas eliminadas, `09` de Fase 2.4 y `10` de Fase 2.5) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
 | Suite SQL `tests/db` con roles reales | ✅ 58/58 (sin `05`–`07`) | `roomly-validation`; las migraciones de Fase 2.0 y 2.3 no están aplicadas allí |
 | `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 | `roomly-validation` |
@@ -131,6 +131,12 @@ universidad en el servicio, onboarding siempre "sin completar", acción sin
 INSERT cuando no existen, ciudad siempre obligatoria en la página, esquema
 de edición no estricto, sin guard en la acción (lo detecta "eliminada entre
 el guard y la escritura") y cuenta eliminada no bloqueada en el servicio.
+Refuerzo posterior (sesión 16), todas detectadas: sin filtro por usuario en
+la lectura (`getHousingPreferences`) y en el UPDATE; `profile_id` aceptado
+en el esquema de entrada; y, en copias de la base de datos, sin el trigger de
+barrios (`HP11`, `PN1`), con la política de SELECT abierta (`HP5a`) y con la
+de UPDATE abierta (la detecta `08`; `HP5b` sigue protegido porque el UPDATE
+también aplica la política de SELECT a las filas que lee).
 
 **Resultado real (2026-09-30, Fase 2.4)**: 168/168 aserciones (158 + 10 de
 `09`). Mutación en una copia local: con una migración extra que concede

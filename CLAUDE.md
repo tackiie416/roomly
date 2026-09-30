@@ -47,7 +47,7 @@ con `deleted_at` se bloquean también en RLS (`profiles_update_own` y
 `/perfil`: `requireOwnProfile`, `app/actions/profile.ts`; `test` 416/416,
 `test:db` 168/168). 2.5 completada (preferencias en `/preferencias`;
 ciudad obligatoria y sin borrado del cliente tras el onboarding, universidad
-↔ ciudad en la base de datos; `test` 464/464, `test:db` 192/192). Ajustes es
+↔ ciudad en la base de datos; `test` 469/469, `test:db` 192/192). Ajustes es
 2.6. Las migraciones de Fase 2 (2.0, 2.3, la de cuentas eliminadas y 2.5) **no están
 aplicadas** en `roomly-validation`. Subfases y decisiones: `docs/ROADMAP.md`.
 - **Diferido por decisión del usuario**: Google OAuth, Apple OAuth y
