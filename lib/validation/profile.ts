@@ -99,5 +99,15 @@ export const profileUpdateSchema = z
     error: "No hay ningún cambio que guardar",
   });
 
+/**
+ * Ajustes (`/ajustes`, Fase 2.6): solo el aviso por email. Estricto: desde
+ * los ajustes no se puede cambiar ningún otro campo del perfil (el nombre, la
+ * fecha, etc. se editan en `/perfil`).
+ */
+export const notificationSettingsSchema = z.strictObject(
+  { email_notifications_enabled: emailNotificationsSchema },
+  { error: unknownKeyError }
+);
+
 export type ProfileCreateInput = z.output<typeof profileCreateSchema>;
 export type ProfileUpdateInput = z.output<typeof profileUpdateSchema>;

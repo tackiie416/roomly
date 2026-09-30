@@ -3,6 +3,7 @@ import {
   completeOnboarding,
   createProfile,
   getProfileState,
+  updateNotificationSettings,
   updateProfile,
   type OwnProfile,
 } from "@/lib/services/profile";
@@ -503,5 +504,66 @@ describe("completeOnboarding", () => {
     });
     expect(await completeOnboarding(client)).toEqual({ ok: true, data: first });
     expect(writePayloads(calls)).toHaveLength(1);
+  });
+});
+
+describe("updateNotificationSettings (/ajustes, Fase 2.6)", () => {
+  it("sin sesión → unauthenticated, sin consultas", async () => {
+    const { client, calls } = createFakeSupabase({ userId: null });
+    expect(
+      await updateNotificationSettings(client, { email_notifications_enabled: false })
+    ).toEqual({ ok: false, error: "unauthenticated" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("UPDATE de solo email_notifications_enabled, en la fila de la sesión", async () => {
+    const { client, calls } = createFakeSupabase({
+      userId: USER,
+      respond: () => ({
+        data: profile({ email_notifications_enabled: false }),
+        error: null,
+      }),
+    });
+    expect(
+      await updateNotificationSettings(client, { email_notifications_enabled: false })
+    ).toMatchObject({ ok: true, data: { email_notifications_enabled: false } });
+    const [update] = writePayloads(calls);
+    expect(update.payload).toEqual({ email_notifications_enabled: false });
+    expect(update.filters).toEqual([{ kind: "eq", column: "id", value: USER }]);
+  });
+
+  it("cualquier otro campo (también profile_id) → validation, sin consultas ni UPDATE", async () => {
+    for (const key of [
+      "full_name",
+      "profile_id",
+      "id",
+      "role",
+      "onboarding_completed_at",
+    ]) {
+      const { client, calls } = createFakeSupabase({
+        userId: USER,
+        respond: () => ({ data: profile(), error: null }),
+      });
+      const result = await updateNotificationSettings(client, {
+        email_notifications_enabled: true,
+        [key]: "x",
+      });
+      expect(result).toMatchObject({ ok: false, error: "validation" });
+      expect(calls).toHaveLength(0);
+    }
+  });
+
+  it("cuenta eliminada → deleted, sin UPDATE (lo aplica updateProfile)", async () => {
+    const { client, calls } = createFakeSupabase({
+      userId: USER,
+      respond: () => ({
+        data: profile({ deleted_at: "2026-09-01T00:00:00Z" }),
+        error: null,
+      }),
+    });
+    expect(
+      await updateNotificationSettings(client, { email_notifications_enabled: false })
+    ).toEqual({ ok: false, error: "deleted" });
+    expect(writePayloads(calls)).toHaveLength(0);
   });
 });

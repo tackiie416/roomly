@@ -192,6 +192,28 @@ Auth/`?next=` (M6) y UI.
   referencia (ciudades, universidades, barrios) se leen con el cliente
   normal: son tablas de lectura pública.
 
+## Fase 2.6 — ajustes (2026-09-30)
+
+- **`/ajustes`**: guard `requireOwnProfile("/ajustes")` en la propia página;
+  solo lee el perfil de la sesión. Escritura por `submitNotificationSettings`
+  → `updateNotificationSettings` (`lib/services/profile.ts`), que valida con
+  `notificationSettingsSchema` (estricto: **solo**
+  `email_notifications_enabled`) y delega en `updateProfile` (usuario de la
+  sesión, cuenta eliminada bloqueada, `.eq("id", userId)`). Desde `/ajustes`
+  no se puede cambiar ningún otro campo del perfil, tampoco enviándolo a
+  mano; `profile_id`/`id` se rechazan igual.
+- **Logout**: el mismo `signOut` de 2.2 (`SignOutButton`); **su alcance no
+  cambia en 2.6** (sigue el valor por defecto de supabase-js, pendiente de
+  decisión).
+- **Sin borrado de cuenta** (H6 sigue fuera): ni botón, ni acción, ni
+  endpoint.
+- Sin migraciones ni cambios de RLS/GRANT. `profiles_select_authenticated`
+  (H4) no se toca; `12_settings_notifications.sql` aprovecha que la fila
+  ajena es visible para probar la condición de dueño de `profiles_update_own`.
+- `email_notifications_enabled` se puede cambiar temporalmente desde
+  `/perfil` y desde `/ajustes` (misma columna y mismas protecciones), para
+  no reabrir la Fase 2.4.
+
 ## Cuentas eliminadas: escrituras bloqueadas en RLS (2026-09-30)
 
 Decisión B de la auditoría de 2.3. Semántica: `profiles.deleted_at IS NOT

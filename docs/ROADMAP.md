@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 EN PROGRESO (2.0–2.5 completadas; siguiente: 2.6)
+## Fase 2 — User 🚧 EN PROGRESO (2.0–2.6 completadas; siguiente: 2.7)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -102,7 +102,11 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   2.1 y una Server Action; reutiliza el formulario del onboarding. Migración
   `20260930140000`: riesgo C resuelto (ciudad obligatoria y sin borrado del
   cliente tras el onboarding) y universidad ↔ ciudad en la base de datos.
-- 2.6 Ajustes (sin borrado de cuenta: H6) — sin empezar.
+- 2.6 Ajustes en `/ajustes` (sin borrado de cuenta: H6) — ✅ completada
+  (PROGRESS.md sesión 19): avisos por email (`email_notifications_enabled`)
+  y cerrar sesión (el `signOut` de 2.2, sin cambiar su alcance). El aviso
+  sigue también en `/perfil` (2.4 no se reabre). Sin migración y sin botón
+  ni endpoint de borrado.
 - 2.7 Shell autenticado y estados de carga/error/vacío — sin empezar.
 - 2.8 Validación real del alta (entorno con signups) y E2E — sin empezar.
 

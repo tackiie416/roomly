@@ -4,6 +4,7 @@ import type { Database } from "@/types/database";
 import {
   dateOfBirthSchema,
   fullNameSchema,
+  notificationSettingsSchema,
   profileCreateSchema,
   profileUpdateSchema,
   seekingStatusSchema,
@@ -196,6 +197,24 @@ export async function updateProfile(
     .single();
   if (error) return mapProfileWriteError(error);
   return ok(updated);
+}
+
+/**
+ * Ajustes (Fase 2.6): cambia solo `email_notifications_enabled`. Valida con
+ * `notificationSettingsSchema` (estricto: cualquier otra clave se rechaza) y
+ * delega en `updateProfile`, que saca el usuario de la sesión, bloquea
+ * cuentas eliminadas y escribe solo en la fila propia.
+ */
+export async function updateNotificationSettings(
+  supabase: DbClient,
+  input: unknown
+): Promise<ServiceResult<OwnProfile>> {
+  const userId = await getSessionUserId(supabase);
+  if (!userId) return fail("unauthenticated");
+
+  const parsed = notificationSettingsSchema.safeParse(input);
+  if (!parsed.success) return fail("validation", toFieldErrors(parsed.error));
+  return updateProfile(supabase, parsed.data);
 }
 
 /**

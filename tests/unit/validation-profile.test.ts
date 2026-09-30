@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { profileCreateSchema, profileUpdateSchema } from "@/lib/validation/profile";
+import {
+  notificationSettingsSchema,
+  profileCreateSchema,
+  profileUpdateSchema,
+} from "@/lib/validation/profile";
 import { latestBirthDateForAge, todayUtc } from "@/lib/validation/common";
 
 // Día fijo en UTC: los cálculos de edad no dependen del reloj real.
@@ -257,5 +261,45 @@ describe("profileUpdateSchema — edición en /perfil (Fase 2.4)", () => {
     expect(profileUpdateSchema.safeParse({ full_name: "Ana", [key]: "x" }).success).toBe(
       false
     );
+  });
+});
+
+describe("notificationSettingsSchema (/ajustes, Fase 2.6)", () => {
+  it("acepta solo el booleano de avisos", () => {
+    expect(
+      notificationSettingsSchema.parse({ email_notifications_enabled: true })
+    ).toEqual({
+      email_notifications_enabled: true,
+    });
+    expect(
+      notificationSettingsSchema.parse({ email_notifications_enabled: false })
+    ).toEqual({
+      email_notifications_enabled: false,
+    });
+  });
+
+  it.each([null, "on", "false", 0, undefined])("rechaza %s", (value) => {
+    expect(
+      notificationSettingsSchema.safeParse({ email_notifications_enabled: value }).success
+    ).toBe(false);
+  });
+
+  it.each([
+    "full_name",
+    "bio",
+    "seeking_status",
+    "date_of_birth",
+    "profile_id",
+    "id",
+    "role",
+    "deleted_at",
+    "onboarding_completed_at",
+  ])("rechaza %s aunque venga con un aviso válido", (key) => {
+    expect(
+      notificationSettingsSchema.safeParse({
+        email_notifications_enabled: true,
+        [key]: "x",
+      }).success
+    ).toBe(false);
   });
 });

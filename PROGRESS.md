@@ -6,6 +6,62 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 19: Fase 2.6 — ajustes
+
+**Alcance** (auditoría previa y decisión del usuario): el plan aprobado de
+Fase 2 define 2.6 como "Ajustes — notificaciones por email y logout —
+`(app)/ajustes` — sin botón ni endpoint de borrado". Contradicción
+encontrada: el aviso ya se edita en `/perfil` (2.4) y el logout existe desde
+2.2. Decisión del usuario: crear `/ajustes` con los dos, **mantener
+temporalmente** `email_notifications_enabled` también en `/perfil` (2.4 no
+se reabre), no cambiar el alcance del logout y dejar fuera el borrado (H6).
+
+**Qué se hizo** (sin migraciones, RLS ni cambios en `/perfil`)
+- `lib/validation/profile.ts`: `notificationSettingsSchema` (estricto, solo
+  `email_notifications_enabled`).
+- `lib/services/profile.ts`: `updateNotificationSettings` (valida con ese
+  esquema y delega en `updateProfile`).
+- `lib/auth/session.ts`: `SETTINGS_PATH` y `/ajustes` como `currentPath` de
+  `requireOwnProfile`.
+- `app/actions/settings.ts`: `submitNotificationSettings` (éxito "Ajustes
+  guardados."; errores propios o genéricos; sin sesión, sin perfil o
+  eliminada → redirección).
+- `components/settings/notifications-form.tsx` y
+  `app/(app)/ajustes/page.tsx` (guard en la página; avisos y "Cerrar sesión"
+  con el `SignOutButton` de 2.2; enlace a `/perfil`). Retirado el `.gitkeep`
+  de `app/(app)/ajustes`.
+- Navegación: no hay navegación autenticada (el shell es 2.7), así que
+  `/ajustes` no se enlaza desde el `nav` global; solo se llega por URL.
+- Tests: `tests/unit/settings.test.tsx` (27), casos nuevos en
+  `validation-profile` y `services-profile`,
+  `tests/db/12_settings_notifications.sql` (8).
+
+**Resultados reales**: `npm test` 515/515 (469 + 46), `npm run test:db`
+212/212 (204 + 8), `lint`, `typecheck`, `format:check` y `build` en verde.
+Chromium con `next start` y Supabase simulado: `/ajustes` 24/24 con y sin
+JavaScript (incluye mismo valor en `/perfil`, `full_name` inyectado
+rechazado, `?profile_id=` en la URL, cuenta eliminada con la página abierta y
+logout) y `/perfil` 24/24 otra vez (2.4 sin cambios). Ningún 307 de
+`/ajustes` lleva contenido. Mutaciones: 1 de base de datos y 3 de código,
+todas detectadas.
+
+**Documentado expresamente**
+- `email_notifications_enabled` permanece temporalmente disponible tanto en
+  `/perfil` como en `/ajustes` para no reabrir retrospectivamente la Fase
+  2.4.
+- El alcance del logout no se modifica en Fase 2.6.
+- El borrado de cuenta H6 continúa fuera de alcance.
+
+**Riesgos pendientes** (sin cambios): alcance del logout (global o por
+dispositivo); H4; carrera onboarding ↔ ciudad; perfil completado sin fila de
+preferencias; ciudad activa solo en la aplicación; `preflight.sql` P3 (35
+frente a 38 políticas); punto A de la auditoría de 2.3; nada probado contra
+Supabase real; mascotas, tabaco y "solo estudiantes"; cuándo hacer push.
+
+**Qué queda**: 2.7 (shell autenticado y estados). No empezada.
+
+---
+
 ## 2026-09-30 — Sesión 18: ownership aislado de `housing_preferences`
 
 Solo tests de base de datos y documentación: sin cambios de código
