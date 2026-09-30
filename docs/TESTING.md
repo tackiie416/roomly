@@ -32,10 +32,11 @@
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 515/515 (46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
+| `npm run test` | ✅ 532/532 (17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
 | Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
+| Shell de Fase 2.7 en Chromium | ✅ 35/35 (20 con JavaScript y 15 sin él; sin JavaScript no aplican `aria-current` ni «Reintentar»): `/` con su contenido y «Entrar», sin sesión/sin perfil/eliminada en las tres rutas, nav con los tres enlaces y navegación entre ellas, perfil incompleto, error de servidor sin texto técnico, logout desde el nav; y regresión con el shell: `/perfil` 24/24, `/preferencias` 43/43, `/ajustes` 24/24, onboarding 2/2 | local con `next start` y Supabase simulado; scripts en el scratchpad de la sesión (no en el repositorio) |
 | Flujo de `/ajustes` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript: sin sesión, sin perfil, eliminada, estado actual, desactivar/activar y recargar, mismo valor en `/perfil`, `full_name` inyectado, `?profile_id=` en la URL, eliminada con la página abierta, logout) + `/perfil` otra vez 24/24 | local con `next start` y Supabase simulado con estado (Fase 2.6); no es la suite E2E |
 | Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E |
 | `npm run test:db` (PostgreSQL local con shim) | ✅ 218/218 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5, `11` de ownership aislado y `12` de Fase 2.6) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
@@ -137,6 +138,28 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 `expect_error` exige un SQLSTATE concreto: un "fallo por el motivo
 equivocado" (p. ej. recursión infinita en vez de rechazo por RLS) hace
 fallar el test en vez de pasar por accidente.
+
+**Fase 2.7 (2026-09-30, cerrada)**: sin tests DB nuevos (no
+cambia nada de base de datos; `test:db` sigue 218/218). `tests/unit/shell.test.tsx`
+(17): `Nav` raíz estático y sin imports de sesión/Supabase, contenido de `/`
+y «Entrar», enlaces exactos del shell, `aria-current`, logout con el
+`SignOutButton`, layout sin consultas, ausencia de `loading.tsx`, y
+`error.tsx`/`global-error.tsx` con un error de texto técnico deliberado
+(render y código fuente). Mutaciones (6, todas detectadas): `error.message`
+en `error.tsx`, digest en `global-error.tsx`, stack en un atributo, «Entrar»
+en el `Nav` raíz, import de Supabase en el `Nav` raíz y un enlace a
+`/matches` en el shell.
+
+**L1 (`app/(app)/loading.tsx` + guard en el layout), probado y revertido**:
+los redirects seguían siendo 307 (comprobado con `curl`), pero el contenido
+de `/perfil`, `/preferencias` y `/ajustes` llegaba por streaming dentro de
+un `<div hidden>` que solo muestra JavaScript: sin JavaScript solo se veía
+«Cargando…». Por eso no hay `loading.tsx` en `(app)`.
+
+Los scripts de Chromium de 2.4–2.6 se adaptaron al shell sin rebajar
+ninguna comprobación: el botón «Cerrar sesión» de cada página se busca
+dentro de `<main>` (ahora también hay uno en el nav) y los campos inyectados
+van al formulario de la página (`main form`), no al primer `<form>`.
 
 **Resultado real (2026-09-30, Fase 2.6)**: 218/218 aserciones (204 + 14 de
 `12`; 8 en `4c40595` y 6 más en la verificación posterior: persistencia

@@ -192,6 +192,27 @@ Auth/`?next=` (M6) y UI.
   referencia (ciudades, universidades, barrios) se leen con el cliente
   normal: son tablas de lectura pública.
 
+## Fase 2.7 — shell y errores (2026-09-30)
+
+- **Errores**: `app/error.tsx` y `app/global-error.tsx` muestran solo un
+  mensaje genérico en español y «Reintentar» (`reset`). No leen
+  `error.message`, `stack`, `digest` ni `cause`, ni interpolan el objeto
+  `error`. Los tests renderizan un error con texto técnico deliberado y
+  comprueban el código fuente; las mutaciones que reintroducen
+  `error.message`, el digest o el stack fallan.
+  - Qué ve el usuario, qué no: con JavaScript, el mensaje genérico. Sin
+    JavaScript, un error de servidor da un 500 cuyo único texto visible es
+    la cabecera («Roomly»): `error.tsx` es un componente de cliente y
+    Next.js solo lo pinta al hidratar. En ningún caso se ve texto técnico.
+    El payload RSC de Next.js incluye un `digest` (hash opaco, no el
+    mensaje) y el detalle queda en el log del servidor.
+- **Navegación**: el `Nav` raíz no lee la sesión; el shell de `(app)` no
+  hace consultas, no muestra datos del perfil y solo enlaza a rutas
+  existentes. Protección de rutas sin cambios (proxy + guard en cada
+  página); en los 307 no aparece el nav.
+- Sin cambios en RLS, migraciones, servicios, acciones ni en las páginas de
+  2.4–2.6; logout sin cambios (`SignOutButton` → `signOut`).
+
 ## Fase 2.6 — ajustes (2026-09-30)
 
 - **`/ajustes`**: guard `requireOwnProfile("/ajustes")` en la propia página;

@@ -6,6 +6,71 @@ próximos pasos.**
 
 ---
 
+## 2026-09-30 — Sesión 21: Fase 2.7 — shell y estados (CERRADA)
+
+**Cerrada** tras la revisión del usuario. Los cambios siguen **sin commit**
+(sobre `bf32252`) hasta que el usuario lo autorice; sin push ni cambios en
+Supabase remoto.
+
+**Decisiones de cierre del usuario**
+- N3 se mantiene tal cual: `Nav` raíz estático, sin consulta de sesión, y
+  «Entrar» solo en la página de inicio. Consecuencia aceptada: las páginas
+  públicas secundarias (incluida la 404) no tienen necesariamente «Entrar»;
+  no es trabajo de 2.7.
+- L1 se mantiene revertido (sin `app/(app)/loading.tsx` ni
+  `requireAppShell`); las protecciones de cada página no cambian.
+- `error.tsx` y `global-error.tsx` se quedan como están.
+- Los riesgos de abajo no bloquean 2.7: son de otras fases o trabajo
+  posterior.
+
+**Decisiones del usuario** (tras la auditoría): N3 para la navegación y L1
+para la carga, condicionado a evidencia.
+
+**Qué hay**
+- `components/nav.tsx`: cabecera global estática, solo el logotipo; no lee
+  la sesión (las páginas públicas siguen estáticas: `/`, `/registro`, 404).
+- `app/page.tsx`: añade «Entrar» → `/login`; el resto sin cambios
+  (incluido "Foundation — Fase 1 en construcción.").
+- `app/(app)/layout.tsx` + `components/app-nav.tsx` +
+  `components/app-nav-links.tsx`: navegación de la cuenta hacia `/perfil`,
+  `/preferencias` y `/ajustes` (`aria-current` en la actual) y el
+  `SignOutButton` de 2.2. Sin consultas y sin guard propio: cada página
+  conserva el suyo; sin sesión redirige `proxy.ts`.
+- `app/error.tsx` y `app/global-error.tsx`: mensaje genérico y
+  «Reintentar»; nunca `error.message`, stack, digest ni el objeto `error`.
+- Estados vacíos: ninguno nuevo; el único real es el de `/preferencias`
+  (2.5) y se conserva. Las carpetas `.gitkeep` de `(app)` no tienen UI.
+
+**L1 probado y revertido**: con `app/(app)/loading.tsx` y un guard
+(`requireAppShell`) en el layout, los redirects seguían siendo 307, pero el
+contenido de las tres páginas llegaba en un `<div hidden>` que solo
+muestra JavaScript: sin JavaScript solo se veía «Cargando…» (regresión de
+2.4–2.6). Se eliminaron los dos; `lib/auth/session.ts` queda como en
+`bf32252`.
+
+**Resultados reales**: `npm test` 532/532 (515 + 17), `npm run test:db`
+218/218, `lint`, `typecheck`, `format:check` y `build` en verde. Chromium
+local (Supabase simulado): shell 35/35, `/perfil` 24/24, `/preferencias`
+43/43, `/ajustes` 24/24, onboarding 2/2, con y sin JavaScript. `curl`: 307
+sin sesión, sin perfil y con cuenta eliminada en las tres rutas, sin nav en
+el cuerpo; 200 con el shell con sesión; `/` prerenderizada. Mutaciones: 6,
+todas detectadas.
+
+**Limitación documentada**: sin JavaScript, un error de servidor devuelve
+un 500 con solo la cabecera visible (Next.js pinta `error.tsx` al
+hidratar). No se muestra nada técnico.
+
+**Riesgos y puntos abiertos** (aceptados, no se resuelven en 2.7): dos botones «Cerrar sesión» en las páginas de
+la cuenta (nav y página; quitar el de la página tocaría 2.4–2.6); las
+páginas usan `min-h-[calc(100vh-65px)]` y, con el nav, sobresalen unos
+píxeles; el `Nav` raíz ya no ofrece «Entrar» fuera de `/` (p. ej. en la
+404). Siguen los de fases anteriores (logout global, H4, carrera onboarding
+↔ ciudad, perfil completado sin preferencias, ciudad activa, preflight
+35/38, punto A de 2.3, Supabase real, mascotas/tabaco/solo estudiantes,
+push).
+
+---
+
 ## 2026-09-30 — Sesión 20: verificación de la Fase 2.6 (`4c40595`)
 
 Sin cambios de código productivo, RLS ni migraciones; `4c40595` no se toca.

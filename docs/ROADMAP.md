@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 EN PROGRESO (2.0–2.6 completadas; siguiente: 2.7)
+## Fase 2 — User 🚧 EN PROGRESO (2.0–2.7 completadas; siguiente: 2.8)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -107,7 +107,17 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   y cerrar sesión (el `signOut` de 2.2, sin cambiar su alcance). El aviso
   sigue también en `/perfil` (2.4 no se reabre). Sin migración y sin botón
   ni endpoint de borrado.
-- 2.7 Shell autenticado y estados de carga/error/vacío — sin empezar.
+- 2.7 Shell autenticado y estados de carga/error/vacío — ✅ **cerrada**
+  (PROGRESS.md sesión 21; cambios aún sin commit sobre `bf32252`).
+  N3: `Nav` raíz estático (solo el logotipo; «Entrar» pasa a la página de
+  inicio) y navegación de la cuenta en `app/(app)/layout.tsx` hacia
+  `/perfil`, `/preferencias` y `/ajustes`, con el logout de 2.2. `error.tsx`
+  y `global-error.tsx` sin detalles técnicos. `loading.tsx` (L1) se probó y
+  se revirtió: rompía las páginas sin JavaScript; cada página conserva su
+  guard. Sin estados vacíos nuevos. Consecuencia aceptada de N3: fuera de
+  `/`, las páginas públicas (p. ej. la 404) no muestran «Entrar». Resultados:
+  `npm test` 532/532, `test:db` 218/218, lint, typecheck, format y build en
+  verde; Chromium con y sin JavaScript (shell 35/35 y regresión de 2.4–2.6).
 - 2.8 Validación real del alta (entorno con signups) y E2E — sin empezar.
 
 Fuera de Fase 2 por decisión del usuario: foto de perfil/Storage (M3) y

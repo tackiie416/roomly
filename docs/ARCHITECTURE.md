@@ -246,6 +246,15 @@ páginas (formularios en `components/onboarding/*`, Server Actions en
 Fase 3. Las carpetas antiguas `app/(onboarding)/{perfil,preferencias,test}`
 ya no existen.
 
+Shell (Fase 2.7, decisión N3): la cabecera global (`components/nav.tsx`,
+en el layout raíz) es **estática** y no lee la sesión, para que las páginas
+públicas sigan siendo estáticas y no hagan consultas a Supabase; «Entrar»
+está en la página de inicio. La navegación de la cuenta vive en
+`app/(app)/layout.tsx` (`components/app-nav.tsx`): enlaces a `/perfil`,
+`/preferencias` y `/ajustes` y el `SignOutButton` de 2.2. El layout no
+consulta nada ni hace de guard: cada página conserva el suyo y sin sesión
+redirige `proxy.ts`. No hay `loading.tsx` en `(app)` (ver `docs/TESTING.md`).
+
 Perfil propio (Fase 2.4): `app/(app)/perfil/page.tsx` (guard
 `requireOwnProfile` en la propia página; no hay layout de `(app)` todavía,
 el shell es 2.7), Server Action `app/actions/profile.ts` → `updateProfile`
