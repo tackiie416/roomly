@@ -233,7 +233,7 @@ roomly/
 ├── components/{ui,profile,matches,rooms,chat,admin}/
 ├── types/
 ├── supabase/{migrations,seed.sql}
-├── tests/{unit,integration,e2e}
+├── tests/{unit,integration,e2e/{local,real,support}}   # e2e: E1 local (mock), E2 real, mock y config (Fase 2.8)
 └── public/
 ```
 

@@ -6,8 +6,10 @@ import { test, expect } from "@playwright/test";
  * admin) que pide docs/TESTING.md llegan cuando existan esas
  * funcionalidades — no antes.
  *
- * No ejecutado en este entorno (sin navegadores de Playwright
- * disponibles) — pendiente de correr en GitHub Actions o en local.
+ * Desde la Fase 2.8 forma parte de E1 (tests/e2e/local, contra el Supabase
+ * simulado): los flujos de estudiante están en los demás specs de esta
+ * carpeta. Ejecutado en local con el Chromium preinstalado del entorno
+ * cloud (PLAYWRIGHT_CHROMIUM_EXECUTABLE); en CI, job `e2e-local`.
  */
 test("la home carga y muestra el nombre del producto", async ({ page }) => {
   await page.goto("/");

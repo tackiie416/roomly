@@ -1,32 +1,47 @@
 name: Supabase validation
 
-# Validación MANUAL contra el proyecto Supabase de validación
-# (roomly-validation). Nunca se ejecuta en push ni en pull_request.
-# Detalle, matriz de pruebas y configuración de secrets:
+# Validación MANUAL contra el proyecto Supabase de validación P1
+# (roomly-validation-2, Fase 2.8). Nunca se ejecuta en push ni en
+# pull_request. Detalle, matriz de pruebas y configuración de secrets:
 # docs/SUPABASE_VALIDATION.md.
 #
-# Secrets necesarios (GitHub → Settings → Secrets and variables → Actions):
+# Todos los jobs usan el GitHub Environment `roomly-validation-2`: los
+# secrets viven SOLO ahí (GitHub → Settings → Environments), no como secrets
+# del repositorio.
+#
+# Secrets del Environment:
 #   SUPABASE_VALIDATION_PROJECT_REF       ref del proyecto (no secreto, pero se usa como guarda)
 #   SUPABASE_VALIDATION_URL               https://<ref>.supabase.co
 #   SUPABASE_VALIDATION_ANON_KEY          clave pública (anon / publishable)
 #   SUPABASE_VALIDATION_SERVICE_ROLE_KEY  PRIVILEGIADA (service_role / secret)
 #   SUPABASE_VALIDATION_DB_URL            PRIVILEGIADA: cadena del Session pooler (incluye contraseña)
-# Cada job recibe solo los secrets que necesita.
+#   E2E_EMAIL_TEMPLATE                    dirección de prueba con {id} (solo e2e-real)
+#   E2E_MAILBOX_CONFIG                    configuración del buzón de prueba, opaca (solo e2e-real)
+# Variable del Environment (no secreta):
+#   E2E_MAILBOX_ADAPTER                   módulo adaptador del buzón dentro de tests/e2e/
+# Cada paso recibe solo los secrets que necesita; service_role nunca llega a
+# la app ni al proceso de Playwright.
 #
 # Identidad (F1): antes de migrar, comprobar o crear usuarios, cada punto de
 # entrada verifica EN la propia base de datos la marca
-#   COMMENT ON DATABASE postgres IS 'roomly-validation';
-# Si falta o no coincide exactamente, todo aborta. Sin fallback.
+#   COMMENT ON DATABASE postgres IS 'roomly-validation-2';
+# Si falta o no coincide exactamente, todo aborta. Sin fallback. La marca
+# del proyecto antiguo ('roomly-validation') no pasa.
 
 on:
   workflow_dispatch:
     inputs:
       confirm_project:
-        description: "Escribe roomly-validation para confirmar el proyecto de destino"
+        description: "Escribe roomly-validation-2 para confirmar el proyecto de destino"
         required: true
         type: string
       apply_migrations:
         description: "Aplicar migraciones + seed (solo la primera vez, sobre un proyecto vacío)"
+        required: true
+        type: boolean
+        default: false
+      run_e2e_real:
+        description: "E2 real: alta por magic link con email real (requiere registro abierto y buzón configurado)"
         required: true
         type: boolean
         default: false
@@ -42,17 +57,18 @@ jobs:
   guard:
     name: Guarda de destino
     runs-on: ubuntu-latest
+    environment: roomly-validation-2
     steps:
       - uses: actions/checkout@v4
       - name: Confirmación explícita del proyecto
         env:
           CONFIRM: ${{ inputs.confirm_project }}
         run: |
-          if [ "$CONFIRM" != "roomly-validation" ]; then
-            echo "ERROR: confirm_project debe ser exactamente roomly-validation" >&2
+          if [ "$CONFIRM" != "roomly-validation-2" ]; then
+            echo "ERROR: confirm_project debe ser exactamente roomly-validation-2" >&2
             exit 1
           fi
-      - name: Secrets del mismo proyecto y marca de identidad roomly-validation (sin imprimirlos)
+      - name: Secrets del mismo proyecto y marca de identidad roomly-validation-2 (sin imprimirlos)
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
@@ -68,6 +84,7 @@ jobs:
     needs: guard
     if: ${{ inputs.apply_migrations }}
     runs-on: ubuntu-latest
+    environment: roomly-validation-2
     steps:
       - uses: actions/checkout@v4
       - name: Migraciones existentes + seed (una transacción, se niega si el esquema ya existe)
@@ -77,26 +94,28 @@ jobs:
         run: bash tests/supabase/apply-migrations.sh
 
   preflight:
-    name: P1–P5 (infraestructura)
+    name: P0–P6 (infraestructura)
     needs: [guard, migrate]
     if: ${{ !cancelled() && needs.guard.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
     runs-on: ubuntu-latest
+    environment: roomly-validation-2
     steps:
       - uses: actions/checkout@v4
-      - name: P1–P5 — si falla, no se ejecuta ninguna suite
+      - name: P0–P6 — si falla, no se ejecuta ninguna suite
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
         run: bash tests/supabase/run-preflight.sh
 
   sql-suite:
-    name: Suite SQL tests/db (roles reales, con ROLLBACK)
+    name: Suite SQL tests/db 01–12 (roles reales, una sesión y un ROLLBACK por archivo)
     needs: preflight
     if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
+    environment: roomly-validation-2
     steps:
       - uses: actions/checkout@v4
-      - name: C1 / C2 / C3 / H5 / M2 en Supabase real
+      - name: tests/db 01–12 en Supabase real
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
@@ -107,6 +126,7 @@ jobs:
     needs: sql-suite
     if: ${{ !cancelled() && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
+    environment: roomly-validation-2
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -130,6 +150,7 @@ jobs:
     needs: sql-suite
     if: ${{ !cancelled() && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
+    environment: roomly-validation-2
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -154,3 +175,80 @@ jobs:
           exit 1
       - name: AU3 / AU5
         run: bash tests/supabase/auth-redirects.sh
+
+  e2e-real:
+    name: E2 — alta real por magic link (Playwright, email real)
+    needs: sql-suite
+    if: ${{ !cancelled() && inputs.run_e2e_real && needs.sql-suite.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: roomly-validation-2
+    timeout-minutes: 30
+    env:
+      # Id único por ejecución: la dirección de prueba es E2E_EMAIL_TEMPLATE con {id}.
+      E2E_RUN_ID: e2e-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # El Chromium que corresponde a la versión instalada de @playwright/test.
+      - run: npx playwright install --with-deps chromium
+      - name: Enmascarar la dirección de prueba en el log
+        env:
+          E2E_EMAIL_TEMPLATE: ${{ secrets.E2E_EMAIL_TEMPLATE }}
+        run: |
+          node --input-type=module -e '
+            import { testEmail } from "./tests/e2e/real/e2e-real-lib.mjs";
+            console.log("::add-mask::" + testEmail(process.env.E2E_EMAIL_TEMPLATE, process.env.E2E_RUN_ID));
+          '
+      - name: Preparación — guarda F1, Auth listo y restos anteriores (service_role solo aquí y en la limpieza)
+        env:
+          SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
+          SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+          SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
+          SUPABASE_VALIDATION_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
+          SUPABASE_VALIDATION_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_VALIDATION_SERVICE_ROLE_KEY }}
+          E2E_EMAIL_TEMPLATE: ${{ secrets.E2E_EMAIL_TEMPLATE }}
+        run: node tests/e2e/real/cleanup.mjs before
+      # Solo las variables públicas: la app nunca recibe claves privilegiadas.
+      - name: Build y arranque de la app (URL + clave anon)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+        run: |
+          npm run build
+          nohup npm run start > "$RUNNER_TEMP/next.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -s -o /dev/null http://localhost:3000/ && exit 0
+            sleep 1
+          done
+          echo "ERROR: la app no arrancó" >&2
+          exit 1
+      # Sin service_role. Sin trace, vídeo, capturas ni report (ver
+      # playwright.real.config.ts); no se sube ningún artefacto.
+      - name: E2 — formulario real → email → magic link → /callback → onboarding → app
+        env:
+          E2E_APP_URL: http://localhost:3000
+          SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
+          E2E_EMAIL_TEMPLATE: ${{ secrets.E2E_EMAIL_TEMPLATE }}
+          E2E_MAILBOX_ADAPTER: ${{ vars.E2E_MAILBOX_ADAPTER }}
+          E2E_MAILBOX_CONFIG: ${{ secrets.E2E_MAILBOX_CONFIG }}
+        run: npx playwright test -c playwright.real.config.ts
+      - name: Limpieza — usuario, datos, buzón y aviso de registro (siempre, aunque falle el E2)
+        if: ${{ always() }}
+        env:
+          SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
+          SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+          SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
+          SUPABASE_VALIDATION_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
+          SUPABASE_VALIDATION_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_VALIDATION_SERVICE_ROLE_KEY }}
+          E2E_EMAIL_TEMPLATE: ${{ secrets.E2E_EMAIL_TEMPLATE }}
+          E2E_MAILBOX_ADAPTER: ${{ vars.E2E_MAILBOX_ADAPTER }}
+          E2E_MAILBOX_CONFIG: ${{ secrets.E2E_MAILBOX_CONFIG }}
+        run: node tests/e2e/real/cleanup.mjs after
+      - name: Borrar salidas locales del runner
+        if: ${{ always() }}
+        run: rm -rf test-results-real "$RUNNER_TEMP/next.log"

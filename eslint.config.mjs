@@ -17,6 +17,7 @@ const eslintConfig = defineConfig([
     // Propios del proyecto:
     "playwright-report/**",
     "test-results/**",
+    "test-results-real/**",
   ]),
 ]);
 

@@ -192,6 +192,76 @@ Auth/`?next=` (M6) y UI.
   referencia (ciudades, universidades, barrios) se leen con el cliente
   normal: son tablas de lectura pública.
 
+## Fase 2.8 — infraestructura de validación (2026-09-30, en progreso)
+
+Solo infraestructura de test: sin cambios en la app, RLS, migraciones ni
+`/callback`. Implementada en local y sin commit; la validación real
+**no se ha ejecutado** (ver `docs/SUPABASE_VALIDATION.md`).
+
+- **Identidad del proyecto.** El proyecto de validación nuevo debe llevar
+  `comment on database postgres is 'roomly-validation-2'`. Lo comprueban,
+  con comparación exacta y sin fallback:
+  - `tests/supabase/guard.sh`;
+  - P0 de `preflight.sql`;
+  - cada sesión del runner SQL;
+  - la api-suite y la preparación y limpieza del E2 (las tres vía
+    `guard.sh`);
+  - la confirmación del workflow.
+
+  La marca del proyecto antiguo (`roomly-validation`) no pasa, así que sus
+  credenciales no sirven contra las guardas nuevas aunque queden secrets
+  antiguos en el repositorio. `guard-selftest.sh` lo prueba con esa marca y
+  con variantes.
+- **Secrets.** Viven solo en el GitHub Environment `roomly-validation-2`, y
+  todos los jobs del workflow manual lo declaran. Cada paso recibe solo los
+  que necesita.
+  - `SUPABASE_VALIDATION_SERVICE_ROLE_KEY` llega únicamente a la guarda, a
+    la api-suite y a los pasos de preparación y limpieza del E2
+    (`tests/e2e/real/cleanup.mjs`).
+  - La app (`auth-redirects`, `e2e-real`) se construye y arranca solo con
+    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y
+    `NEXT_PUBLIC_SITE_URL`.
+  - El proceso de Playwright no recibe ni `service_role` ni la conexión de
+    base de datos.
+  - `tests/unit/validation-infra.test.ts` falla si alguno de estos repartos
+    cambia.
+- **Runner SQL remoto.** Una sesión y una transacción por archivo, siempre
+  con `ROLLBACK`; nada persiste en el proyecto.
+  - **Antes de conectar, rechaza** cualquier control de transacción no
+    previsto, los meta-comandos de `psql` y lo que el validador no sabe
+    analizar con seguridad: `$tag$`, `/* */` y cadenas `E'...'`.
+  - **Reconoce** comentarios, cadenas `'...'`, identificadores `"..."` y
+    cuerpos `$$...$$`. En la auditoría final, un identificador con `'`
+    ocultaba un `COMMIT` posterior; se corrigió y tiene test de regresión.
+  - Los WARNING hacen fallar la suite. Las salidas de error de conexión no
+    se imprimen, porque podrían contener el host.
+- **E2 real (alta con email real).**
+  - Recorre el formulario, `signInWithOtp`, el email, el magic link y
+    `/callback?code=` (PKCE en el mismo navegador). No usa `generateLink`,
+    `verifyOtp`, `token_hash` ni contraseñas.
+  - Solo abre un enlace que apunte al `/auth/v1/verify` del proyecto
+    esperado y vuelva exactamente a `<app>/callback`.
+  - No guarda trace, vídeo, capturas, report HTML ni instantánea de página
+    (`PLAYWRIGHT_NO_COPY_PROMPT`); no conserva `outputDir` y el job no sube
+    artefactos.
+  - Los errores se reescriben sin email ni URLs, y la dirección de prueba
+    se enmascara en el log.
+  - **Limpieza (`if: always()`):**
+    - borra solo los usuarios cuyo email encaja entero con la plantilla de
+      prueba, como mucho 10 (si hay más, no borra ninguno);
+    - comprueba que no quedan perfiles ni preferencias suyos;
+    - imprime solo recuentos;
+    - el aviso de registro abierto se emite aunque falle el borrado o el
+      buzón (`withSignupCheck`), sin ocultar el error original.
+- **Registro público.** Solo se abre durante la ventana del E2 real, y lo
+  hace el propietario. La preparación falla si está cerrado, y la limpieza
+  avisa si sigue abierto. Cerrarlo es manual: automatizarlo exigiría un
+  token de la Management API con acceso a toda la cuenta, que no se ha
+  añadido.
+- **Supabase simulado (E1).** Solo escucha en 127.0.0.1 y su clave anon es
+  ficticia. Los endpoints `/__test/*` existen únicamente en el mock, no en
+  la app.
+
 ## Fase 2.7 — shell y errores (2026-09-30)
 
 - **Errores**: `app/error.tsx` y `app/global-error.tsx` muestran solo un

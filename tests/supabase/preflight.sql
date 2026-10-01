@@ -1,5 +1,5 @@
--- Validación contra Supabase real — comprobaciones de infraestructura P1–P5.
--- Solo lectura de catálogo: no crea, modifica ni borra nada.
+-- Validación contra Supabase real — comprobaciones de infraestructura P0–P6.
+-- Solo lectura de catálogo: no crea, modifica ni borra nada (ni tablas temporales).
 -- Se ejecuta como el rol de conexión del proyecto (postgres). Cualquier
 -- comprobación fallida lanza una excepción y psql termina con exit != 0.
 -- Ver docs/SUPABASE_VALIDATION.md.
@@ -15,10 +15,10 @@ begin
   if coalesce(
        (select shobj_description(d.oid, 'pg_database')
         from pg_database d where d.datname = current_database()),
-       '') <> 'roomly-validation' then
-    raise exception 'FALLO P0: el destino NO está reconocido como roomly-validation (falta la marca de identidad o no coincide). Abortado.';
+       '') <> 'roomly-validation-2' then
+    raise exception 'FALLO P0: el destino NO está reconocido como roomly-validation-2 (falta la marca de identidad o no coincide). Abortado.';
   end if;
-  raise notice 'ok - P0: destino identificado como roomly-validation por su propia marca';
+  raise notice 'ok - P0: destino identificado como roomly-validation-2 por su propia marca';
 end $$;
 
 -- ============================================================
@@ -91,12 +91,20 @@ begin
 end $$;
 
 -- ============================================================
--- P3 — RLS activa en todas las tablas y número de políticas
+-- P3 — RLS activa en todas las tablas y conjunto EXACTO de políticas
 -- ============================================================
+-- Lista derivada de supabase/migrations (Fase 2.8): 35 de 20260925120100,
+-- sustituciones sin cambio de número en 20260926120000, 20260929120000 y
+-- 20260930140000, y en 20260930130000 `housing_preferences_own` pasa a ser
+-- cuatro políticas (select/insert/update/delete_own). Total: 38 en 18 tablas.
+-- Se compara (tabla, política, comando) en los dos sentidos: falta o sobra
+-- cualquiera → fallo, con el nombre.
 do $$
 declare
   no_rls text;
-  n_policies int;
+  missing text;
+  unexpected text;
+  n_expected int;
 begin
   select string_agg(tablename, ', ') into no_rls
   from pg_tables where schemaname = 'public' and not rowsecurity;
@@ -104,12 +112,68 @@ begin
     raise exception 'FALLO P3: tablas de public sin RLS: %', no_rls;
   end if;
 
-  select count(*) into n_policies from pg_policies where schemaname = 'public';
-  if n_policies <> 35 then
-    raise exception 'FALLO P3: se esperaban 35 políticas, hay %', n_policies;
+  with expected(tablename, policyname, cmd) as (values
+    ('admin_action_logs', 'admin_action_logs_admin_only', 'ALL'),
+    ('cities', 'cities_admin_write', 'ALL'),
+    ('cities', 'cities_select_all', 'SELECT'),
+    ('compatibility_responses', 'compatibility_responses_own', 'ALL'),
+    ('conversation_participants', 'participants_select_own_conversations', 'SELECT'),
+    ('conversation_participants', 'participants_update_own', 'UPDATE'),
+    ('conversations', 'conversations_select_participant', 'SELECT'),
+    ('favorites', 'favorites_own', 'ALL'),
+    ('housing_preferences', 'housing_preferences_delete_own', 'DELETE'),
+    ('housing_preferences', 'housing_preferences_insert_own', 'INSERT'),
+    ('housing_preferences', 'housing_preferences_select_own', 'SELECT'),
+    ('housing_preferences', 'housing_preferences_update_own', 'UPDATE'),
+    ('interests', 'interests_delete_own', 'DELETE'),
+    ('interests', 'interests_insert_own', 'INSERT'),
+    ('interests', 'interests_select_participant', 'SELECT'),
+    ('matches', 'matches_select_participant', 'SELECT'),
+    ('messages', 'messages_insert_participant', 'INSERT'),
+    ('messages', 'messages_select_participant', 'SELECT'),
+    ('neighborhoods', 'neighborhoods_admin_write', 'ALL'),
+    ('neighborhoods', 'neighborhoods_select_all', 'SELECT'),
+    ('notifications', 'notifications_own', 'ALL'),
+    ('profiles', 'profiles_admin_all', 'ALL'),
+    ('profiles', 'profiles_insert_own', 'INSERT'),
+    ('profiles', 'profiles_select_authenticated', 'SELECT'),
+    ('profiles', 'profiles_select_own_even_if_deleted', 'SELECT'),
+    ('profiles', 'profiles_update_own', 'UPDATE'),
+    ('reports', 'reports_admin_all', 'ALL'),
+    ('reports', 'reports_insert_own', 'INSERT'),
+    ('reports', 'reports_select_own', 'SELECT'),
+    ('room_addresses', 'room_addresses_owner_only', 'ALL'),
+    ('room_images', 'room_images_owner_write', 'ALL'),
+    ('room_images', 'room_images_select', 'SELECT'),
+    ('rooms', 'rooms_admin_all', 'ALL'),
+    ('rooms', 'rooms_owner_write', 'ALL'),
+    ('rooms', 'rooms_select_active_public', 'SELECT'),
+    ('rooms', 'rooms_select_own', 'SELECT'),
+    ('universities', 'universities_admin_write', 'ALL'),
+    ('universities', 'universities_select_all', 'SELECT')
+  ),
+  actual as (
+    select tablename::text, policyname::text, cmd::text from pg_policies where schemaname = 'public'
+  )
+  select
+    (select count(*) from expected),
+    (select string_agg(format('%s.%s (%s)', e.tablename, e.policyname, e.cmd), ', '
+                       order by e.tablename, e.policyname)
+     from (select * from expected except select * from actual) e),
+    (select string_agg(format('%s.%s (%s)', a.tablename, a.policyname, a.cmd), ', '
+                       order by a.tablename, a.policyname)
+     from (select * from actual except select * from expected) a)
+  into n_expected, missing, unexpected;
+
+  if n_expected <> 38 then
+    raise exception 'FALLO P3: la lista esperada no tiene 38 entradas (error del propio preflight)';
+  end if;
+  if missing is not null or unexpected is not null then
+    raise exception 'FALLO P3: políticas distintas de las esperadas. Faltan: %. Sobran: %',
+      coalesce(missing, 'ninguna'), coalesce(unexpected, 'ninguna');
   end if;
 
-  raise notice 'ok - P3: RLS activa en las 18 tablas, 35 políticas';
+  raise notice 'ok - P3: RLS activa en las 18 tablas y exactamente las 38 políticas esperadas';
 end $$;
 
 -- ============================================================
@@ -175,10 +239,51 @@ begin
     failures := failures || 'PUBLIC puede ejecutar is_conversation_participant'::text;
   end if;
 
+  -- housing_preferences (20260929120000): anon sin ningún privilegio;
+  -- authenticated solo INSERT/UPDATE por columnas (profile_id fuera del
+  -- UPDATE, updated_at fuera de los dos), SELECT y DELETE sujetos a RLS.
+  foreach col in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] loop
+    if has_table_privilege('anon', 'public.housing_preferences', col) then
+      failures := failures || format('anon tiene %s en housing_preferences', col);
+    end if;
+  end loop;
+  if has_any_column_privilege('anon', 'public.housing_preferences', 'SELECT')
+     or has_any_column_privilege('anon', 'public.housing_preferences', 'INSERT')
+     or has_any_column_privilege('anon', 'public.housing_preferences', 'UPDATE') then
+    failures := failures || 'anon tiene privilegios de columna en housing_preferences'::text;
+  end if;
+  if has_table_privilege('authenticated', 'public.housing_preferences', 'INSERT')
+     or has_table_privilege('authenticated', 'public.housing_preferences', 'UPDATE') then
+    failures := failures || 'authenticated tiene INSERT/UPDATE de tabla completa en housing_preferences'::text;
+  end if;
+  if not has_table_privilege('authenticated', 'public.housing_preferences', 'SELECT')
+     or not has_table_privilege('authenticated', 'public.housing_preferences', 'DELETE') then
+    failures := failures || 'authenticated NO tiene SELECT/DELETE en housing_preferences (fix demasiado restrictivo)'::text;
+  end if;
+  declare
+    got_insert text;
+    got_update text;
+  begin
+    select string_agg(a.attname, ',' order by a.attname) into got_insert
+    from pg_attribute a
+    where a.attrelid = 'public.housing_preferences'::regclass and a.attnum > 0 and not a.attisdropped
+      and has_column_privilege('authenticated', a.attrelid, a.attnum, 'INSERT');
+    select string_agg(a.attname, ',' order by a.attname) into got_update
+    from pg_attribute a
+    where a.attrelid = 'public.housing_preferences'::regclass and a.attnum > 0 and not a.attisdropped
+      and has_column_privilege('authenticated', a.attrelid, a.attnum, 'UPDATE');
+    if got_insert is distinct from 'budget_max,budget_min,city_id,field_of_study,move_in_date,move_out_date,preferred_neighborhood_ids,profile_id,roommates_wanted_max,roommates_wanted_min,university_id' then
+      failures := failures || format('INSERT de authenticated en housing_preferences: columnas inesperadas (%s)', got_insert);
+    end if;
+    if got_update is distinct from 'budget_max,budget_min,city_id,field_of_study,move_in_date,move_out_date,preferred_neighborhood_ids,roommates_wanted_max,roommates_wanted_min,university_id' then
+      failures := failures || format('UPDATE de authenticated en housing_preferences: columnas inesperadas (%s)', got_update);
+    end if;
+  end;
+
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluido housing_preferences)';
 end $$;
 
 -- ============================================================
@@ -228,4 +333,123 @@ begin
 
   raise notice 'P5 info - vista SECURITY DEFINER conocida y aceptada por ahora: public_profile_previews (H3)';
   raise notice 'ok - P5: sin lints de seguridad inesperados';
+end $$;
+
+-- ============================================================
+-- P6 — Fase 2: triggers y funciones propias (conjunto exacto)
+-- ============================================================
+-- Derivado de supabase/migrations: triggers de 20260925120000 (updated_at,
+-- rate limit), 20260926120000 (moderación), 20260929120000 (barrios),
+-- 20260930120000 (onboarding) y 20260930140000 (ciudad y universidad).
+-- Seguridad de funciones según cada migración: SECURITY DEFINER solo
+-- is_admin, is_conversation_participant y enforce_neighborhood_not_referenced;
+-- search_path fijo; EXECUTE revocado donde la migración lo revoca.
+do $$
+declare
+  missing text;
+  unexpected text;
+  failures text[] := '{}';
+  fn record;
+begin
+  with expected(tablename, tgname, fn) as (values
+    ('compatibility_responses', 'trg_compatibility_responses_updated_at', 'set_updated_at()'),
+    ('housing_preferences', 'trg_housing_preferences_city_required', 'enforce_housing_city_after_onboarding()'),
+    ('housing_preferences', 'trg_housing_preferences_neighborhoods', 'enforce_housing_preferences_neighborhoods()'),
+    ('housing_preferences', 'trg_housing_preferences_university', 'enforce_housing_preferences_university()'),
+    ('housing_preferences', 'trg_housing_preferences_updated_at', 'set_updated_at()'),
+    ('interests', 'trg_interests_rate_limit', 'enforce_interest_rate_limit()'),
+    ('neighborhoods', 'trg_neighborhoods_not_referenced', 'enforce_neighborhood_not_referenced()'),
+    ('profiles', 'trg_profiles_onboarding_completion', 'enforce_onboarding_completion()'),
+    ('profiles', 'trg_profiles_updated_at', 'set_updated_at()'),
+    ('room_addresses', 'trg_room_addresses_updated_at', 'set_updated_at()'),
+    ('rooms', 'trg_rooms_moderation', 'enforce_room_moderation()'),
+    ('rooms', 'trg_rooms_updated_at', 'set_updated_at()')
+  ),
+  actual as (
+    select c.relname::text as tablename, t.tgname::text as tgname,
+           regexp_replace(t.tgfoid::regprocedure::text, '^public\.', '') as fn
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and not t.tgisinternal and t.tgenabled <> 'D'
+  ),
+  all_actual as (
+    select c.relname::text as tablename, t.tgname::text as tgname,
+           regexp_replace(t.tgfoid::regprocedure::text, '^public\.', '') as fn
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and not t.tgisinternal
+  )
+  select
+    (select string_agg(format('%s.%s → %s', e.tablename, e.tgname, e.fn), ', ' order by e.tgname)
+     from (select * from expected except select * from actual) e),
+    (select string_agg(format('%s.%s → %s', a.tablename, a.tgname, a.fn), ', ' order by a.tgname)
+     from (select * from all_actual except select * from expected) a)
+  into missing, unexpected;
+  if missing is not null or unexpected is not null then
+    raise exception 'FALLO P6: triggers distintos de los esperados (o desactivados). Faltan: %. Sobran: %',
+      coalesce(missing, 'ninguno'), coalesce(unexpected, 'ninguno');
+  end if;
+
+  -- Funciones propias de public (sin las de extensiones): firma, SECURITY
+  -- DEFINER y search_path exactos.
+  with expected(sig, secdef, search_path) as (values
+    ('enforce_housing_city_after_onboarding()', false, 'search_path=""'),
+    ('enforce_housing_preferences_neighborhoods()', false, 'search_path=""'),
+    ('enforce_housing_preferences_university()', false, 'search_path=""'),
+    ('enforce_interest_rate_limit()', false, 'search_path=public'),
+    ('enforce_neighborhood_not_referenced()', true, 'search_path=""'),
+    ('enforce_onboarding_completion()', false, 'search_path=""'),
+    ('enforce_room_moderation()', false, 'search_path=""'),
+    ('is_admin()', true, 'search_path=public'),
+    ('is_conversation_participant(uuid)', true, 'search_path=""'),
+    ('set_updated_at()', false, 'search_path=public')
+  ),
+  actual as (
+    select regexp_replace(p.oid::regprocedure::text, '^public\.', '') as sig,
+           p.prosecdef as secdef,
+           (select cfg from unnest(coalesce(p.proconfig, '{}')) cfg where cfg like 'search_path=%') as search_path
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and not exists (select 1 from pg_depend d
+                      where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+  )
+  select
+    (select string_agg(format('%s (definer=%s, %s)', e.sig, e.secdef, e.search_path), ', ' order by e.sig)
+     from (select * from expected except select * from actual) e),
+    (select string_agg(format('%s (definer=%s, %s)', a.sig, a.secdef, a.search_path), ', ' order by a.sig)
+     from (select * from actual except select * from expected) a)
+  into missing, unexpected;
+  if missing is not null or unexpected is not null then
+    raise exception 'FALLO P6: funciones de public distintas de las esperadas. Faltan: %. Sobran: %',
+      coalesce(missing, 'ninguna'), coalesce(unexpected, 'ninguna');
+  end if;
+
+  -- EXECUTE revocado según las migraciones.
+  for fn in
+    select * from (values
+      ('public.enforce_neighborhood_not_referenced()', true),
+      ('public.enforce_onboarding_completion()', true),
+      ('public.enforce_housing_city_after_onboarding()', true),
+      ('public.enforce_housing_preferences_university()', true),
+      ('public.enforce_housing_preferences_neighborhoods()', false)
+    ) as v(sig, also_authenticated)
+  loop
+    if has_function_privilege('anon', fn.sig::regprocedure, 'EXECUTE') then
+      failures := failures || format('anon puede ejecutar %s', fn.sig);
+    end if;
+    if fn.also_authenticated and has_function_privilege('authenticated', fn.sig::regprocedure, 'EXECUTE') then
+      failures := failures || format('authenticated puede ejecutar %s', fn.sig);
+    end if;
+    if exists (select 1 from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+               where p.oid = fn.sig::regprocedure and a.grantee = 0 and a.privilege_type = 'EXECUTE') then
+      failures := failures || format('PUBLIC puede ejecutar %s', fn.sig);
+    end if;
+  end loop;
+  if array_length(failures, 1) > 0 then
+    raise exception 'FALLO P6: %', array_to_string(failures, '; ');
+  end if;
+
+  raise notice 'ok - P6: 12 triggers activos, 10 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
 end $$;

@@ -6,6 +6,247 @@ próximos pasos.**
 
 ---
 
+## 2026-10-01 — Sesión 23: auditoría final de la 2.8 y correcciones (EN PROGRESO, sin commit)
+
+Sobre los cambios de la sesión 22, todavía sin commit (HEAD sigue en
+`1e6af49`). Primero, auditoría final de solo lectura; después, con
+autorización, solo las correcciones de su sección B. **La Fase 2.8 no está
+cerrada:** la infraestructura local queda preparada, pero la validación
+remota sigue pendiente. No se ha tocado Supabase remoto.
+
+**Hallazgos de la auditoría, corregidos**
+1. **Runner SQL: falso negativo del validador.** Reproducido en local: un
+   identificador entre comillas dobles con un apóstrofo
+   (`select 1 as "it's";`) desincronizaba el análisis y ocultaba un
+   `COMMIT` posterior. `sql-suite-lib.sh` analiza ahora los identificadores
+   `"..."` (con `""` escapada) y rechaza las cadenas `E'...'`, cuyos
+   escapes `\'` no analiza. El resto de reglas no cambia, y
+   `tests/db/11` tampoco. Nuevo caso D2 en `sql-suite-selftest.sh`:
+   16 rechazos, incluido el caso exacto de la auditoría, y una
+   comprobación de que los identificadores legítimos se aceptan.
+2. **Limpieza del E2: el aviso de registro abierto dependía del buzón.**
+   Ahora `withSignupCheck` (`e2e-real-lib.mjs`) comprueba el registro
+   después del borrado y del buzón, pase lo que pase con ellos, y relanza
+   el error original. La fase `before` queda igual. Hay 6 tests unitarios
+   nuevos.
+3. **Email de ejemplo con dominio real** en un test: `@gmail.com` →
+   `@example.com`, sin cambiar el sentido del test.
+4. **Cabecera de `sql-suite-selftest.sh`:** enumera A–H y D2.
+5. **Documentación sincronizada:**
+   - `CLAUDE.md`: 2.6 y 2.7 cerradas, 2.8 en progreso, E1/E2,
+     `roomly-validation-2` y validación real pendiente;
+   - `docs/ENVIRONMENT.md`: entorno local, CI y validación remota
+     separados, con las variables reales;
+   - `docs/ROADMAP.md`: la 2.7 ya está en `1e6af49`;
+   - `docs/SECURITY.md`: sección de la 2.8;
+   - `docs/SUPABASE_VALIDATION.md`: SMTP sin seguimiento ni reescritura de
+     enlaces, y descripción del validador;
+   - `docs/TESTING.md` y `docs/ARCHITECTURE.md` (árbol de `tests/e2e`).
+
+**Resultados (local)**
+- `diff --check`, format, lint, typecheck y build en verde.
+- `npm test`: 597/597 (591 + 6).
+- `test:db`: 218/218.
+- Auto-tests: guard 19/19, runner **75/75** (58 + 17) con la suite real
+  01–12 en 218 = 218, y preflight 35/35.
+- E1: 25/25.
+- **Mutaciones**, restauradas por hash:
+  - validador: 2/2 con efecto detectadas;
+  - limpieza: 2/2;
+  - 2 sin efecto observable en el validador: la `""` escapada es
+    equivalente, y el error de identificador sin cerrar ya lo cubre
+    «sentencia final sin `;`».
+
+**Qué queda**
+- Nada local bloqueante conocido.
+- Pendientes, del propietario:
+  1. autorizar el commit;
+  2. elegir SMTP y buzón (el SMTP sin seguimiento ni reescritura de
+     enlaces) y encargar el adaptador;
+  3. crear y configurar `roomly-validation-2` y su Environment;
+  4. ejecutar el workflow y el E2 real.
+- `npx playwright install` todavía no lo ha ejecutado nadie: lo hará el
+  job `e2e-local` de CI tras el push.
+
+---
+
+## 2026-09-30 — Sesión 22: Fase 2.8 — infraestructura de validación (EN PROGRESO, sin commit)
+
+Sobre `1e6af49`. Decisiones del usuario tras la segunda auditoría:
+- **Supabase real, opción A:** la validación remota la ejecuta el propietario.
+- **P1:** proyecto nuevo y vacío.
+- **E3:** E1 local y E2 real, separados.
+- **Runner:** el conflicto con `tests/db/11` se resuelve en el runner.
+- **Red:** no se abre la red del entorno de Claude.
+- **D1(a):** SMTP propio y buzón por API, con el proveedor sin decidir.
+- **D2(a):** marca nueva `roomly-validation-2`.
+
+No se ha tocado Supabase remoto, no se ha creado el proyecto ni se ha
+configurado SMTP; sin commit, push ni PR.
+
+**Qué se hizo**
+- **Runner SQL** (`tests/supabase/sql-suite-lib.sh`, usado por
+  `run-sql-suite.sh`):
+  - una sesión de `psql` y una transacción por archivo, con identidad y
+    sesión limpia comprobadas al empezar y rol/claims/`roomly_test`
+    comprobados tras el `ROLLBACK`;
+  - comprobación final de restos en otra sesión;
+  - el `begin;`/`rollback;` de `tests/db/11` se reescribe en el flujo a
+    SAVEPOINT; **11 no se modifica**;
+  - cualquier otro control de transacción o meta-comando aborta antes de
+    conectar;
+  - los WARNING se muestran y hacen fallar. También `run-preflight.sh`
+    deja de ocultarlos.
+- **Preflight P0–P6**:
+  - marca nueva;
+  - P3 compara las **38 políticas** por (tabla, política, comando) en los
+    dos sentidos, en vez de contar 35;
+  - P4 añade los GRANT de `housing_preferences`;
+  - P6 nuevo: 12 triggers activos, 10 funciones propias con SECURITY
+    DEFINER/`search_path` exactos, y EXECUTE revocado según las
+    migraciones;
+  - solo lectura: CTE en vez de tablas temporales.
+  - Todo derivado del catálogo de un PostgreSQL con las 7 migraciones y
+    contrastado con su SQL.
+- **Identidad `roomly-validation-2`** en `guard.sh`, `preflight.sql`, cada
+  sesión del runner (vía `guard.sh`), el workflow (confirmación y
+  Environment) y la suite de integración (mensajes). La antigua
+  `roomly-validation` no pasa.
+- **E1**:
+  - `playwright.config.ts` levanta `next build` + `next start` y el mock
+    `tests/e2e/support/mock-supabase.mjs`. El mock implementa Auth con
+    PKCE, OTP/verify y logout global, y las 5 tablas con RLS, GRANT,
+    triggers y H4 emulados. Rechaza `select=*` y solo escucha en
+    127.0.0.1.
+  - Specs en `tests/e2e/local/`, con `smoke.spec.ts` movido allí sin
+    cambiar sus tests.
+- **E2**:
+  - `playwright.real.config.ts`: sin webServer, trace, vídeo, capturas,
+    report ni instantánea de página, y sin reintentos.
+  - `tests/e2e/real/student-real.spec.ts`: el flujo completo con email
+    real.
+  - `e2e-real-lib.mjs`: dirección única, patrón de limpieza, validación
+    del enlace y carga del adaptador de buzón.
+  - `cleanup.mjs before|after`, con `service_role` solo ahí.
+  - `tests/e2e/support/mock-mailbox.mjs`, solo para ensayar el spec contra
+    el mock.
+- **Workflows**:
+  - `supabase-validation.yml`:
+    - todos los jobs pasan al Environment `roomly-validation-2`;
+    - input `run_e2e_real`;
+    - job `e2e-real`, tras `sql-suite`, con el email enmascarado, la
+      preparación, la app con URL + anon, Playwright sin `service_role`, y
+      la limpieza `if: always()`;
+    - ningún artefacto.
+  - `ci.yml`: los tres auto-tests en `db-security`, y el job `e2e-local`
+    (instala el Chromium de la versión actual y sube el report solo si
+    falla).
+- **`package.json`:** `test:e2e:real` y `test:infra`. **`.gitignore` y
+  ESLint:** `test-results-real`.
+- **Tests nuevos:**
+  - `tests/unit/validation-infra.test.ts` e `e2e-real-lib.test.ts`
+    (59 en total);
+  - `tests/supabase/sql-suite-selftest.sh` (58) y `preflight-selftest.sh`
+    (35);
+  - `guard-selftest.sh` ampliado a 19.
+- **Documentación:** `docs/SUPABASE_VALIDATION.md` reescrito, con P1, E1/E2,
+  el runner, las 38 políticas y los requisitos del magic link, y el
+  checkpoint de Fase 1 como histórico. `docs/TESTING.md` y
+  `docs/ROADMAP.md` actualizados (119 → 218, `01`–`06` → `01`–`12`,
+  35 → 38 políticas exactas, Playwright).
+
+**Resultados reales (local)**
+- `format:check`, `lint`, `typecheck` y `build` en verde.
+- `npm test`: 591/591 (532 + 59).
+- `test:db`: 218/218.
+- Auto-tests: `guard-selftest` 19/19, `sql-suite-selftest` 58/58 y
+  `preflight-selftest` 35/35.
+  - `run-sql-suite.sh` real contra PostgreSQL local con la marca: 12
+    archivos y **218 aserciones, las mismas que `run.sh`**, sin restos.
+  - Siguen las 38 políticas y el preflight pasa después.
+  - El test 11 en crudo dentro de la transacción del runner falla, con el
+    WARNING que antes se ocultaba.
+- **E1:** 25/25, con el Chromium 1194 preinstalado vía
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. Playwright 1.63 espera 1243: la
+  combinación no está soportada oficialmente y el resultado de referencia
+  será el de CI.
+- **Mutaciones**, restauradas por hash:
+  - runner, 4/4: sin SAVEPOINT, WARNING que no falla, COMMIT permitido,
+    COMMIT en vez de ROLLBACK;
+  - app contra E1, 4/4: eliminada → home, ajustes sin esquema estricto,
+    logout sin `signOut`, `/preferencias` sin ciudad obligatoria;
+  - preflight, 27/27 (en su auto-test).
+- **Ensayo del spec de E2 contra el mock** con el buzón simulado: 1/1.
+  Cinco fallos esperados sin email ni enlace en la salida; tras un fallo
+  solo queda `.last-run.json`.
+- **No ejecutado:** nada contra Supabase real, CI en GitHub (sin push) ni
+  el E2 real.
+
+**Problemas encontrados**
+- El conflicto del runner con el test 11 era peor de lo que se veía: el
+  `WARNING` quedaba oculto por el filtro `sed`.
+- El preflight contaba 35 políticas y no comprobaba nada de Fase 2.
+- Una mutación mía no compilaba (se repitió bien). Un error de tipos mío en
+  un test nuevo hacía fallar el build de E1 (corregido).
+- `@supabase/ssr` no borra la cookie `…-code-verifier` tras el canje:
+  quité una aserción que suponía lo contrario. Sin riesgo propio.
+- Playwright escribe `error-context.md` con el árbol de la página (donde
+  estaría el email) aunque las capturas estén desactivadas. Se desactiva
+  en E2 con `PLAYWRIGHT_NO_COPY_PROMPT`.
+
+**Decisiones técnicas**
+- Reescritura a SAVEPOINT en el flujo, en vez de SAVEPOINT en el test.
+- El adaptador del buzón se carga por configuración (ruta dentro de
+  `tests/e2e/`, con secret opaco), sin proveedor inventado.
+- El cierre del registro tras el E2 no se automatiza: haría falta un token
+  de la Management API con acceso a toda la cuenta. La limpieza lo avisa.
+- Los secrets pasan al Environment. Si faltaran allí y el job cayera en los
+  secrets del repositorio del proyecto antiguo, la guarda lo rechaza por la
+  marca.
+
+**Pasos manuales pendientes (propietario)**
+1. Elegir el proveedor de SMTP y el de buzón de prueba (con API), y
+   encargar su adaptador (`tests/e2e/real/mailboxes/…`, interfaz en
+   `e2e-real-lib.mjs`).
+2. Crear `roomly-validation-2` (Free, Frankfurt). En su SQL Editor:
+   `comment on database postgres is 'roomly-validation-2';` y comprobarlo.
+3. Auth:
+   - Site URL `http://localhost:3000`;
+   - Redirect URLs exactamente `http://localhost:3000/callback`;
+   - email activo;
+   - SMTP propio;
+   - registro público **desactivado**.
+4. GitHub → Settings → Environments → `roomly-validation-2` (con
+   aprobación manual):
+   - secrets `SUPABASE_VALIDATION_{PROJECT_REF,URL,ANON_KEY,SERVICE_ROLE_KEY,DB_URL}`
+     del proyecto nuevo, `E2E_EMAIL_TEMPLATE` y `E2E_MAILBOX_CONFIG`;
+   - variable `E2E_MAILBOX_ADAPTER`.
+5. Hacer merge/push de estos cambios a `master`: `workflow_dispatch` solo
+   existe desde la rama por defecto.
+6. Primera ejecución del workflow: `confirm_project=roomly-validation-2`,
+   `apply_migrations=true`, `run_e2e_real=false`. Revisar P0–P6, SQL 01–12,
+   supabase-js y AU3/AU5.
+7. Abrir el registro, lanzar con `apply_migrations=false` y
+   `run_e2e_real=true`, y **cerrar el registro** en cuanto termine (la
+   limpieza avisa si sigue abierto).
+8. Rotar las claves y retirar los secrets de repositorio de
+   `roomly-validation`, y pausarlo o borrarlo.
+
+**Qué queda / riesgos**
+- 2.8 **no está cerrada**: faltan la validación real y el E2 real (pasos
+  de arriba) y ver CI en verde en GitHub.
+- El mock de E1 puede divergir de la base de datos real; lo compensan
+  `tests/db` y E2.
+- El registro queda abierto a internet durante la ventana del E2.
+- Cada migración futura exige recrear el proyecto P1.
+- Siguen abiertos el punto A de 2.3 y H4.
+- **Documentos fuera del alcance de esta tarea, sin tocar:** `CLAUDE.md`
+  («Ajustes es 2.6»), `docs/ENVIRONMENT.md` (habla de `roomly-validation`)
+  y la entrada 2.7 de `docs/ROADMAP.md` («cambios aún sin commit sobre
+  `bf32252`», ya commiteados en `1e6af49`) están desactualizados.
+
+---
+
 ## 2026-09-30 — Sesión 21: Fase 2.7 — shell y estados (CERRADA)
 
 **Cerrada** tras la revisión del usuario. Los cambios siguen **sin commit**

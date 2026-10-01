@@ -3,7 +3,7 @@
 #
 # Simula dos "proyectos" con el usuario de pooler postgres.<ref> y comprueba
 # que la guarda y cada punto de entrada abortan salvo en el proyecto que lleva
-# la marca exacta 'roomly-validation':
+# la marca exacta 'roomly-validation-2' (Fase 2.8: proyecto P1 nuevo):
 #   1. proyecto ficticio (inexistente / ref inválido)
 #   2. URL de otro proyecto
 #   3. secrets coherentes pero de otro proyecto (sin marca)
@@ -18,9 +18,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ADMIN=(psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc -d postgres)
 HOST="${PGHOST:-localhost}"
+# Los roles simulados postgres.<ref> entran por TCP; si PGHOST es un socket
+# (p. ej. /var/run/postgresql), se usa 127.0.0.1.
+case "$HOST" in /*) HOST=127.0.0.1 ;; esac
+# Contraseña aleatoria de los roles temporales: nunca se escribe en ningún
+# archivo ni se imprime, y los roles se borran al terminar.
+SELFTEST_PW="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 PORT="${PGPORT:-5432}"
 
-VAL_REF="aaaaaaaaaaaaaaaaaaaa"   # "roomly-validation" simulado
+VAL_REF="aaaaaaaaaaaaaaaaaaaa"   # "roomly-validation-2" simulado
 OTHER_REF="bbbbbbbbbbbbbbbbbbbb" # otro proyecto (p. ej. producción)
 SUFFIX="$$"
 VAL_DB="guard_val_${SUFFIX}"
@@ -35,13 +41,13 @@ trap cleanup EXIT
 cleanup
 
 "${ADMIN[@]}" \
-  -c "create role \"postgres.${VAL_REF}\" login superuser" \
-  -c "create role \"postgres.${OTHER_REF}\" login superuser" \
+  -c "create role \"postgres.${VAL_REF}\" login superuser password '${SELFTEST_PW}'" \
+  -c "create role \"postgres.${OTHER_REF}\" login superuser password '${SELFTEST_PW}'" \
   -c "create database ${VAL_DB} owner \"postgres.${VAL_REF}\"" \
   -c "create database ${OTHER_DB} owner \"postgres.${OTHER_REF}\"" \
-  -c "comment on database ${VAL_DB} is 'roomly-validation'" >/dev/null
+  -c "comment on database ${VAL_DB} is 'roomly-validation-2'" >/dev/null
 
-db_url() { echo "postgresql://postgres.$1:unused@${HOST}:${PORT}/$2"; }
+db_url() { echo "postgresql://postgres.$1:${SELFTEST_PW}@${HOST}:${PORT}/$2"; }
 
 failed=0
 # expect <pass|fail> <descripción> <comando...> (con las variables ya exportadas)
@@ -67,7 +73,7 @@ echo "== guard.sh"
 set_target "$VAL_REF" "https://${VAL_REF}.supabase.co" "$(db_url "$VAL_REF" "$VAL_DB")"
 expect pass "positivo: proyecto con la marca exacta" run_guard
 
-set_target "$VAL_REF" "https://${VAL_REF}.supabase.co" "postgresql://postgres.${VAL_REF}:unused@${HOST}:1/${VAL_DB}"
+set_target "$VAL_REF" "https://${VAL_REF}.supabase.co" "postgresql://postgres.${VAL_REF}:${SELFTEST_PW}@${HOST}:1/${VAL_DB}"
 expect fail "1a: proyecto ficticio (destino inexistente)" run_guard
 set_target "no-es-un-ref" "https://no-es-un-ref.supabase.co" "$(db_url "$VAL_REF" "$VAL_DB")"
 expect fail "1b: proyecto ficticio (ref inválido)" run_guard
@@ -78,7 +84,10 @@ expect fail "2: URL de otro proyecto" run_guard
 set_target "$OTHER_REF" "https://${OTHER_REF}.supabase.co" "$(db_url "$OTHER_REF" "$OTHER_DB")"
 expect fail "3: secrets coherentes de otro proyecto (sin marca)" run_guard
 
-for bad in "roomly-validation " "Roomly-Validation" "roomly-validation-old" "produccion"; do
+# "roomly-validation" es la marca del proyecto ANTIGUO: sus credenciales
+# nunca pasan la guarda del proyecto nuevo.
+for bad in "roomly-validation" "roomly-validation-2 " " roomly-validation-2" "Roomly-Validation-2" \
+  "roomly-validation-20" "roomly-validation-old" "produccion"; do
   "${ADMIN[@]}" -c "comment on database ${OTHER_DB} is '${bad}'" >/dev/null
   expect fail "4: marca incorrecta '${bad}'" run_guard
 done
@@ -106,4 +115,4 @@ if [ "$failed" -ne 0 ]; then
   echo "RESULTADO: la guarda F1 tiene fallos"
   exit 1
 fi
-echo "RESULTADO: la guarda F1 rechaza todo destino que no sea roomly-validation"
+echo "RESULTADO: la guarda F1 rechaza todo destino que no sea roomly-validation-2"

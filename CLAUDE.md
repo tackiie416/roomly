@@ -27,11 +27,12 @@ decisión, no solo cuál): `ROOMLY_MASTER_SPEC.md`.
 **Fase 1 (Foundation): completada (2026-09-29).** Hecho y verificado:
 Next.js 16 + TypeScript + Tailwind, Supabase Auth + SSR, magic link, `/admin` en dos capas, redirects seguros, correcciones de
 seguridad/RLS, CI en verde en GitHub Actions, 39/39 tests, validación
-contra un Supabase real (`roomly-validation`: SQL 58/58, supabase-js
-46/46, AU2–AU5) y migración a `proxy.ts` (runtime Node.js).
+contra un Supabase real (checkpoint en el proyecto antiguo
+`roomly-validation`, histórico: SQL 58/58, supabase-js 46/46, AU2–AU5) y
+migración a `proxy.ts` (runtime Node.js).
 - **Trasladado a Fase 2**: el alta real de un usuario nuevo por magic
-  link (el login sí está validado; `roomly-validation` tiene signups
-  desactivados). Ver `docs/ROADMAP.md`.
+  link (el login sí se validó; el registro estaba desactivado). Es parte de
+  la 2.8. Ver `docs/ROADMAP.md`.
 
 **Fase 2 (User): en progreso.** 2.0 completada (endurecimiento de datos y
 RLS/GRANT de `profiles` y `housing_preferences`, integridad de barrios con
@@ -47,11 +48,24 @@ con `deleted_at` se bloquean también en RLS (`profiles_update_own` y
 `/perfil`: `requireOwnProfile`, `app/actions/profile.ts`; `test` 416/416,
 `test:db` 168/168). 2.5 completada (preferencias en `/preferencias`;
 ciudad obligatoria y sin borrado del cliente tras el onboarding, universidad
-↔ ciudad en la base de datos; `test` 469/469, `test:db` 192/192). Ajustes es
-2.6. Las migraciones de Fase 2 (2.0, 2.3, la de cuentas eliminadas y 2.5) **no están
-aplicadas** en `roomly-validation`. Subfases y decisiones: `docs/ROADMAP.md`.
-- **Diferido por decisión del usuario**: Google OAuth, Apple OAuth y
-  E2E/Playwright en CI (este último, a Fase 2).
+↔ ciudad en la base de datos; `test` 469/469, `test:db` 192/192). 2.6
+completada (ajustes en `/ajustes`: avisos por email y cerrar sesión) y 2.7
+cerrada (shell autenticado y errores sin detalles técnicos, `1e6af49`;
+`test` 532/532, `test:db` 218/218).
+
+**2.8 (validación real del alta y E2E): en progreso, NO cerrada.** La
+infraestructura está implementada en local y **sin commit**: runner SQL
+remoto aislado por archivo, preflight P0–P6 exacto (38 políticas), E1
+(Playwright contra Supabase simulado, también en CI) y E2 (alta real con
+email real, solo desde el workflow manual). La validación real **no se ha
+ejecutado**: el proyecto nuevo `roomly-validation-2` (marca de identidad
+`roomly-validation-2`, comparación exacta) todavía no existe, ni el SMTP ni
+el buzón de prueba. El proyecto antiguo `roomly-validation` no tiene las
+migraciones de Fase 2 y ya no se usa. Crear y configurar el proyecto, abrir
+el registro y ejecutar la validación remota lo hace el propietario; Claude
+no toca Supabase remoto, ni hace commit, push o PR, sin autorización
+explícita. Subfases y decisiones: `docs/ROADMAP.md`.
+- **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
 
@@ -132,7 +146,9 @@ npm run test               # Vitest, una vez
 npm run test:watch          # Vitest, modo watch
 npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (ver docs/TESTING.md)
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
-npm run test:e2e              # Playwright (necesita `npx playwright install` antes)
+npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
+npm run test:e2e:real         # E2: alta real contra roomly-validation-2 (solo desde el workflow manual)
+npm run test:infra            # auto-tests de guarda, runner SQL y preflight contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
 ```
@@ -239,10 +255,14 @@ Ver `docs/TESTING.md` para resultados reales de la última sesión.
 Prioridad: algoritmo de matching (casi cobertura total cuando exista, es
 el diferencial del producto), RLS por rol, y los 3 flujos E2E
 obligatorios (estudiante, room provider, admin). La conexión con
-Supabase real ya está verificada (`docs/SUPABASE_VALIDATION.md`).
-Playwright no: ni el sandbox original ni el entorno cloud de Claude Code
-pueden descargar sus navegadores, y los E2E están diferidos a Fase 2 —
-cuando se retomen, verifícalo de verdad, no lo asumas.
+Supabase real se verificó en la Fase 1 (`roomly-validation`, histórico); la
+de Fase 2 en `roomly-validation-2` está pendiente
+(`docs/SUPABASE_VALIDATION.md`). E2E: E1 (`npm run test:e2e`, Supabase
+simulado) corre en local y en CI; el entorno cloud de Claude Code no puede
+descargar el navegador de Playwright 1.63 y usa el Chromium preinstalado
+con `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (resultado orientativo; el de CI es el
+de referencia). E2 (real) solo se ejecuta desde el workflow manual y aún no
+se ha ejecutado — no lo des por hecho.
 
 ## Alcance del MVP — qué NO construir todavía
 
@@ -261,7 +281,8 @@ Fase 1 completada — ver arriba.
 
 ## Funcionalidades pendientes
 
-Resto de Fase 2 (2.6–2.8) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
+Cierre de la 2.8 (validación real en `roomly-validation-2` y E2 real,
+ejecutados por el propietario) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 

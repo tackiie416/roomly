@@ -1,26 +1,57 @@
 import { defineConfig, devices } from "@playwright/test";
+import {
+  APP_ORIGIN,
+  MOCK_ANON_KEY,
+  MOCK_SUPABASE_URL,
+} from "./tests/e2e/support/mock-config.mjs";
 
 /**
- * No verificado en este entorno: el sandbox de desarrollo no tiene salida
- * de red hacia el CDN de navegadores de Playwright, así que
- * `npx playwright install` no puede completarse aquí (ver
- * docs/TESTING.md). Esta configuración solo se ha comprobado por
- * sintaxis/tipos — ejecutar de verdad en GitHub Actions o en local.
+ * E1 — E2E local (Fase 2.8): la app real (`next build` + `next start`)
+ * contra el Supabase simulado de tests/e2e/support/mock-supabase.mjs. Sin
+ * red externa ni secrets: la clave anon es ficticia y solo la acepta el mock.
+ * El E2E real (E2) tiene su propia configuración: playwright.real.config.ts.
+ *
+ * Navegador: el que trae la versión instalada de @playwright/test
+ * (`npx playwright install chromium`; en CI, ver .github/workflows/ci.yml).
+ * Solo si ese navegador no se puede descargar (p. ej. el entorno cloud de
+ * Claude Code, que trae otro Chromium preinstalado) se puede apuntar a uno
+ * externo con PLAYWRIGHT_CHROMIUM_EXECUTABLE. Esa combinación no la soporta
+ * Playwright oficialmente: el resultado de referencia es el de CI.
  */
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined;
+
 export default defineConfig({
-  testDir: "./tests/e2e",
-  fullyParallel: true,
+  testDir: "./tests/e2e/local",
+  // Un solo worker: los specs comparten el estado en memoria del mock.
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  reporter: "html",
+  retries: process.env.CI ? 1 : 0,
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
-    baseURL: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
-    trace: "on-first-retry",
+    baseURL: APP_ORIGIN,
+    trace: "retain-on-failure",
+    launchOptions: executablePath ? { executablePath } : {},
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: [
+    {
+      command: "node tests/e2e/support/mock-supabase.mjs",
+      url: `${MOCK_SUPABASE_URL}/__test/log`,
+      reuseExistingServer: false,
+    },
+    {
+      // Build de producción: el comportamiento sin JavaScript es el real.
+      command: "npm run build && npm run start",
+      url: APP_ORIGIN,
+      // Nunca reutilizar un servidor ya levantado: podría apuntar a otro Supabase.
+      reuseExistingServer: false,
+      timeout: 300_000,
+      env: {
+        NEXT_PUBLIC_SUPABASE_URL: MOCK_SUPABASE_URL,
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: MOCK_ANON_KEY,
+        NEXT_PUBLIC_SITE_URL: APP_ORIGIN,
+      },
+    },
+  ],
 });
