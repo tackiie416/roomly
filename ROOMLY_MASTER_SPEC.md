@@ -462,9 +462,10 @@ vive en `docs/ARCHITECTURE.md`, `docs/DATABASE.md` o `docs/SECURITY.md`.
 15. `pets_allowed`/`smoking_allowed`/`students_only` como columnas
     booleanas propias en `rooms` — faltaban para los filtros de
     búsqueda pedidos explícitamente.
-16. Next.js 16 deprecó `middleware.ts` en favor de `proxy.ts` — migración
-    pendiente, descubierta durante Foundation (no una decisión de
-    producto, una realidad del framework).
+16. Next.js 16 deprecó `middleware.ts` en favor de `proxy.ts` —
+    descubierto durante Foundation (no una decisión de producto, una
+    realidad del framework). Migrado el 2026-09-29; el proxy corre en
+    Node.js.
 
 ## Lo que sigue explícitamente pendiente de decisión humana
 

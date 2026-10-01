@@ -5,11 +5,11 @@ reset role;
 insert into auth.users (id, email) values
   ('30000000-0000-0000-0000-00000000000b', 'h5-owner@test'),
   ('30000000-0000-0000-0000-00000000000d', 'h5-admin@test');
-insert into public.profiles (id, full_name, date_of_birth) values
-  ('30000000-0000-0000-0000-00000000000b', 'Owner', '2000-01-01');
+insert into public.profiles (id, full_name, date_of_birth, seeking_status) values
+  ('30000000-0000-0000-0000-00000000000b', 'Owner', '2000-01-01', 'looking_for_room');
 -- El admin se crea como fixture de servidor: un cliente ya no puede darse role=admin (C1).
-insert into public.profiles (id, full_name, date_of_birth, role) values
-  ('30000000-0000-0000-0000-00000000000d', 'Admin', '1990-01-01', 'admin');
+insert into public.profiles (id, full_name, date_of_birth, seeking_status, role) values
+  ('30000000-0000-0000-0000-00000000000d', 'Admin', '1990-01-01', 'looking_for_room', 'admin');
 
 -- ---------- El propietario gestiona su habitación con normalidad ----------
 set role authenticated;

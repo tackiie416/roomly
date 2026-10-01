@@ -24,19 +24,53 @@ decisión, no solo cuál): `ROOMLY_MASTER_SPEC.md`.
 (sobreingeniería, seguridad, escalabilidad — ver `docs/DATABASE.md` y
 `docs/ARCHITECTURE.md`).
 
-**Fase 1 (Foundation): en progreso, interrumpida antes de cerrar su
-propio checklist.** Hay código real (Next.js + Supabase clients + auth +
-tests) que pasa lint/typecheck/test/build, pero:
-- Nunca se ha ejecutado contra un proyecto Supabase real.
-- `npx playwright install` nunca se ha intentado con red real.
-- Next.js 16 deprecó `middleware.ts` en favor de `proxy.ts` — migración
-  pendiente.
-- **Los archivos de Foundation pueden seguir sin commitear.** Antes de
-  hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md` — no
-  asumas que un commit existe porque el código existe en disco.
+**Fase 1 (Foundation): completada (2026-09-29).** Hecho y verificado:
+Next.js 16 + TypeScript + Tailwind, Supabase Auth + SSR, magic link, `/admin` en dos capas, redirects seguros, correcciones de
+seguridad/RLS, CI en verde en GitHub Actions, 39/39 tests, validación
+contra un Supabase real (checkpoint en el proyecto antiguo
+`roomly-validation`, histórico: SQL 58/58, supabase-js 46/46, AU2–AU5) y
+migración a `proxy.ts` (runtime Node.js).
+- **Trasladado a Fase 2**: el alta real de un usuario nuevo por magic
+  link (el login sí se validó; el registro estaba desactivado). Es parte de
+  la 2.8. Ver `docs/ROADMAP.md`.
+
+**Fase 2 (User): en progreso.** 2.0 completada (endurecimiento de datos y
+RLS/GRANT de `profiles` y `housing_preferences`, integridad de barrios con
+triggers; `test:db` 119/119 en local) y 2.1 completada (validación Zod y
+servicios de perfil y preferencias en `lib/validation/*` y
+`lib/services/*`), 2.2 completada (routing de Auth: `lib/auth/*`, guards de
+servidor, `next` en cookie, `/cuenta-desactivada`, logout) y 2.3 completada
+(onboarding en `/bienvenida/{perfil,preferencias}` con Server Actions;
+`seeking_status` sin DEFAULT y trigger que exige preferencias con ciudad
+para completar; `test` 347/347). Después de 2.3, las escrituras de cuentas
+con `deleted_at` se bloquean también en RLS (`profiles_update_own` y
+`housing_preferences`; `test:db` 158/158). 2.4 completada (perfil propio en
+`/perfil`: `requireOwnProfile`, `app/actions/profile.ts`; `test` 416/416,
+`test:db` 168/168). 2.5 completada (preferencias en `/preferencias`;
+ciudad obligatoria y sin borrado del cliente tras el onboarding, universidad
+↔ ciudad en la base de datos; `test` 469/469, `test:db` 192/192). 2.6
+completada (ajustes en `/ajustes`: avisos por email y cerrar sesión) y 2.7
+cerrada (shell autenticado y errores sin detalles técnicos, `1e6af49`;
+`test` 532/532, `test:db` 218/218).
+
+**2.8 (validación real del alta y E2E): en progreso, NO cerrada.** La
+infraestructura está implementada y commiteada en `03c4349` (sin push): runner SQL
+remoto aislado por archivo, preflight P0–P6 exacto (38 políticas), E1
+(Playwright contra Supabase simulado, también en CI) y E2 (alta real con
+email real, solo desde el workflow manual). La validación real **no se ha
+ejecutado**: el proyecto nuevo `roomly-validation-2` (marca de identidad
+`roomly-validation-2`, comparación exacta) todavía no existe, ni el SMTP ni
+el buzón de prueba. El proyecto antiguo `roomly-validation` no tiene las
+migraciones de Fase 2 y ya no se usa. Crear y configurar el proyecto, abrir
+el registro y ejecutar la validación remota lo hace el propietario; Claude
+no toca Supabase remoto, ni hace commit, push o PR, sin autorización
+explícita. Subfases y decisiones: `docs/ROADMAP.md`.
+- **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
+- Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
+  — no asumas que un commit existe porque el código existe en disco.
 
 Detalle exacto, sin adornar: `PROGRESS.md` (última entrada) y
-`HANDOFF.md`.
+`docs/ROADMAP.md`. `HANDOFF.md` es histórico.
 
 ## Cómo verificar antes de afirmar que algo funciona
 
@@ -92,9 +126,9 @@ Antes de decir que algo está listo:
 Árbol completo y razonamiento en `docs/ARCHITECTURE.md`. Regla de oro:
 **Server Actions delgadas → `lib/services/*` con la lógica real →
 `lib/supabase/*` para acceso a datos.** Nunca lógica de negocio dentro de
-un archivo de `app/actions/` (esa carpeta existe en el esqueleto pero
-`lib/services/*` todavía no tiene contenido real — es Fase 2 en
-adelante).
+un archivo de `app/actions/` (esa carpeta existe en el esqueleto; los
+primeros servicios reales son `lib/services/{profile,housing-preferences}.ts`,
+de la Fase 2.1).
 
 Rutas de usuario (`app/(marketing)`, `app/(auth)`, `app/(app)`...) en
 español, para que coincidan con las URLs de SEO. Código interno (`lib/`,
@@ -112,7 +146,9 @@ npm run test               # Vitest, una vez
 npm run test:watch          # Vitest, modo watch
 npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (ver docs/TESTING.md)
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
-npm run test:e2e              # Playwright (necesita `npx playwright install` antes)
+npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
+npm run test:e2e:real         # E2: alta real contra roomly-validation-2 (solo desde el workflow manual)
+npm run test:infra            # auto-tests de guarda, runner SQL y preflight contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
 ```
@@ -207,19 +243,26 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   siempre (`npm run test:db`, también en CI).
 - Rate limit a nivel de base de datos (trigger) sobre `interests`, además
   del check en la app.
-- `/admin` se protege en RLS **y** en el servidor (`app/admin/layout.tsx`)
-  — nunca solo ocultando el enlace en el cliente.
+- `/admin` se protege en RLS **y** en el servidor (`requireAdmin()` de
+  `lib/auth/session.ts`: rol admin y cuenta no eliminada) — nunca solo
+  ocultando el enlace en el cliente. Los guards van en **cada página**, no
+  solo en el layout: Next.js renderiza la página en paralelo y su contenido
+  viajaría en el cuerpo del redirect (ver `docs/SECURITY.md`, Fase 2.2).
 
 ## Testing
 
 Ver `docs/TESTING.md` para resultados reales de la última sesión.
 Prioridad: algoritmo de matching (casi cobertura total cuando exista, es
 el diferencial del producto), RLS por rol, y los 3 flujos E2E
-obligatorios (estudiante, room provider, admin). El sandbox de
-desarrollo donde se construyó este proyecto no podía descargar
-navegadores de Playwright ni conectar con Supabase — en Claude Code
-local, con red real, ambas cosas deberían funcionar; verifícalo de
-verdad, no lo asumas por el entorno anterior.
+obligatorios (estudiante, room provider, admin). La conexión con
+Supabase real se verificó en la Fase 1 (`roomly-validation`, histórico); la
+de Fase 2 en `roomly-validation-2` está pendiente
+(`docs/SUPABASE_VALIDATION.md`). E2E: E1 (`npm run test:e2e`, Supabase
+simulado) corre en local y en CI; el entorno cloud de Claude Code no puede
+descargar el navegador de Playwright 1.63 y usa el Chromium preinstalado
+con `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (resultado orientativo; el de CI es el
+de referencia). E2 (real) solo se ejecuta desde el workflow manual y aún no
+se ha ejecutado — no lo des por hecho.
 
 ## Alcance del MVP — qué NO construir todavía
 
@@ -234,11 +277,12 @@ para añadirse después sin reescritura — ver `docs/ROADMAP.md` y
 
 Ninguna funcionalidad de producto todavía (matching, habitaciones,
 intereses, chat, admin real son Fase 3 en adelante). Fase 0 completa.
-Fase 1 con código funcional pero checklist sin cerrar — ver arriba.
+Fase 1 completada — ver arriba.
 
 ## Funcionalidades pendientes
 
-Todo el roadmap de Fase 1 (cierre) a Fase 9 — ver `docs/ROADMAP.md`.
+Cierre de la 2.8 (validación real en `roomly-validation-2` y E2 real,
+ejecutados por el propietario) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 
@@ -250,5 +294,6 @@ Todo el roadmap de Fase 1 (cierre) a Fase 9 — ver `docs/ROADMAP.md`.
   hay que crearlas guiadas.
 - Confirmar o corregir las recomendaciones técnicas reversibles: magic
   link vs. contraseña, Mapbox vs. Google Maps.
-- Decidir y ejecutar la migración `middleware.ts` → `proxy.ts` (Next.js
-  16 lo deprecó, no lo eliminó — no es urgente pero sí deuda técnica).
+- Cuándo retomar Google OAuth y Apple OAuth (diferidos).
+- La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
+  en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.

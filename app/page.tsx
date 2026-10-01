@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function HomePage() {
   return (
     <main className="mx-auto flex min-h-[calc(100vh-65px)] max-w-2xl flex-col items-center justify-center gap-3 p-8 text-center">
@@ -6,6 +8,9 @@ export default function HomePage() {
         Encuentra piso. Encuentra compañeros. Encaja de verdad.
       </p>
       <p className="text-sm text-[var(--muted)]">Foundation — Fase 1 en construcción.</p>
+      <Link href="/login" className="text-sm underline">
+        Entrar
+      </Link>
     </main>
   );
 }

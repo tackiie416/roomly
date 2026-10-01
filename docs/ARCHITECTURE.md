@@ -113,7 +113,7 @@ arquitectura.
 Modelo de roles simple: `profiles.role` (`user` | `admin`), comprobado en
 RLS vía la función `is_admin()` (ver DATABASE.md). La ruta `/admin` se
 protege **dos veces**: RLS en la base de datos, y una comprobación de rol
-en el servidor (middleware o layout de `app/admin/`) antes de renderizar
+en el servidor (`proxy.ts` exige sesión; `app/admin/layout.tsx` comprueba el rol) antes de renderizar
 nada — nunca solo ocultar el enlace en el cliente. `docs/SECURITY.md`
 tiene el mapa punto por punto de qué política cubre cada requisito de
 autorización pedido (datos propios, mensajes entre participantes,
@@ -218,8 +218,8 @@ roomly/
 ├── app/
 │   ├── (marketing)/[city]/{habitaciones,companeros-de-piso}/
 │   ├── (auth)/{login,registro,callback}/
-│   ├── (onboarding)/{perfil,test,preferencias}/
-│   ├── (app)/{matches,explorar,habitaciones,mensajes,perfil,ajustes}/
+│   ├── (onboarding)/bienvenida/{perfil,preferencias,test}/  # URLs /bienvenida/...
+│   ├── (app)/{matches,explorar,habitaciones,mensajes,perfil,ajustes}/  # /perfil = perfil propio
 │   ├── admin/{usuarios,habitaciones,reportes,metricas}/
 │   ├── api/webhooks/          # vacío en MVP; api/v1 se añade con Mobile
 │   └── actions/                # Server Actions, delgadas
@@ -233,9 +233,44 @@ roomly/
 ├── components/{ui,profile,matches,rooms,chat,admin}/
 ├── types/
 ├── supabase/{migrations,seed.sql}
-├── tests/{unit,integration,e2e}
+├── tests/{unit,integration,e2e/{local,real,support}}   # e2e: E1 local (mock), E2 real, mock y config (Fase 2.8)
 └── public/
 ```
+
+Rutas del onboarding (decisión de Fase 2): el onboarding vive en
+`/bienvenida/...` y `/perfil` queda reservado al perfil propio. Desde la
+Fase 2.3, `app/(onboarding)/bienvenida/{perfil,preferencias}` tienen sus
+páginas (formularios en `components/onboarding/*`, Server Actions en
+`app/actions/onboarding.ts`, datos de referencia en
+`lib/services/reference-data.ts`); `bienvenida/test` sigue vacía hasta la
+Fase 3. Las carpetas antiguas `app/(onboarding)/{perfil,preferencias,test}`
+ya no existen.
+
+Shell (Fase 2.7, decisión N3): la cabecera global (`components/nav.tsx`,
+en el layout raíz) es **estática** y no lee la sesión, para que las páginas
+públicas sigan siendo estáticas y no hagan consultas a Supabase; «Entrar»
+está en la página de inicio. La navegación de la cuenta vive en
+`app/(app)/layout.tsx` (`components/app-nav.tsx`): enlaces a `/perfil`,
+`/preferencias` y `/ajustes` y el `SignOutButton` de 2.2. El layout no
+consulta nada ni hace de guard: cada página conserva el suyo y sin sesión
+redirige `proxy.ts`. No hay `loading.tsx` en `(app)` (ver `docs/TESTING.md`).
+
+Perfil propio (Fase 2.4): `app/(app)/perfil/page.tsx` (guard
+`requireOwnProfile` en la propia página; no hay layout de `(app)` todavía,
+el shell es 2.7), Server Action `app/actions/profile.ts` → `updateProfile`
+de `lib/services/profile.ts`, formulario en `components/profile/` y campos
+y valores del formulario en `lib/validation/own-profile-form.ts` (sin E/S,
+compartido por la página y la acción). Reutiliza los controles de
+`components/onboarding/form-controls.tsx`. `app/(app)/perfil/[id]` sigue
+vacía: perfiles de terceros (H3/H4) no están en Fase 2.
+
+Preferencias propias (Fase 2.5): `app/(app)/preferencias/page.tsx` (mismo
+guard, `requireOwnProfile("/preferencias")`), Server Action
+`app/actions/housing-preferences.ts` → servicios de
+`lib/services/housing-preferences.ts`, y campos y valores del formulario en
+`lib/validation/preferences-form.ts`. El formulario es el de
+`components/onboarding/preferences-form.tsx`, con acción, texto del botón y
+ciudad obligatoria como props (por defecto, las del onboarding).
 
 (Árbol completo generado en el sandbox — consultable con `find` en
 `/home/claude/roomly` o revisando el commit inicial en git.)

@@ -6,11 +6,11 @@ insert into auth.users (id, email) values
   ('40000000-0000-0000-0000-00000000000c', 'm2-reporter@test'),
   ('40000000-0000-0000-0000-00000000000b', 'm2-reported@test'),
   ('40000000-0000-0000-0000-00000000000d', 'm2-admin@test');
-insert into public.profiles (id, full_name, date_of_birth) values
-  ('40000000-0000-0000-0000-00000000000c', 'Reporter', '2000-01-01'),
-  ('40000000-0000-0000-0000-00000000000b', 'Reported', '2000-01-01');
-insert into public.profiles (id, full_name, date_of_birth, role) values
-  ('40000000-0000-0000-0000-00000000000d', 'Admin', '1990-01-01', 'admin');
+insert into public.profiles (id, full_name, date_of_birth, seeking_status) values
+  ('40000000-0000-0000-0000-00000000000c', 'Reporter', '2000-01-01', 'looking_for_room'),
+  ('40000000-0000-0000-0000-00000000000b', 'Reported', '2000-01-01', 'looking_for_room');
+insert into public.profiles (id, full_name, date_of_birth, seeking_status, role) values
+  ('40000000-0000-0000-0000-00000000000d', 'Admin', '1990-01-01', 'looking_for_room', 'admin');
 
 set role authenticated;
 select roomly_test.login('40000000-0000-0000-0000-00000000000c');

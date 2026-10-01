@@ -1,11 +1,12 @@
 /**
- * Tipos de la base de datos, escritos a mano a partir de
- * supabase/migrations/20260925120000_initial_schema.sql.
+ * Tipos de la base de datos, escritos y mantenidos A MANO (decisión del
+ * usuario, Fase 2: no se generan con `supabase gen types` por ahora). Reflejan
+ * el esquema resultante de TODAS las migraciones de supabase/migrations/, no
+ * solo la inicial, y los `Insert`/`Update` siguen los GRANT por columnas del
+ * rol `authenticated` (no lo que admitiría la tabla con service_role).
  *
- * IMPORTANTE: en cuanto exista un proyecto Supabase real, regenerar con
- *   npx supabase gen types typescript --project-id <id> > types/database.ts
- * y sustituir este archivo entero, para evitar que diverja del esquema
- * real. Mientras tanto, cualquier cambio al SQL debe reflejarse aquí a mano.
+ * Cualquier cambio de esquema o de GRANT en una migración debe reflejarse
+ * aquí en el mismo commit.
  *
  * NOTA sobre `Relationships: []`: postgrest-js (ver
  * node_modules/@supabase/postgrest-js/src/types/common/common.ts,
@@ -114,16 +115,21 @@ export interface Database {
           date_of_birth: string;
           avatar_url?: string | null;
           bio?: string | null;
-          seeking_status?: SeekingStatus;
-          role?: UserRole;
+          // Obligatorio: sin DEFAULT desde 20260930120000 (Fase 2.3), para que
+          // todo valor guardado haya sido elegido explícitamente.
+          seeking_status: SeekingStatus;
           email_notifications_enabled?: boolean;
           onboarding_completed_at?: string | null;
-          created_at?: string;
-          updated_at?: string;
-          deleted_at?: string | null;
         };
-        // Nota: `role`, `id`, `created_at`, `deleted_at` están excluidas de
-        // UPDATE a nivel de GRANT para el rol authenticated — ver SECURITY.md.
+        // Insert refleja el GRANT de INSERT del rol authenticated
+        // (20260926120000_security_fixes.sql): `role`, `deleted_at`,
+        // `created_at` y `updated_at` no se pueden enviar; los pone la base de
+        // datos. Cambiar `role`/`deleted_at` es cosa del servidor con
+        // service_role, nunca del flujo normal — ver SECURITY.md.
+        // `onboarding_completed_at` solo lo fija `completeOnboarding`, y el
+        // trigger `trg_profiles_onboarding_completion` exige preferencias con
+        // ciudad para ponerlo a no nulo.
+        // Update, además, excluye `id` (GRANT de UPDATE).
         Update: Partial<
           Pick<
             Database["public"]["Tables"]["profiles"]["Insert"],
@@ -165,9 +171,16 @@ export interface Database {
           preferred_neighborhood_ids?: string[];
           roommates_wanted_min?: number | null;
           roommates_wanted_max?: number | null;
-          updated_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["housing_preferences"]["Insert"]>;
+        // Insert/Update reflejan el GRANT por columnas de
+        // 20260929120000_phase2_data_hardening.sql: `updated_at` la pone la
+        // base de datos y `profile_id` no se puede cambiar con UPDATE.
+        Update: Partial<
+          Omit<
+            Database["public"]["Tables"]["housing_preferences"]["Insert"],
+            "profile_id"
+          >
+        >;
         Relationships: [];
       };
       compatibility_responses: {

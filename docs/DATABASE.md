@@ -107,6 +107,177 @@ Siguen siendo 18 tablas y 35 políticas (8 redefinidas). Se añaden 2
 funciones (`is_conversation_participant`, `enforce_room_moderation`) y
 1 trigger (`trg_rooms_moderation`).
 
+## Fase 2.0 — endurecimiento de datos (2026-09-29)
+
+Migración `supabase/migrations/20260929120000_phase2_data_hardening.sql`
+(nueva; las anteriores no se tocan). Motivo: M4, porque una escritura
+directa vía PostgREST se salta Zod y la base de datos es la última
+barrera. No relaja ninguna política.
+
+| Tabla | Constraint | Regla |
+|---|---|---|
+| `profiles` | `chk_profiles_full_name` | `btrim(full_name)` entre 1 y 100 caracteres |
+| `profiles` | `chk_profiles_bio_length` | `bio` nula o ≤ 500 caracteres |
+| `profiles` | `chk_profiles_avatar_url` | `avatar_url` nula, o `https://…` de ≤ 2048 caracteres (impide `javascript:`/`data:` en una columna que escribe el propio usuario) |
+| `housing_preferences` | `chk_housing_preferences_field_of_study` | nulo, o `btrim` entre 1 y 120 caracteres |
+| `housing_preferences` | `chk_housing_preferences_budget_max_nonneg` | `budget_max` ≥ 0. Junto con los ya existentes `chk_budget_positive` (`budget_min` ≥ 0) y `chk_budget_range` (`budget_min` ≤ `budget_max`) |
+| `housing_preferences` | `chk_housing_preferences_roommates` | mínimo y máximo ≥ 0, y mínimo ≤ máximo |
+
+**Sin techos, a propósito**: presupuesto, número de compañeros y número de
+barrios preferidos no tienen máximo. Se valoraron topes (se propusieron y
+se descartaron el 2026-09-29) porque la especificación no define ninguno.
+Cualquier límite futuro tiene que ser una decisión explícita de producto,
+no un valor técnico. El array de barrios sigue siendo `uuid[]` `NOT NULL`
+y admite estar vacío.
+
+Sin cambios: `seeking_status` ya es un enum; `date_of_birth` ya tiene
+`chk_min_age`; `city_id` y `university_id` ya son FKs (una ciudad o
+universidad inexistente se rechaza con `23503`).
+
+Permisos de `housing_preferences` (detalle en `docs/SECURITY.md`): GRANT
+por columnas, `profile_id` fuera del UPDATE y `anon` sin ningún privilegio.
+Como en `profiles` (PR8), `upsert()` no sirve para esta tabla: los
+servicios de Fase 2 harán INSERT y UPDATE por separado.
+
+**Integridad de `preferred_neighborhood_ids`: triggers en las dos
+direcciones** (decisión del usuario; se descartó la tabla intermedia para
+no cambiar el esquema). Por qué no un CHECK ni una FK: comprobado en
+PostgreSQL 16, un CHECK no admite subconsultas (`cannot use subquery in
+check constraint`) y no existen FKs sobre elementos de un array (`uuid[]`
+frente a `uuid`). Un CHECK que llamara a una función declarada `immutable`
+con una consulta dentro sería una constraint falsa (Postgres no la
+revalida) y se descartó.
+
+- `trg_housing_preferences_neighborhoods` (`BEFORE INSERT OR UPDATE OF
+  city_id, preferred_neighborhood_ids` en `housing_preferences`):
+  - array vacío (el default; la columna es `NOT NULL`) → se acepta;
+  - barrios con `city_id` nulo → `23514`;
+  - algún UUID inexistente o `NULL` dentro del array → `23503`;
+  - algún barrio de otra ciudad → `23514`. Cubre también cambiar
+    `city_id` dejando barrios de la ciudad anterior.
+- `trg_neighborhoods_not_referenced` (`BEFORE DELETE OR UPDATE OF id,
+  city_id` en `neighborhoods`): si alguna preferencia usa el barrio,
+  borrarlo, cambiarle el `id` o moverlo de ciudad falla con `23503`
+  (`neighborhood_in_use`). **Sin cascadas**: quien administra decide qué
+  hacer con esas preferencias antes. Renombrarlo sí se permite. También
+  bloquea borrar una ciudad con barrios en uso (su borrado en cascada de
+  barrios dispara el trigger).
+
+Limitación conocida: no hay bloqueo entre las dos comprobaciones, así que
+una escritura de preferencias y un borrado de barrio simultáneos podrían
+cruzarse. Se acepta: solo un admin borra barrios, es raro, y la siguiente
+escritura de esa fila la vuelve a validar. La comprobación inversa recorre
+`housing_preferences` sin índice sobre el array; si crece, se añade un
+índice GIN.
+
+## Fase 2.3 — integridad del onboarding (2026-09-30)
+
+Migración `supabase/migrations/20260930120000_phase2_onboarding_integrity.sql`
+(nueva; no toca RLS ni GRANT). Decisiones del usuario:
+
+- **`profiles.seeking_status` sin DEFAULT** (sigue `NOT NULL`). Antes, una
+  fila creada sin enviarlo quedaba con `'flexible'`, indistinguible de una
+  elección real. Ahora todo INSERT tiene que enviarlo (`23502` si falta), así
+  que cualquier valor guardado fue enviado explícitamente. Sin datos que
+  migrar. Consecuencia: los INSERT de perfiles de tests y fixtures envían
+  `seeking_status`, y `profiles.Insert` lo exige en `types/database.ts`.
+- **`trg_profiles_onboarding_completion`** (`BEFORE INSERT OR UPDATE OF
+  onboarding_completed_at` en `profiles`): si el valor pasa a no nulo, exige
+  una fila de `housing_preferences` del mismo perfil con `city_id`; si no,
+  `23514` (`onboarding_incomplete:`). Poner la columna a `NULL` o no tocarla
+  no se comprueba. En un INSERT con valor no nulo siempre falla (las
+  preferencias exigen que el perfil exista antes).
+  - Es una defensa de integridad: la operación normal y la regla completa
+    siguen en `completeOnboarding` (`lib/services/profile.ts`). El GRANT de
+    `authenticated` incluye la columna, así que sin el trigger una escritura
+    directa podía marcar como completo un onboarding sin ciudad.
+  - `SECURITY INVOKER`: solo lee la fila de preferencias del propio perfil,
+    que su dueño puede leer por RLS (`housing_preferences_own` no consulta
+    `profiles`: no hay recursión). Quien no puede leer esas preferencias
+    (p. ej. un admin editando el perfil de otro desde el cliente) no puede
+    marcarlo completo; el servidor con `service_role` no tiene RLS.
+  - No protege la dirección contraria: borrar las preferencias o vaciar
+    `city_id` después de completar sigue siendo posible para el propio
+    usuario (riesgo aceptado, ver PROGRESS.md sesión 12).
+
+Siguen siendo 18 tablas y 35 políticas; se añaden 1 función
+(`enforce_onboarding_completion`) y 1 trigger.
+
+Coherencia universidad ↔ ciudad de `housing_preferences`: a diferencia de
+los barrios (trigger de 2.0), no la impone la base de datos. La comprueba
+`checkUniversityCity` en `lib/services/housing-preferences.ts` antes de
+escribir (una universidad con `city_id` nulo vale con cualquier ciudad).
+Pasarla a un trigger sería una decisión aparte, no tomada. **Actualización
+(Fase 2.5)**: desde `20260930140000` también la impone la base de datos (ver
+"Fase 2.5" abajo).
+
+## Cuentas eliminadas: escrituras bloqueadas (2026-09-30)
+
+Migración `supabase/migrations/20260930130000_block_deleted_account_writes.sql`
+(nueva; no edita ninguna anterior). Cierra la decisión B de la auditoría de
+2.3: `deleted_at IS NOT NULL` significa cuenta desactivada, y la base de
+datos (no solo la aplicación) le impide escribir.
+
+- `profiles_update_own` se recrea con `profiles.deleted_at is null` en
+  `USING` y `WITH CHECK`.
+- `housing_preferences_own` (`FOR ALL`) se sustituye por
+  `housing_preferences_select_own` (misma condición que antes: lectura sin
+  cambios) y `housing_preferences_{insert,update,delete}_own`, que añaden
+  `exists (select 1 from public.profiles p where p.id = profile_id and
+  p.deleted_at is null)`.
+
+Sin cambios de tablas, columnas, GRANT, funciones ni triggers. Pasan a ser
+18 tablas y **38 políticas** (−1 +4). El trigger de onboarding de 2.3 lee
+`housing_preferences` con la política de SELECT, que no cambia. Detalle y
+razonamiento en `docs/SECURITY.md`.
+
+## Fase 2.5 — integridad de las preferencias (2026-09-30)
+
+Migración `supabase/migrations/20260930140000_phase2_preferences_integrity.sql`
+(nueva; no edita ninguna anterior). Resuelve el riesgo C de la auditoría de
+2.3 y lleva a la base de datos la regla universidad ↔ ciudad.
+
+| Regla | Mecanismo | Alcance |
+|---|---|---|
+| Con `onboarding_completed_at` no nulo, `housing_preferences.city_id` no puede ser `NULL` | `trg_housing_preferences_city_required` (`BEFORE INSERT OR UPDATE OF city_id`) → `23514` `housing_city_required:` | todos los roles, también `service_role`: es un invariante de los datos |
+| Con el onboarding completado, el cliente no borra sus preferencias | `housing_preferences_delete_own` (RLS) exige además `p.onboarding_completed_at is null` → el DELETE afecta a 0 filas | solo `authenticated`; `service_role` y la cascada del perfil no se ven afectados |
+| Una universidad con ciudad solo vale con esa ciudad | `trg_housing_preferences_university` (`BEFORE INSERT OR UPDATE OF city_id, university_id`) → `23514` `housing_university:` | todos los roles; universidad sin ciudad vale con cualquiera; universidad o ciudad inexistentes las rechaza su FK (`23503`) |
+
+**Por qué RLS para el DELETE y no un trigger ni un `REVOKE`**: un trigger
+`BEFORE DELETE` también bloquearía el borrado en cascada de un perfil
+(`on delete cascade`, el futuro borrado de cuenta con `service_role`), y
+revocar DELETE a `authenticated` quitaría también el borrado antes del
+onboarding, que es inofensivo y ya estaba probado (`08`, `DA4`). La
+política solo restringe al cliente. Consecuencia aceptada: el servidor
+puede dejar a un perfil completado sin fila de preferencias (p. ej. al
+borrar la cuenta); si luego el cliente la recrea, el trigger exige ciudad.
+
+**Por qué trigger para la ciudad**: la regla depende de otra tabla
+(`profiles`) y tiene que aplicar también al INSERT de una fila nueva;
+un `WITH CHECK` de RLS daría un `42501` genérico y no cubriría al servidor.
+El trigger da un error propio (`housing_city_required:`) que el servicio
+traduce a un error de campo.
+
+Ambas funciones son `SECURITY INVOKER`, con `search_path` vacío y `EXECUTE`
+revocado; solo leen la fila del propio perfil y `universities`/`cities`
+(lectura pública). Sin recursión. Siguen 18 tablas y **38 políticas** (se
+recrea una). El fixture `HP-barrios` de `tests/db/05` que dejaba
+`city_id = null` con una universidad de Barcelona ahora también vacía
+`university_id`: ese estado ya lo rechazaba la aplicación desde 2.3 y ahora
+también la base de datos; lo que prueba el test (barrios vacíos sin ciudad)
+no cambia.
+
+`cities.is_active` (rollout ciudad a ciudad) se comprueba en la aplicación,
+no en la base de datos: una ciudad **nueva** tiene que estar activa, pero
+una ya guardada que después se desactiva se puede conservar
+(`checkPreferenceRules`). `universities` y `neighborhoods` no tienen
+`is_active`.
+
+**No existen en `housing_preferences`**: mascotas, tabaco y "solo
+estudiantes" (`pets_allowed`, `smoking_allowed`, `students_only`) son
+columnas de `rooms` (Fase 4). No se añaden como preferencias en 2.5:
+sería un cambio de esquema pendiente de decisión.
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid
@@ -136,6 +307,21 @@ erDiagram
 **Referencia** — `cities`, `neighborhoods`, `universities`. Lectura pública total, escritura solo admin. `cities.is_active` controla qué ciudades están "live" (solo Barcelona al lanzar).
 
 **Identidad** — `profiles` (extiende `auth.users`; identidad/bio, nunca credenciales — esas las gestiona Supabase Auth), `housing_preferences` (criterios de búsqueda: presupuesto, fechas, zonas, ciudad, universidad), `compatibility_responses` (respuestas del test, JSONB versionado).
+
+**Dónde viven ciudad y universidad** (decisión del usuario, Fase 2): `city_id`
+y `university_id` son columnas de `housing_preferences`, no de `profiles`, y
+no se duplican. Dos comentarios de migraciones ya aplicadas no reflejan el
+modelo real y se dejan como están, porque las migraciones commiteadas no se
+reescriben:
+- `20260925120000_initial_schema.sql` dice que ciudad y universidad "quedan
+  en `profiles`": no es así, nunca fueron columnas de `profiles`;
+- `20260925120100_rls_policies.sql` dice que `public_profile_previews`
+  expone "nombre + avatar + universidad + ciudad": expone `id`,
+  `full_name`, `avatar_url` y `role` (ver H3).
+
+Como `housing_preferences` solo la lee su propietario, mostrar ciudad o
+universidad en tarjetas de otros usuarios (Fase 3) necesitará una consulta,
+servicio o vista diseñada para ello; no se resuelve moviendo las columnas.
 
 **Habitaciones** — `rooms`, `room_images`, `room_addresses` (dirección exacta, aislada), `favorites`.
 

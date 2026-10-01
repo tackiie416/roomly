@@ -11,28 +11,28 @@ set role authenticated;
 select roomly_test.login('10000000-0000-0000-0000-00000000000a');
 
 select roomly_test.expect_error(
-  $$insert into public.profiles (id, full_name, date_of_birth, role)
-    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'admin')$$,
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status, role)
+    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'looking_for_room', 'admin')$$,
   '42501', 'C1: un usuario NO puede crear su propio perfil con role=admin');
 
 select roomly_test.expect_error(
-  $$insert into public.profiles (id, full_name, date_of_birth, role)
-    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'user')$$,
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status, role)
+    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'looking_for_room', 'user')$$,
   '42501', 'C1: role no se puede ni siquiera enviar en el INSERT (GRANT de columnas)');
 
 select roomly_test.expect_error(
-  $$insert into public.profiles (id, full_name, date_of_birth, deleted_at)
-    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', now())$$,
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status, deleted_at)
+    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'looking_for_room', now())$$,
   '42501', 'C1: deleted_at tampoco es insertable por el cliente');
 
 select roomly_test.expect_error(
-  $$insert into public.profiles (id, full_name, date_of_birth)
-    values ('10000000-0000-0000-0000-00000000000b', 'Suplantado', '2000-01-01')$$,
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status)
+    values ('10000000-0000-0000-0000-00000000000b', 'Suplantado', '2000-01-01', 'looking_for_room')$$,
   '42501', 'C1: un usuario NO puede crear el perfil de otra persona');
 
 select roomly_test.expect_affected(
-  $$insert into public.profiles (id, full_name, date_of_birth, bio)
-    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'hola')$$,
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status, bio)
+    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'looking_for_room', 'hola')$$,
   1, 'C1: el flujo normal (crear el propio perfil sin role) sigue funcionando');
 
 select roomly_test.ok(
@@ -46,8 +46,8 @@ select roomly_test.expect_error(
   '42501', 'C1: un usuario NO puede cambiar después su role');
 
 select roomly_test.expect_error(
-  $$insert into public.profiles (id, full_name, date_of_birth)
-    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01')
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status)
+    values ('10000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'looking_for_room')
     on conflict (id) do update set role = 'admin'$$,
   '42501', 'C1: tampoco vía upsert (INSERT ... ON CONFLICT DO UPDATE SET role)');
 
@@ -64,8 +64,8 @@ select roomly_test.ok(
 set role anon;
 select roomly_test.login(null);
 select roomly_test.expect_error(
-  $$insert into public.profiles (id, full_name, date_of_birth)
-    values ('10000000-0000-0000-0000-00000000000b', 'B', '2000-01-01')$$,
+  $$insert into public.profiles (id, full_name, date_of_birth, seeking_status)
+    values ('10000000-0000-0000-0000-00000000000b', 'B', '2000-01-01', 'looking_for_room')$$,
   '42501', 'C1: anon no puede insertar perfiles');
 
 reset role;

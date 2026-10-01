@@ -12,6 +12,106 @@
 - **E2E (Playwright)**: los 3 flujos completos que pide el brief
   (sección 39).
 
+## Estado actual (2026-09-30)
+
+**Qué demuestra cada capa** (no confundirlas):
+- `npm run test` (Vitest): lógica de la aplicación con un cliente Supabase
+  **simulado**. Cuando un test depende de una regla de la base de datos
+  (FKs, triggers de barrios, universidad o ciudad), el mock la **emula**:
+  prueba que la aplicación traduce bien el error, no que la regla exista.
+- `npm run test:db`: PostgreSQL 16 local de verdad, con todas las
+  migraciones y un shim de Supabase (roles, `auth.uid()`). Es la única capa
+  que demuestra RLS, GRANT, FKs y triggers. No es Supabase real.
+- **E1** (`npm run test:e2e`, Fase 2.8): Playwright con la app real
+  (`next build` + `next start`) contra el Supabase **simulado** del repo
+  (`tests/e2e/support/mock-supabase.mjs`, que emula Auth con PKCE, RLS,
+  GRANT y triggers de las 5 tablas del flujo). Sin red ni secrets; en CI
+  (`e2e-local`). Prueba el flujo y el routing de la app, no la base de datos.
+- **E2** (`npm run test:e2e:real`, Fase 2.8): el mismo flujo contra el
+  proyecto real `roomly-validation-2` con email real, solo desde el workflow
+  manual. **Preparado, no ejecutado.**
+- Chromium con scripts del scratchpad (2.3–2.7): `next start` contra un
+  Supabase simulado con estado; no están en el repositorio. E1 los sustituye
+  como suite reproducible.
+- Supabase real: solo el checkpoint de Fase 1 en `roomly-validation`
+  (histórico). La validación de Fase 2 en `roomly-validation-2` está
+  pendiente (ver `docs/SUPABASE_VALIDATION.md`).
+
+
+| Comprobación | Resultado | Dónde |
+|---|---|---|
+| `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
+| `npm run test` | ✅ 597/597 (65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
+| `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
+| Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
+| Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
+| Shell de Fase 2.7 en Chromium | ✅ 35/35 (20 con JavaScript y 15 sin él; sin JavaScript no aplican `aria-current` ni «Reintentar»): `/` con su contenido y «Entrar», sin sesión/sin perfil/eliminada en las tres rutas, nav con los tres enlaces y navegación entre ellas, perfil incompleto, error de servidor sin texto técnico, logout desde el nav; y regresión con el shell: `/perfil` 24/24, `/preferencias` 43/43, `/ajustes` 24/24, onboarding 2/2 | local con `next start` y Supabase simulado; scripts en el scratchpad de la sesión (no en el repositorio) |
+| Flujo de `/ajustes` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript: sin sesión, sin perfil, eliminada, estado actual, desactivar/activar y recargar, mismo valor en `/perfil`, `full_name` inyectado, `?profile_id=` en la URL, eliminada con la página abierta, logout) + `/perfil` otra vez 24/24 | local con `next start` y Supabase simulado con estado (Fase 2.6); no es la suite E2E |
+| Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 218/218 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5, `11` de ownership aislado y `12` de Fase 2.6) | local; en CI (`db-security`) corrían 58/58 hasta Fase 2.0, las nuevas correrán en el próximo push |
+| `npm run test:e2e` (E1, Playwright) | ✅ 25/25: rutas protegidas sin sesión (con y sin JavaScript, y 307 sin contenido), alta de estudiante por magic link → `/callback` PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout (sesión anterior inservible), enlace en otro navegador o reutilizado, `/callback` con código inventado o error, `next` tras el login, cuenta eliminada (rutas, formulario abierto, nuevo login), `profile_id`/`id` ajenos en URL y formularios, formularios sin JavaScript, smoke | local con el Chromium preinstalado **1194** vía `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (Playwright 1.63 espera 1243: combinación no soportada oficialmente); en CI (`e2e-local`, con el navegador de la versión instalada) correrá en el próximo push |
+| Mutaciones de la app contra E1 | ✅ 4/4 detectadas (cuenta eliminada → home, ajustes sin esquema estricto, logout sin `signOut`, `/preferencias` sin ciudad obligatoria) | local, restauradas por hash |
+| `tests/supabase/guard-selftest.sh` | ✅ 19/19 (marca `roomly-validation-2`; la antigua y variantes no pasan) | local; en CI (`db-security`) desde 2.8 |
+| `tests/supabase/sql-suite-selftest.sh` | ✅ 75/75: `run-sql-suite.sh` real 01–12 con las mismas 218 aserciones que `run.sh`, 12 sesiones aisladas, sin restos, rollback de bloque, sin fugas de rol/GUC, 31 formas de control de transacción rechazadas antes de conectar, 16 identificadores `"..."`/cadenas `E'...'` que intentan ocultar un control (incluido el caso de la auditoría final) rechazados y los legítimos aceptados, WARNING → fallo, fallo a mitad sin restos, 11 sin reescribir falla, marca antigua rechazada | local; en CI (`db-security`) desde 2.8 |
+| Mutaciones del runner | ✅ 4/4 detectadas (sin reescritura a SAVEPOINT, WARNING no falla, COMMIT permitido, COMMIT en vez de ROLLBACK) + validador tras la auditoría final: 2/2 con efecto detectadas (sin estado de identificador `"..."`, sin rechazo de `E'...'`); 2 sin efecto observable (quitar la `""` escapada es equivalente; quitar el error de identificador sin cerrar lo cubre «sentencia final sin `;`») | local, restaurado por hash |
+| Mutaciones de la limpieza del E2 | ✅ 2/2 detectadas (aviso de registro abierto sin captura del fallo del buzón; error de los ajustes que tapa el original) | local, restaurado por hash |
+| `tests/supabase/preflight-selftest.sh` | ✅ 35/35: P0–P6 pasan con el esquema actual y 27 mutaciones fallan cada una en su check | local; en CI (`db-security`) desde 2.8 |
+| Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ⏳ 218 (`01`–`12`) pendiente | `roomly-validation` (Fase 1) · `roomly-validation-2` (sin crear) |
+| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ⏳ pendiente | `roomly-validation` · `roomly-validation-2` |
+| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ⏳ pendiente | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2` |
+| AU4 magic link / AU5 con sesión | ✅ manual (histórico; login de un usuario creado en el dashboard) | `roomly-validation`, PC del propietario |
+| E2 real (alta por magic link con email real) | ⏳ preparado, **no ejecutado** (sin proyecto, SMTP ni buzón) | workflow manual, job `e2e-real` |
+| Ensayo del spec de E2 contra el mock | ✅ 1/1, y 5 fallos esperados (sin adaptador, buzón simulado en Actions, adaptador fuera de `tests/e2e`, id de ejecución inválido, enlace de otro origen) sin email ni enlace en la salida | local, adaptador `tests/e2e/support/mock-mailbox.mjs`; no es la validación real |
+| CI `ci.yml` en GitHub Actions | ✅ 6 runs en verde (PR + `master`) antes de Fase 2; los jobs nuevos no se han ejecutado todavía | GitHub |
+
+Las secciones siguientes son el registro histórico de cada sesión; lo que
+dicen como "pendiente" puede estar ya superado por esta tabla.
+
+## Fase 2.8 — infraestructura de validación (2026-09-30)
+
+- **Runner SQL remoto**: una sesión y una transacción por archivo; el
+  `begin;`/`rollback;` de `tests/db/11` se reescribe en el flujo a
+  SAVEPOINT (el archivo no cambia); control de transacción inesperado →
+  aborta antes de conectar; WARNING → fallo. Ver
+  `docs/SUPABASE_VALIDATION.md`.
+- **Preflight P0–P6**: 38 políticas exactas por (tabla, política, comando),
+  12 triggers, 10 funciones propias con su seguridad, GRANT de
+  `housing_preferences`; marca `roomly-validation-2`.
+- **E1**: `playwright.config.ts` + `tests/e2e/local/` + mock en
+  `tests/e2e/support/`. **E2**: `playwright.real.config.ts` +
+  `tests/e2e/real/` + job `e2e-real`; sin trace, vídeo, capturas ni report.
+- **Playwright**: la versión instalada (1.63) no se toca. CI y desarrollo
+  local usan su navegador (`npx playwright install chromium`, 1243). Solo
+  en un entorno que no pueda descargarlo (el cloud de Claude Code) se usa
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`;
+  ese resultado es orientativo y el de referencia es el de CI.
+- La build de E1 deja en `.next` una app apuntando al mock: tras
+  `npm run test:e2e`, volver a hacer `npm run build` antes de `npm run start`
+  contra otro Supabase.
+- Hallazgo menor al escribir E1: `@supabase/ssr` no borra la cookie
+  `…-code-verifier` tras el canje en `/callback`. No es un riesgo propio (el
+  código ya no se puede canjear dos veces y sin el verifier no hay sesión;
+  E1 lo prueba), y no se ha cambiado nada.
+
+## Migración `middleware.ts` → `proxy.ts` (2026-09-29)
+
+- `npm run build` con Next.js 16.3.6: `ƒ Proxy (Middleware)`, sin aviso
+  de deprecación. `.next/server/functions-config-manifest.json` registra el
+  proxy con `runtime: "nodejs"` y el mismo `matcher`; antes se compilaba
+  para Edge (`server/edge/…`).
+- Validación local (`next start` + Supabase **simulado** en
+  `localhost:54321`, nunca `roomly-validation`):
+  - `/admin` y `/admin/...` sin sesión → 307 a `/login?next=…`.
+  - Sesión con rol no admin → 307 a `/`; con rol admin → 200 y panel.
+  - Token caducado → el proxy pide `refresh_token` y responde con
+    `Set-Cookie` (también en rutas públicas): el refresco de sesión sigue
+    funcionando en Node.js.
+  - Callback sin `code` o con `code` inválido → `/login?error=auth_callback_failed`.
+  - `tests/supabase/auth-redirects.sh` → 6/6.
+- No verificado tras el cambio contra Supabase real (el propietario decidió
+  no repetir pruebas que escriben en `roomly-validation`). La lógica es la
+  misma que se validó allí como `middleware.ts`.
+
 ## Resultados reales — Fase 1, sesión de Foundation (2026-09-25)
 
 Nada de esto es teórico: son comandos ejecutados de verdad en el sandbox.
@@ -30,7 +130,8 @@ Nada de esto es teórico: son comandos ejecutados de verdad en el sandbox.
 - **`npm run test`** → pasa, 7/7 (`env.test.ts`, `cn.test.ts`).
 - **`npm run build`** → pasa, genera las 6 rutas esperadas. Aviso real
   encontrado (no cosmético del todo): Next.js 16.0.0 deprecó la
-  convención `middleware.ts` en favor de `proxy.ts` — confirmado leyendo
+  convención `middleware.ts` en favor de `proxy.ts` (**migrado el
+  2026-09-29**, ver arriba) — confirmado leyendo
   `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`,
   incluido en el propio paquete instalado. `middleware.ts` sigue
   funcionando (deprecado, no eliminado), pero la migración a `proxy.ts`
@@ -43,8 +144,8 @@ Nada de esto es teórico: son comandos ejecutados de verdad en el sandbox.
   vez. Quien continúe el proyecto (Claude Code local, con red real) debe
   ejecutarlo de verdad y sustituir esta nota por el resultado real.
 - **Tests de integración / RLS contra una base de datos real**: no
-  ejecutados — no hay proyecto Supabase real disponible desde este
-  entorno. Sigue pendiente para cuando exista.
+  ejecutados en esa sesión. Superado: ver "Validación contra Supabase
+  real" más abajo.
 
 ## Tests de seguridad/RLS — `tests/db/` (desde 2026-09-26)
 
@@ -68,10 +169,118 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 | `02_chat_rls.sql` | fuga de mensajes entre conversaciones, escritura en conversaciones ajenas, recursión RLS (y una guarda estática que detecta la tautología `x.conversation_id = x.conversation_id` en `pg_policies`) |
 | `03_rooms_moderation.sql` | reactivar una habitación que un admin marcó `removed` |
 | `04_reports_insert.sql` | crear reportes con campos de resolución |
+| `05_housing_preferences.sql` (Fase 2.0) | escribir, ver o reasignar preferencias ajenas; upsert; presupuesto y compañeros negativos o con mínimo > máximo (y que valores altos se aceptan: no hay techos); textos; FKs de ciudad/universidad; barrios inexistentes, `NULL`, de otra ciudad o sin ciudad (también en listas largas); array vacío aceptado; borrar/mover/cambiar el id de un barrio en uso (como servidor y como admin); `anon` sin acceso |
+| `06_profiles_constraints.sql` (Fase 2.0) | límites de `full_name`/`bio`/`avatar_url`, `chk_min_age`, y `role`/`deleted_at` siguen protegidos |
+| `07_onboarding_integrity.sql` (Fase 2.3) | perfil sin `seeking_status` (ya no hay default); `flexible` explícito aceptado; marcar `onboarding_completed_at` sin preferencias, sin ciudad o en el INSERT; completar el de otro; ejecutar la función del trigger directamente; el servidor tampoco se lo salta |
+| `12_settings_notifications.sql` (Fase 2.6) | que una cuenta activa deje de poder activar o desactivar su aviso por email, o que el cambio no persista (se relee el valor); que pueda cambiar el de otra **en las dos direcciones** (A→B y B→A, también junto con otro campo), comprobando antes que la fila ajena es **visible** —`profiles` deja leer perfiles activos, H4—, así que el 0 solo lo explica la condición de dueño de `profiles_update_own`; que la fila atacada quede intacta; que el aviso quede nulo; que cambiarlo complete el onboarding |
+| `11_housing_preferences_ownership.sql` | UPDATE o DELETE de la fila de otro usuario **con esa fila visible**: dentro de una transacción con `ROLLBACK` se añade una política de SELECT temporal abierta, así que el resultado ya no lo explica la lectura, solo la condición de dueño de `housing_preferences_update_own`/`_delete_own`; control positivo (el dueño sí puede en la misma situación) y comprobación final de que la política temporal no queda |
+| `10_preferences_integrity.sql` (Fase 2.5) | con el onboarding completado: quitar la ciudad (cliente y servidor), crear preferencias sin ciudad, borrarlas desde el cliente; que antes del onboarding todo siga siendo opcional y borrable; que el servidor pierda el borrado o la cascada del perfil; universidad de otra ciudad (y al cambiar solo la ciudad), universidad sin ciudad aceptada, FK intacta; barrio de otra ciudad; estructura de triggers, funciones y política |
+| `09_own_profile_update.sql` (Fase 2.4) | que una cuenta activa deje de poder escribir alguno de los campos de `/perfil`; que `id`, `created_at` o `updated_at` pasen a ser actualizables; editar un perfil ajeno; vaciar `seeking_status` o `email_notifications_enabled`; `bio` de más de 500 |
+| `08_deleted_account_writes.sql` (decisión B) | una cuenta eliminada que actualiza su perfil o crea, actualiza o borra sus preferencias por PostgREST (con el mismo JWT de antes de eliminarse); que la lectura propia o ajena cambie; que el admin o `service_role` pierdan sus escrituras; que vuelva una política `FOR ALL` en `housing_preferences` |
 
 `expect_error` exige un SQLSTATE concreto: un "fallo por el motivo
 equivocado" (p. ej. recursión infinita en vez de rechazo por RLS) hace
 fallar el test en vez de pasar por accidente.
+
+**Fase 2.7 (2026-09-30, cerrada)**: sin tests DB nuevos (no
+cambia nada de base de datos; `test:db` sigue 218/218). `tests/unit/shell.test.tsx`
+(17): `Nav` raíz estático y sin imports de sesión/Supabase, contenido de `/`
+y «Entrar», enlaces exactos del shell, `aria-current`, logout con el
+`SignOutButton`, layout sin consultas, ausencia de `loading.tsx`, y
+`error.tsx`/`global-error.tsx` con un error de texto técnico deliberado
+(render y código fuente). Mutaciones (6, todas detectadas): `error.message`
+en `error.tsx`, digest en `global-error.tsx`, stack en un atributo, «Entrar»
+en el `Nav` raíz, import de Supabase en el `Nav` raíz y un enlace a
+`/matches` en el shell.
+
+**L1 (`app/(app)/loading.tsx` + guard en el layout), probado y revertido**:
+los redirects seguían siendo 307 (comprobado con `curl`), pero el contenido
+de `/perfil`, `/preferencias` y `/ajustes` llegaba por streaming dentro de
+un `<div hidden>` que solo muestra JavaScript: sin JavaScript solo se veía
+«Cargando…». Por eso no hay `loading.tsx` en `(app)`.
+
+Los scripts de Chromium de 2.4–2.6 se adaptaron al shell sin rebajar
+ninguna comprobación: el botón «Cerrar sesión» de cada página se busca
+dentro de `<main>` (ahora también hay uno en el nav) y los campos inyectados
+van al formulario de la página (`main form`), no al primer `<form>`.
+
+**Resultado real (2026-09-30, Fase 2.6)**: 218/218 aserciones (204 + 14 de
+`12`; 8 en `4c40595` y 6 más en la verificación posterior: persistencia
+releída y dirección B→A). Mutación en una copia local: `profiles_update_own`
+sin la condición de dueño → fallan `ST6` (`12`), `OP5` (`09`) y `07`; en otra
+copia sin `ST6`, falla `ST10` (B→A) mientras `ST9` confirma que la fila es
+visible. Mutación de código: sin `.eq("id", userId)` en el UPDATE de
+`updateProfile` → fallan 5 tests (2 de `/ajustes`). Mutaciones de código (3,
+todas detectadas por `npm test`): esquema de ajustes no estricto; la acción
+llamando a `updateProfile` (aceptaría `full_name`/`bio` desde `/ajustes`);
+sin guard en la acción (lo detecta "eliminada entre el guard y la
+escritura").
+
+**Resultado real (2026-09-30, ownership aislado)**: 204/204 aserciones
+(192 + 12 de `11`). Por qué hacía falta: `HP5b`/`HP5c` (`05`) pasan aunque
+la política de UPDATE/DELETE no compruebe el dueño, porque la de SELECT ya
+oculta la fila ajena. Mutaciones en copias locales (con una migración
+extra), todas detectadas por `11` mientras `HP5b`/`HP5c` siguen en verde:
+- UPDATE sin la condición de dueño (en `USING` y `WITH CHECK`) → `OWN1`
+  (1 fila afectada en vez de 0);
+- UPDATE sin la condición solo en `USING` → el `WITH CHECK` sigue
+  exigiendo el dueño y la escritura se rechaza con `42501`; `OWN1` falla
+  porque cambia el comportamiento (error en vez de 0 filas), no porque se
+  cuele una escritura;
+- DELETE sin la condición de dueño → `OWN3` (1 fila borrada en vez de 0).
+
+**Resultado real (2026-09-30, Fase 2.5)**: 192/192 aserciones (168 + 24 de
+`10`). Mutación en copias locales (5, todas detectadas): sin el trigger de
+ciudad → `PC1`; política de DELETE sin la condición de onboarding → `PC3`;
+sin el trigger de universidad → `PU1`; trigger de ciudad solo en UPDATE →
+`PC5`; trigger de universidad sin dejar paso a la FK de ciudad → `HP9` (de
+2.0). Mutaciones de código (9, todas detectadas por `npm run test`): sin la
+regla de ciudad tras el onboarding, sin la de ciudad activa, sin la de
+universidad en el servicio, onboarding siempre "sin completar", acción sin
+INSERT cuando no existen, ciudad siempre obligatoria en la página, esquema
+de edición no estricto, sin guard en la acción (lo detecta "eliminada entre
+el guard y la escritura") y cuenta eliminada no bloqueada en el servicio.
+Refuerzo posterior (sesión 16), todas detectadas: sin filtro por usuario en
+la lectura (`getHousingPreferences`) y en el UPDATE; `profile_id` aceptado
+en el esquema de entrada; y, en copias de la base de datos, sin el trigger de
+barrios (`HP11`, `PN1`), con la política de SELECT abierta (`HP5a`) y con la
+de UPDATE abierta (la detecta `08`; `HP5b` sigue protegido porque el UPDATE
+también aplica la política de SELECT a las filas que lee).
+
+**Resultado real (2026-09-30, Fase 2.4)**: 168/168 aserciones (158 + 10 de
+`09`). Mutación en una copia local: con una migración extra que concede
+UPDATE sobre `id`, `created_at` y `updated_at` falla `OP3`. `OP2` (`id`)
+sigue pasando en esa mutación porque el `WITH CHECK` de
+`profiles_update_own` (`auth.uid() = id`) también lo rechaza con `42501`:
+son dos barreras independientes.
+
+Mutaciones de código de Fase 2.4 (8, todas detectadas por `npm run test`):
+sin guard en la Server Action; sin la comprobación de `deleted_at` en
+`updateProfile`; `profileUpdateSchema` no estricto; el guard dejando pasar
+cuentas eliminadas; casilla sin marcar tratada como marcada; vacío omitido
+en vez de `null` (la descripción no se borraría); un campo `role` en el
+formulario; el UPDATE sin filtrar por el usuario de la sesión. La del guard
+de la acción solo la detecta el caso "cuenta eliminada entre el guard y la
+escritura": el resto lo sigue parando el servicio (defensa en profundidad).
+
+**Resultado real (2026-09-30, cuentas eliminadas)**: 158/158 aserciones
+(136 + 22 de `08`). Mutación en copias locales (6, todas detectadas): sin
+`deleted_at is null` en `profiles_update_own` falla `DD1`; sin la
+comprobación de perfil activo en la política de INSERT falla `DE1`, en la
+de UPDATE `DD2` y en la de DELETE `DD3`; sin la migración falla `DD1`; y si
+la lectura de preferencias también exigiera cuenta activa falla `DD4`.
+
+**Resultado real (2026-09-30, Fase 2.3)**: 136/136 aserciones (119 + 17 de
+`07`). Mutación en copias locales: con el default de `seeking_status` de
+vuelta falla `OB0`; sin el trigger de completitud, o deshabilitado, falla
+`OB3`.
+
+**Resultado real (2026-09-29, Fase 2.0)**: 119/119 aserciones (58 + 50 de
+`05` + 11 de `06`) en PostgreSQL 16 local. Mutación en copias locales:
+- sin la migración de Fase 2.0 fallan `05` y `06`;
+- sin el trigger de `housing_preferences` falla `HP11`;
+- sin el trigger de `neighborhoods` falla `HP-inv1`;
+- con la función inversa como `SECURITY INVOKER` falla `HP-inv4`.
 
 **Resultado real (2026-09-26)**: 58/58 aserciones en verde en PostgreSQL
 16.13, por socket local y por TCP (como el servicio `postgres:16` de CI).
@@ -82,10 +291,19 @@ tautología en `messages`, política recursiva, INSERT de mensajes sin
 comprobar participante, borrar el trigger de `rooms`, INSERT de reportes
 sin restringir) pone rojo su test correspondiente.
 
-**Limitación**: el shim no es Supabase. Cuando exista un proyecto real o
-`supabase start`, estos mismos tests deben correr también allí.
+**Limitación**: el shim no es Supabase. Por eso la misma suite se ejecutó
+también en `roomly-validation` con roles reales (58/58, `01`–`04`, Fase 1).
+Las 218 aserciones de `01`–`12` están pendientes en `roomly-validation-2`.
 
-## Validación contra Supabase real (checkpoint previo a Fase 1)
+## Validación contra Supabase real (checkpoint previo a Fase 1, histórico)
+
+Desde la Fase 2.8 la validación real usa un proyecto nuevo,
+`roomly-validation-2` (marca propia, P0–P6, suite 01–12 y E2); **todavía no
+se ha ejecutado**. Lo que sigue es el checkpoint de Fase 1.
+
+**Ejecutada** (2026-09-28, run `36493446123`): guarda F1 y P0–P5 ✅, suite
+SQL 58/58, supabase-js 46/46, AU3/AU5 6/6. AU4/AU5 con sesión, manual,
+2026-09-29 ✅. Teardown verificado (0 usuarios / 0 filas).
 
 Lo que el shim no puede demostrar (roles y `auth.uid()` reales, dueño de
 tablas, privilegios por defecto de Supabase, PostgREST/supabase-js, Auth)
@@ -105,7 +323,8 @@ matriz y secrets: `docs/SUPABASE_VALIDATION.md`.
   `tests/unit/safe-redirect.test.ts`, el validador del parámetro `next`
   del callback; con la lógica anterior fallan 24 de esos 32).
 - `build` → pasa también con `NEXT_PUBLIC_SUPABASE_*` vacías (como en CI
-  sin secrets). Sigue el aviso de `middleware` → `proxy`.
+  sin secrets). Seguía el aviso de `middleware` → `proxy` (resuelto el
+  2026-09-29).
 - `test:db` → 58/58 (ver arriba).
 - `test:e2e` → **con la configuración del repo falla en el entorno de
   Claude Code en la nube**: Playwright 1.63 busca `chromium-1243` y ese
@@ -114,21 +333,21 @@ matriz y secrets: `docs/SUPABASE_VALIDATION.md`.
   para ocultarlo. Con una config temporal fuera del repo que apunta al
   Chromium preinstalado, el smoke test pasa 2/2. Necesita
   `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY` definidas (aunque sean ficticias):
-  el middleware las valida en cada petición.
+  el proxy (entonces `middleware.ts`) las valida en cada petición.
 
-## Limitación conocida de este entorno
+## Limitación conocida de los entornos
 
-El sandbox de desarrollo actual no tiene salida de red hacia el CDN de
-Playwright, así que no puede descargar navegadores aquí. Los tests
-unitarios y de integración (Vitest) sí corren sin problema en este
-entorno. Los E2E se diseñan para correr en GitHub Actions (que sí tiene
-acceso) o en local — no bloquean el desarrollo diario, solo no se
-ejecutan dentro de este sandbox concreto.
+Ni el sandbox original ni el entorno cloud de Claude Code pueden
+descargar navegadores de Playwright (`playwright install`); el entorno
+cloud trae `chromium-1194` y Playwright 1.63 espera `chromium-1243`. Desde
+la Fase 2.8, E1 se ejecuta en ese entorno con
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE` (resultado orientativo) y en CI con el
+navegador que corresponde (resultado de referencia). El entorno de Claude
+tampoco alcanza Supabase: la validación real y el E2 real se ejecutan desde
+el workflow manual.
 
-De forma similar, validar RLS de verdad requiere Postgres real (Supabase
-local con Docker — no disponible aquí — o un proyecto Supabase de test).
-Las políticas del borrador de Fase 0 se tratan como eso, un borrador,
-hasta que Fase 1 las valide con tests de integración reales.
+RLS ya no depende solo del shim: se validó en `roomly-validation` con
+roles, `auth.uid()` y PostgREST reales (ver arriba).
 
 ## Los 3 flujos E2E obligatorios
 
@@ -171,8 +390,15 @@ a `master` (antes el trigger de push apuntaba a `main`, rama que no
 existe en este repositorio):
 - `lint-typecheck-test-build`: `npm ci`, `format:check`, `lint`,
   `typecheck`, `test`, `build`.
-- `db-security`: `tests/db/run.sh` contra un servicio `postgres:16`.
+- `db-security`: `tests/db/run.sh` contra un servicio `postgres:16` y,
+  desde 2.8, los auto-tests `guard-selftest.sh`, `sql-suite-selftest.sh` y
+  `preflight-selftest.sh`.
+- `e2e-local` (desde 2.8): `npx playwright install --with-deps chromium` y
+  `npm run test:e2e` (E1, sin secrets); sube el report solo si falla.
 
-E2E todavía no está en CI (necesita un proyecto Supabase de test). El
-workflow no se ha ejecutado aún en GitHub Actions de verdad: sus pasos se
-han reproducido localmente, uno a uno, con resultado verde.
+El workflow se ha ejecutado en GitHub Actions de verdad: 6 runs, todos en
+verde (PR y push a `master` de los PRs #1, #2 y #3), antes de la Fase 2; los
+jobs de 2.8 aún no han corrido en GitHub. La validación contra Supabase real
+tiene su propio workflow manual (`supabase-validation.yml`, Environment
+`roomly-validation-2`, con el job `e2e-real`), que nunca corre en push ni en
+PR.
