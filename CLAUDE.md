@@ -54,7 +54,7 @@ cerrada (shell autenticado y errores sin detalles técnicos, `1e6af49`;
 `test` 532/532, `test:db` 218/218).
 
 **2.8 (validación real del alta y E2E): en progreso, NO cerrada.** La
-infraestructura está implementada en local y **sin commit**: runner SQL
+infraestructura está implementada y commiteada en `03c4349` (sin push): runner SQL
 remoto aislado por archivo, preflight P0–P6 exacto (38 políticas), E1
 (Playwright contra Supabase simulado, también en CI) y E2 (alta real con
 email real, solo desde el workflow manual). La validación real **no se ha
