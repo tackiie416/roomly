@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 ABIERTA (2.0–2.7 completadas; 2.8 aparcada/bloqueada; 2.9 en progreso: punto A y H4 implementados, sin completar)
+## Fase 2 — User 🚧 ABIERTA (2.0–2.7 completadas; 2.8 aparcada/bloqueada; 2.9 completada)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -152,11 +152,10 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   El punto A de 2.3 y H4 pasan a la 2.9.
 - 2.9 Endurecimiento de integridad y privacidad — 📝 **subfase NUEVA,
   definida por el propietario el 2026-10-04; no formaba parte del plan
-  original de la Fase 2** (que terminaba en 2.8). **En progreso, no
-  completada: punto A implementado (2026-10-04, `20261004120000`,
-  PROGRESS.md sesión 26) y H4 implementado (2026-10-04, `20261004120100`,
-  PROGRESS.md sesión 27), pendientes de revisión; su validación en Supabase
-  real queda dentro de la 2.8 bloqueada.** No sustituye a la 2.8, que sigue bloqueada. Alcance:
+  original de la Fase 2** (que terminaba en 2.8). ✅ **COMPLETADA el
+  2026-10-04** (PROGRESS.md sesiones 26–28): punto A en `20261004120000`
+  (commit `73d6028`) y H4 en `20261004120100` (commit `f9f08ad`). No
+  sustituye a la 2.8, que sigue bloqueada. Alcance:
   1. **Punto A de 2.3**: `onboarding_completed_at`, una vez no nulo, no
      puede volver a `NULL` ni cambiar a otro timestamp. Decisión D1: para
      todos los roles (`authenticated`, admin y `service_role`), sin bypass;
@@ -170,6 +169,39 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
      específica de privacidad. Pasa de 38 a 37 políticas, y se actualiza la
      infraestructura de la 2.8 afectada (P3 de `preflight.sql`, sus
      expectativas, el mock de E1 y la documentación).
+
+  **Objetivo cumplido**: los dos puntos del alcance están implementados
+  con migraciones incrementales, sin tocar migraciones históricas, código
+  de producto ni Supabase remoto. Una auditoría final comparó el catálogo
+  antes y después de la 2.9: las únicas diferencias son la política
+  eliminada y el cuerpo de `enforce_onboarding_completion`; GRANT, EXECUTE,
+  triggers, columnas y la vista quedan idénticos.
+
+  **Validaciones ejecutadas**:
+  - En local: `test:db` 265/265, `npm test` 597/597, `test:infra` en verde
+    y E1 25/25 (con el Chromium preinstalado, orientativo); lint,
+    typecheck, `format:check` y build en verde.
+  - Mutaciones detectadas: 3/3 del punto A y 5/5 de H4.
+  - Casos límite (upsert `ON CONFLICT`, `MERGE`, joins): rechazados.
+  - CI del PR #6 (run `37231766834`, sobre `f9f08ad`), en verde:
+    `lint-typecheck-test-build` (597/597), `db-security` y `e2e-local`
+    (25/25 con el Chromium oficial v1243 de Playwright).
+
+  **Riesgos no bloqueantes** (documentados en `DATABASE.md` y
+  `SECURITY.md`):
+  - borrar y recrear un perfil (admin o `service_role`) reinicia en la
+    práctica el onboarding;
+  - un superusuario puede desactivar el trigger;
+  - el mock de E1 no emula el bloqueo del punto A ni `profiles_admin_all`;
+  - H3 sin cambios: la vista pública expone `role` a anon;
+  - avisos de CI anteriores a la 2.9: acciones con Node.js 20 obsoleto y
+    `npm audit` con 5 vulnerabilidades altas.
+
+  **Pendiente en fases posteriores**:
+  - validar el punto A y H4 en Supabase real dentro de la 2.8, aparcada;
+  - H3;
+  - cualquier reinicio administrativo de un onboarding (decisión nueva);
+  - el PR #6, abierto solo para CI y sin fusionar.
 
 Fuera de Fase 2 por decisión del usuario: foto de perfil/Storage (M3) y
 borrado de cuenta (H6). Una cuenta con `deleted_at` verá una pantalla de

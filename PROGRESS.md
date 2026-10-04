@@ -6,7 +6,51 @@ próximos pasos.**
 
 ---
 
-## 2026-10-04 — Sesión 27: Fase 2.9, H4 — privacidad de `profiles` (sin commit)
+## 2026-10-04 — Sesión 28: auditoría final, CI y cierre de la Fase 2.9 (solo documentación)
+
+**Qué se hizo**
+- Auditoría final de la 2.9 (punto A `73d6028`, H4 `f9f08ad`), en local:
+  - comparación del catálogo antes y después (migraciones de `f4f0f7f`
+    frente a `HEAD`): solo cambian la política eliminada (38 → 37) y el
+    cuerpo de `enforce_onboarding_completion`; GRANT de tabla y de
+    columna, EXECUTE, triggers, columnas y la vista quedan idénticos;
+  - casos límite rechazados: upsert `ON CONFLICT DO UPDATE` y `MERGE` con
+    `onboarding_locked`, y un join no devuelve perfiles ajenos;
+  - sin restos (`zz_test_*`, `roomly_test`, usuarios `@test`, bases
+    `roomly_*`), sin secretos, sin `service_role` ni `select("*")` nuevos y
+    sin cambios en `app/`, `lib/`, `components/` ni `types/`.
+- Push autorizado de la rama (`d79c35d..f9f08ad`, sin force). `ci.yml` no se
+  dispara con un push a esta rama, así que se abrió el PR #6 (borrador,
+  hacia `master`, sin fusionar) solo para ejecutar CI.
+- CI del PR #6, run `37231766834` (CI #11), sobre `f9f08ad` (merge de prueba
+  `ea20735` con `master` `cb88647`), en verde:
+  - `lint-typecheck-test-build`: `format:check`, lint, typecheck,
+    `npm test` 597/597 y build en verde;
+  - `db-security`: `tests/db/run.sh`, `guard-selftest.sh`,
+    `sql-suite-selftest.sh` y `preflight-selftest.sh` en verde;
+  - `e2e-local`: 25/25 con el Chromium oficial (Chrome for Testing
+    153.0.8010.12, chromium v1243), instalado por
+    `npx playwright install --with-deps chromium`.
+- Corrección documental:
+  - la sesión 27 ya no dice «sin commit»;
+  - la 2.9 queda **COMPLETADA** en `ROADMAP.md` y `CLAUDE.md`;
+  - `TESTING.md` recoge los resultados de CI.
+- Estado al cerrar: SHA validado
+  `f9f08ad4fef9d518a36ab26f1eeaecfdf3d68998`, local igual a remoto, working
+  tree limpio antes de este commit documental.
+
+**Qué queda**
+- La 2.8 sigue APARCADA/BLOQUEADA, con la validación en Supabase real
+  pendiente; ahí también se validarán en real el punto A y H4.
+- La Fase 2 sigue abierta.
+- El PR #6 sigue abierto solo para CI.
+- Riesgos no bloqueantes, en `ROADMAP.md` (2.9).
+- No se ha tocado Supabase remoto ni lanzado `Supabase validation`, ni ha
+  habido E2, signup ni SMTP.
+
+---
+
+## 2026-10-04 — Sesión 27: Fase 2.9, H4 — privacidad de `profiles` (commit `f9f08ad`; CI en verde en la sesión 28)
 
 **Qué se hizo**
 - Migración incremental `20261004120100_profiles_privacy.sql`: solo
@@ -55,12 +99,12 @@ próximos pasos.**
 - `npm run test:e2e` (E1): 25/25, con el Chromium preinstalado 1194.
 - lint, typecheck, `format:check`, build y `git diff --check`: en verde.
 
-**Qué queda**
-- La 2.9 no está completada: falta la revisión y el commit de H4,
-  pendientes de autorización.
+**Qué queda** (actualizado en la sesión 28)
+- H4 quedó en el commit `f9f08ad`, validado en CI en el PR #6. La 2.9 se
+  cierra en la sesión 28.
 - La validación en Supabase real sigue pendiente dentro de la 2.8
   (aparcada/bloqueada).
-- No se ha tocado Supabase remoto, ni se ha hecho commit, push ni PR.
+- No se tocó Supabase remoto.
 
 ---
 
