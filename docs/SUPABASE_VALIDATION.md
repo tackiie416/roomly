@@ -59,6 +59,14 @@ proyecto nuevo. La seguridad no depende de quitar la marca del proyecto
 antiguo. El auto-test de la guarda lo comprueba con la marca antigua y con
 variantes (espacios, mayúsculas, `roomly-validation-20`).
 
+**Diagnóstico cuando la marca no coincide.** La guarda imprime una línea
+con los 4 primeros caracteres del ref, el nombre de la base de datos
+conectada, la marca encontrada (solo si es texto simple; si no, su
+longitud) y el número de tablas en `public`. Sirve para saber a qué
+proyecto apuntan unos secrets que GitHub no deja leer. Nunca imprime el ref
+completo, la URL, la cadena de conexión, contraseñas ni claves (lo
+comprueba `guard-selftest.sh`).
+
 ## Secrets: solo en el GitHub Environment `roomly-validation-2`
 
 Todos los jobs del workflow declaran `environment: roomly-validation-2`. Los

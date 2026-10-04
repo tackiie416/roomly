@@ -68,10 +68,46 @@ roomly_guard() {
   if [ "$marker_ok" != "t" ]; then
     echo "ERROR: el destino NO está reconocido como ${ROOMLY_VALIDATION_MARKER}:" >&2
     echo "       falta la marca de identidad de la base de datos o no coincide exactamente. Abortado." >&2
+    roomly_guard_diagnose "$ref" >&2
     return 1
   fi
 
   echo "guard: destino verificado como ${ROOMLY_VALIDATION_MARKER} (coherencia local + marca del proyecto)"
+}
+
+# Diagnóstico de la marca que no coincide (Fase 2.8): ayuda a saber a qué
+# proyecto apuntan unos secrets que no se pueden leer. Solo de lectura e
+# imprime únicamente datos no sensibles:
+#   - los 4 primeros caracteres del project ref (nunca el ref completo);
+#   - el nombre de la base de datos conectada;
+#   - la marca encontrada, solo si es texto simple [a-z0-9-] de hasta 40
+#     caracteres (si no, solo su longitud);
+#   - cuántas tablas hay en public.
+# Nunca imprime la URL, la cadena de conexión, contraseñas ni claves, ni la
+# salida de error de psql.
+roomly_guard_diagnose() {
+  local ref="$1" row db marker tables shown
+  row="$(PGSSLMODE="${PGSSLMODE:-require}" psql -X -q -At --no-psqlrc -F '|' \
+    -v ON_ERROR_STOP=1 -d "$SUPABASE_VALIDATION_DB_URL" \
+    -c "select current_database(),
+               coalesce(shobj_description(d.oid, 'pg_database'), ''),
+               (select count(*) from pg_tables where schemaname = 'public')
+        from pg_database d where d.datname = current_database()" 2>/dev/null)" || row=""
+  if [ -z "$row" ]; then
+    echo "       diagnóstico: no disponible (la consulta de diagnóstico no respondió)."
+    return 0
+  fi
+  IFS='|' read -r db marker tables <<<"$row"
+  if [ -z "$marker" ]; then
+    shown="(sin marca)"
+  elif [[ "$marker" =~ ^[a-z0-9-]{1,40}$ ]]; then
+    shown="'${marker}'"
+  else
+    shown="(marca con otro formato, ${#marker} caracteres)"
+  fi
+  [[ "$db" =~ ^[a-z0-9_]{1,63}$ ]] || db="(nombre con otro formato)"
+  [[ "$tables" =~ ^[0-9]+$ ]] || tables="?"
+  echo "       diagnóstico: ref ${ref:0:4}… · base de datos ${db} · marca ${shown} · tablas en public: ${tables}"
 }
 
 roomly_guard "$@"
