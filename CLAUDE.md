@@ -34,8 +34,8 @@ migración a `proxy.ts` (runtime Node.js).
   link (el login sí se validó; el registro estaba desactivado). Es parte de
   la 2.8. Ver `docs/ROADMAP.md`.
 
-**Fase 2 (User): cerrada por decisión del propietario, con la validación
-real de la 2.8 diferida (ver abajo).** 2.0 completada (endurecimiento de datos y
+**Fase 2 (User): ABIERTA.** No está cerrada: su criterio de aceptación
+depende de la validación real de la 2.8, que está aparcada (ver abajo). 2.0 completada (endurecimiento de datos y
 RLS/GRANT de `profiles` y `housing_preferences`, integridad de barrios con
 triggers; `test:db` 119/119 en local) y 2.1 completada (validación Zod y
 servicios de perfil y preferencias en `lib/validation/*` y
@@ -54,23 +54,30 @@ completada (ajustes en `/ajustes`: avisos por email y cerrar sesión) y 2.7
 cerrada (shell autenticado y errores sin detalles técnicos, `1e6af49`;
 `test` 532/532, `test:db` 218/218).
 
-**2.8 (validación real del alta y E2E): cerrada por decisión del
-propietario (2026-10-04) con la validación real DIFERIDA — no superada.**
-La infraestructura está en `master` (PR #4 y #5, `cb88647`): runner SQL
-remoto aislado por archivo, preflight P0–P6 exacto (38 políticas), E1
-(Playwright contra Supabase simulado, también en CI), E2 (alta real con
-email real, solo desde el workflow manual) y diagnóstico de la guarda. La
-validación real **nunca se ha ejecutado**: los runs 3–10 del workflow
-manual se detuvieron antes de escribir nada, porque los secrets del
-Environment `roomly-validation-2` apuntan al proyecto retirado (run 10:
-marca `roomly-retirado`, 18 tablas) y no al proyecto vacío
-`roomly-validation-2b`. Pendiente, para cuando el propietario lo retome:
-corregir los secrets, ejecutar el workflow (migraciones, P0–P6, SQL,
-supabase-js, AU3/AU5) y, con SMTP y buzón, el E2 real. Hasta entonces el
-alta real por magic link y la RLS de Fase 2 en Supabase real **no están
-verificadas** — no lo des por hecho. Claude no toca Supabase remoto, ni
-hace commit, push o PR, sin autorización explícita. La Fase 3 no ha
-empezado: espera confirmación. Detalle: `docs/ROADMAP.md`.
+**2.8 (validación real del alta y E2E): APARCADA/BLOQUEADA — validación
+real pendiente. NO está cerrada ni completada.** La infraestructura está en
+`master` (PR #4 y #5, `cb88647`) y CI está en verde: runner SQL remoto
+aislado por archivo, preflight P0–P6 exacto (38 políticas), E1 (Playwright
+contra Supabase simulado, también en CI), E2 (alta real con email real,
+solo desde el workflow manual) y diagnóstico de la guarda. La validación
+real **nunca se ha ejecutado**: los runs 3–10 del workflow manual se
+detuvieron antes de cualquier escritura (sin cambios remotos en Supabase),
+porque el Environment `roomly-validation-2` sigue resolviendo al proyecto
+retirado (run 10: marca `roomly-retirado`, 18 tablas) en vez de al
+proyecto vacío `roomly-validation-2b`. Bloqueada hasta que el propietario
+corrija los secrets; entonces: workflow (migraciones, P0–P6, SQL,
+supabase-js, AU3/AU5) y, con SMTP y buzón, el E2 real. No hacer más runs,
+ni E2, signup o SMTP, sin autorización. Hasta entonces el alta real por
+magic link y la RLS de Fase 2 en Supabase real **no están verificadas** —
+no lo des por hecho. No borrar ni alterar la infraestructura de la 2.8.
+
+**2.9 (endurecimiento de integridad y privacidad): subfase NUEVA, definida
+por el propietario el 2026-10-04 (no formaba parte del roadmap original).
+Definida, no implementada.** No sustituye ni cierra la 2.8. Alcance: punto
+A de 2.3 (`onboarding_completed_at` de una sola escritura, para todos los
+roles) y H4 (eliminar `profiles_select_authenticated`). Decisiones en
+`docs/ROADMAP.md`. Claude no toca Supabase remoto, ni hace commit, push o
+PR, sin autorización explícita. La Fase 3 no ha empezado.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -287,9 +294,9 @@ Fase 1 completada — ver arriba.
 
 ## Funcionalidades pendientes
 
-Validación real diferida de la 2.8 (workflow en `roomly-validation-2b` con
-los secrets corregidos y E2 real, ejecutados por el propietario) y Fases 3
-a 9 — ver `docs/ROADMAP.md`.
+2.8 aparcada/bloqueada (validación real en `roomly-validation-2b` con los
+secrets corregidos y E2 real, ejecutados por el propietario), 2.9 (definida,
+sin implementar) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 

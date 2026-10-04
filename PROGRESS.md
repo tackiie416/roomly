@@ -6,7 +6,40 @@ próximos pasos.**
 
 ---
 
-## 2026-10-04 — Sesión 24: runs remotos 3–10 y cierre de la 2.8 con validación real diferida
+## 2026-10-04 — Sesión 25: corrección del estado de la 2.8 y definición de la 2.9 (solo documentación)
+
+**Qué se hizo**
+- Corregido el estado que dejó `d79c35d` (que no se reescribe: este es un
+  commit nuevo encima):
+  - la **2.8 está APARCADA/BLOQUEADA, con la validación real pendiente**;
+    no está cerrada ni completada;
+  - la **Fase 2 sigue ABIERTA**: su criterio de aceptación (un usuario real
+    completa registro → perfil → preferencias) depende de esa validación.
+- Motivo del bloqueo:
+  - la infraestructura de validación está implementada y CI está en verde;
+  - el Environment `roomly-validation-2` sigue resolviendo al proyecto
+    retirado (`roomly-retirado`) en vez de a `roomly-validation-2b`;
+  - el run 10 lo detuvo la guarda antes de cualquier escritura: **no hubo
+    cambios remotos en Supabase** en ninguno de los runs 3–10.
+- **2.9 definida como subfase nueva** por el propietario. No existía una
+  2.9 en el roadmap ni en el historial (auditado con `git grep` y
+  `git log -S`). Alcance: punto A de 2.3 y H4, con las decisiones D1 y D2
+  en `docs/ROADMAP.md`. **Solo definida: sin migraciones, RLS, tests,
+  preflight ni E1 cambiados.**
+
+**Qué queda**
+- 2.8: bloqueada hasta que se corrijan los secrets. Sin más runs, E2,
+  signup ni SMTP por ahora.
+- 2.9: implementar cuando el propietario lo autorice.
+  - Migraciones nuevas: redefinir `enforce_onboarding_completion()` y
+    `drop policy profiles_select_authenticated`.
+  - Tests de base de datos: `07`, `12` reescrito y `13` nuevo.
+  - P3 de `preflight.sql` a 37 políticas, mock de E1 y documentación.
+- No se ha tocado Supabase remoto, ni se ha hecho push ni PR.
+
+---
+
+## 2026-10-04 — Sesión 24: runs remotos 3–10 y aparcamiento de la 2.8 (corregido en la sesión 25)
 
 **Qué se hizo**
 - PR #4 y PR #5 fusionados con merge commit; `master` en `cb88647`. El PR #5
@@ -24,8 +57,10 @@ próximos pasos.**
   - El proyecto vacío `roomly-validation-2b` tiene la marca
     `roomly-validation-2` y 0 tablas (comprobado por el propietario en su
     SQL Editor).
-- **Decisión del propietario: cerrar la 2.8 sin seguir intentándolo.** La
-  validación real queda **diferida, no superada**.
+- **Decisión del propietario: no seguir intentándolo por ahora.** El commit
+  `d79c35d` la registró como «cerrada con la validación real diferida»;
+  eso era incorrecto y lo corrige la sesión 25: la 2.8 está
+  **APARCADA/BLOQUEADA**, no cerrada.
 
 **Qué queda (diferido)**
 - Corregir los cinco secrets del Environment `roomly-validation-2` con los

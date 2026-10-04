@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User ✅ CERRADA por decisión del propietario (2.0–2.7 completadas; 2.8 cerrada con la validación real diferida)
+## Fase 2 — User 🚧 ABIERTA (2.0–2.7 completadas; 2.8 aparcada/bloqueada; 2.9 definida, sin implementar)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -118,12 +118,13 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   `/`, las páginas públicas (p. ej. la 404) no muestran «Entrar». Resultados:
   `npm test` 532/532, `test:db` 218/218, lint, typecheck, format y build en
   verde; Chromium con y sin JavaScript (shell 35/35 y regresión de 2.4–2.6).
-- 2.8 Validación real del alta (entorno con signups) y E2E — ⏸️ **cerrada
-  por decisión del propietario el 2026-10-04 con la validación real
-  DIFERIDA, no superada**: infraestructura en `master` (`cb88647`); la
-  validación real no se ha ejecutado nunca (runs 3–10 detenidos antes de
-  escribir, los secrets apuntan al proyecto retirado; PROGRESS.md sesiones
-  22–24). Decisiones del usuario:
+- 2.8 Validación real del alta (entorno con signups) y E2E — ⏸️
+  **APARCADA/BLOQUEADA, validación real pendiente** (no cerrada ni
+  completada): infraestructura en `master` (`cb88647`) y CI en verde; la
+  validación real no se ha ejecutado nunca. Los runs 3–10 se detuvieron
+  antes de cualquier escritura, sin cambios remotos en Supabase: el
+  Environment sigue resolviendo al proyecto retirado (`roomly-retirado`) y
+  no a `roomly-validation-2b` (PROGRESS.md sesiones 22–25). Decisiones del usuario:
   - **A + P1**: la validación real se hace en un proyecto **nuevo y vacío**,
     `roomly-validation-2`, que crea y configura el propietario. No se repara
     ni se migra `roomly-validation` (esto sustituye la «estrategia de
@@ -141,13 +142,30 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
 
   Hecho en local: runner aislado, preflight P0–P6 exacto (38 políticas, 12
   triggers, 10 funciones, GRANT de `housing_preferences`), E1 25/25, E2 y
-  job `e2e-real` preparados, auto-tests en CI. **Diferido** (del
-  propietario; el proyecto es `roomly-validation-2b`, con la marca
+  job `e2e-real` preparados, auto-tests en CI. **Pendiente, bloqueado**
+  (del propietario; el proyecto es `roomly-validation-2b`, con la marca
   `roomly-validation-2`, y antes hay que corregir los secrets del
-  Environment): elegir SMTP/buzón y su adaptador, crear y configurar
+  Environment; sin más runs por ahora): elegir SMTP/buzón y su adaptador, crear y configurar
   `roomly-validation-2`, ejecutar el workflow (migraciones, P0–P6, SQL
   01–12, supabase-js, AU3/AU5 y E2 real) y ver CI en verde tras el push.
-  Siguen abiertos el punto A de 2.3 y H4.
+  El punto A de 2.3 y H4 pasan a la 2.9.
+- 2.9 Endurecimiento de integridad y privacidad — 📝 **subfase NUEVA,
+  definida por el propietario el 2026-10-04; no formaba parte del plan
+  original de la Fase 2** (que terminaba en 2.8). **Definida, sin
+  implementar.** No sustituye a la 2.8, que sigue bloqueada. Alcance:
+  1. **Punto A de 2.3**: `onboarding_completed_at`, una vez no nulo, no
+     puede volver a `NULL` ni cambiar a otro timestamp. Decisión D1: para
+     todos los roles (`authenticated`, admin y `service_role`), sin bypass;
+     reiniciar un onboarding sería una decisión explícita nueva.
+  2. **H4**: un usuario autenticado no puede leer `date_of_birth` (ni el
+     resto de la fila) de otros perfiles. Decisión D2 (H4-1): eliminar
+     `profiles_select_authenticated`; cada usuario lee solo su perfil, el
+     admin todos (`profiles_admin_all`) y los datos públicos de otros salen
+     de `public_profile_previews`. Contradice la regla genérica de Fase 0
+     («`profiles` completo requiere sesión»): prevalece esta decisión
+     específica de privacidad. Pasa de 38 a 37 políticas, y se actualiza la
+     infraestructura de la 2.8 afectada (P3 de `preflight.sql`, sus
+     expectativas, el mock de E1 y la documentación).
 
 Fuera de Fase 2 por decisión del usuario: foto de perfil/Storage (M3) y
 borrado de cuenta (H6). Una cuenta con `deleted_at` verá una pantalla de

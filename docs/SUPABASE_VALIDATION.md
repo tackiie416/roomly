@@ -4,12 +4,12 @@ Objetivo: demostrar que las migraciones, la RLS y el flujo de alta se
 comportan en **Supabase real** igual que en el PostgreSQL + shim de
 `tests/db/` y en el Supabase simulado del E2E local.
 
-Estado (2026-10-04): **infraestructura preparada; validación real DIFERIDA
-por decisión del propietario, no ejecutada**. El proyecto vacío existe
+Estado (2026-10-04): **infraestructura preparada; Fase 2.8 APARCADA/BLOQUEADA,
+validación real pendiente y nunca ejecutada**. El proyecto vacío existe
 (`roomly-validation-2b`, con la marca `roomly-validation-2`), pero los runs
 3–10 del workflow se detuvieron en la guarda o en apply-migrations sin
 escribir nada: los secrets del Environment apuntan al proyecto retirado
-(marca `roomly-retirado`). Para retomarla, corregir los cinco secrets con
+(marca `roomly-retirado`); no hubo cambios remotos en Supabase. Para retomarla, corregir los cinco secrets con
 los datos de `roomly-validation-2b` y relanzar el workflow. El checkpoint anterior
 contra `roomly-validation` (Fase 1) es histórico y está al final.
 
