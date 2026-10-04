@@ -94,6 +94,30 @@ done
 "${ADMIN[@]}" -c "comment on database ${OTHER_DB} is null" >/dev/null
 expect fail "4: marca ausente" run_guard
 
+echo "== diagnóstico de la marca que no coincide (sin datos sensibles)"
+# diag <descripción> <patrón que debe aparecer>: la salida de la guarda
+# contiene el diagnóstico esperado y nunca el ref completo ni la contraseña.
+diag() {
+  local label="$1" want="$2" out
+  out="$(bash "$ROOT/tests/supabase/guard.sh" 2>&1 || true)"
+  if ! grep -qF -- "$want" <<<"$out"; then
+    echo "   FALLO: ${label} (falta: ${want})"
+    failed=1
+  elif grep -qF -- "$OTHER_REF" <<<"$out" || grep -qF -- "$SELFTEST_PW" <<<"$out" \
+    || grep -qF -- "$SUPABASE_VALIDATION_DB_URL" <<<"$out"; then
+    echo "   FALLO: ${label} (el diagnóstico filtra el ref completo, la contraseña o la cadena)"
+    failed=1
+  else
+    echo "   ok - ${label}"
+  fi
+}
+diag "sin marca: ref recortado, base y tablas" "diagnóstico: ref bbbb… · base de datos ${OTHER_DB} · marca (sin marca) · tablas en public: 0"
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is 'roomly-retirado'" >/dev/null
+diag "marca simple: se muestra" "marca 'roomly-retirado'"
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is 'Otra Marca; con espacios'" >/dev/null
+diag "marca con otro formato: solo la longitud" "marca (marca con otro formato, 24 caracteres)"
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is null" >/dev/null
+
 env -u SUPABASE_VALIDATION_DB_URL bash -c "bash '$ROOT/tests/supabase/guard.sh'" >/dev/null 2>&1 \
   && { echo "   FALLO: sin DB_URL la guarda pasó"; failed=1; } || echo "   ok - sin SUPABASE_VALIDATION_DB_URL (fail)"
 
