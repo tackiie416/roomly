@@ -73,7 +73,7 @@ P0|marca con espacio final|do $$ begin execute format('comment on database %I is
 P3|falta profiles_update_own|drop policy profiles_update_own on public.profiles;
 P3|falta housing_preferences_delete_own|drop policy housing_preferences_delete_own on public.housing_preferences;
 P3|sobra una política (aunque el total cambie)|create policy zz_extra on public.cities for select using (true);
-P3|misma cantidad, otra política (38 = 38)|drop policy cities_select_all on public.cities; create policy cities_select_everything on public.cities for select using (true);
+P3|misma cantidad, otra política (37 = 37)|drop policy cities_select_all on public.cities; create policy cities_select_everything on public.cities for select using (true);
 P3|mismo nombre, otro comando|drop policy housing_preferences_select_own on public.housing_preferences; create policy housing_preferences_select_own on public.housing_preferences for all to authenticated using (auth.uid() = profile_id);
 P3|vuelve la política antigua housing_preferences_own|create policy housing_preferences_own on public.housing_preferences for all to authenticated using (auth.uid() = profile_id);
 P3|tabla sin RLS|alter table public.housing_preferences disable row level security;
@@ -100,8 +100,8 @@ CASES
 echo "== el preflight no deja nada creado"
 if "${P[@]}" -At -c "select count(*) from pg_class where relpersistence = 't'" | grep -qx 0 \
   && run_with "select 1;" \
-  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "38" ]; then
-  echo "   ok - sin tablas temporales ni cambios; siguen 38 políticas"
+  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "37" ]; then
+  echo "   ok - sin tablas temporales ni cambios; siguen 37 políticas"
 else
   echo "   FALLO: el preflight dejó restos"
   failed=1

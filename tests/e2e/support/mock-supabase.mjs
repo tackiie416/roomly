@@ -455,9 +455,10 @@ function handleRest(req, res, url, body, uid) {
   if (!uid) throw denied(table); // anon: sin privilegios útiles en estas tablas
 
   if (table === "profiles") {
-    // profiles_select_own_even_if_deleted + profiles_select_authenticated (H4).
-    const visible = () =>
-      [...state.profiles.values()].filter((p) => p.id === uid || p.deleted_at === null);
+    // profiles_select_own_even_if_deleted: solo la fila propia, también
+    // eliminada (Fase 2.9, H4: ya no existe profiles_select_authenticated).
+    // profiles_admin_all no se emula: el mock nunca crea admins (role "user").
+    const visible = () => [...state.profiles.values()].filter((p) => p.id === uid);
     if (req.method === "GET")
       return respondRows(req, res, applyFilters(visible(), url), columns);
     if (req.method === "POST") {

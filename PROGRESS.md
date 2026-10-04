@@ -6,6 +6,64 @@ próximos pasos.**
 
 ---
 
+## 2026-10-04 — Sesión 27: Fase 2.9, H4 — privacidad de `profiles` (sin commit)
+
+**Qué se hizo**
+- Migración incremental `20261004120100_profiles_privacy.sql`: solo
+  `drop policy "profiles_select_authenticated"` (decisión D2, H4-1).
+  - No toca migraciones históricas, ni INSERT, UPDATE, DELETE ni GRANT.
+  - No añade tablas, columnas ni políticas.
+  - Pasan de **38 a 37 políticas**.
+- Comportamiento:
+  - un usuario autenticado lee solo su perfil, también eliminado
+    (`profiles_select_own_even_if_deleted`);
+  - un admin activo lee todos (`profiles_admin_all`);
+  - anon no lee ninguno;
+  - los datos públicos de otros salen de `public_profile_previews`, sin
+    `date_of_birth`.
+  - Sustituye a la regla de Fase 0 «`profiles` completo requiere sesión».
+- Tests de base de datos:
+  - `13_profiles_privacy.sql` nuevo (PV1–PV10, 22 aserciones);
+  - `12` reescrito: ST5–ST10 aíslan la condición de dueño de
+    `profiles_update_own` con una política SELECT temporal en bloques
+    `begin;`/`rollback;`, como `11`; nuevo ST12 comprueba que no queda nada
+    abierto y que con la lectura normal B no ve a A;
+  - notas en `07` (OB7) y `09` (OP5): su 0 se debe ya a la lectura;
+  - `10` PX4 pasa a 37 políticas.
+- Infraestructura de la 2.8 ajustada, sin cambiar su comportamiento ni sus
+  guardas:
+  - P3 de `tests/supabase/preflight.sql` a 37;
+  - `preflight-selftest.sh` a 37;
+  - `sql-suite-selftest.sh` a 13 archivos y 37 políticas;
+  - comentarios de `run-sql-suite.sh` y `sql-suite-lib.sh`;
+  - nombres de los pasos del workflow (01–13);
+  - `tests/unit/validation-infra.test.ts` a 37;
+  - el mock de E1 solo devuelve la fila propia.
+- Mutaciones contra `test:db`, 5/5 detectadas:
+  - sin la migración;
+  - `profiles_select_authenticated` recreada;
+  - otra política SELECT `using (true)`;
+  - la política propia, con su nombre, pero permisiva;
+  - la vista pública con `date_of_birth`.
+- Docs: `DATABASE.md`, `SECURITY.md`, `TESTING.md`,
+  `SUPABASE_VALIDATION.md`, `ARCHITECTURE.md`, `ROADMAP.md` y `CLAUDE.md`.
+
+**Resultados**
+- `npm run test:db`: 265/265.
+- `npm test`: 597/597.
+- `npm run test:infra`: en verde (13 archivos, 265 = 265, 37 políticas).
+- `npm run test:e2e` (E1): 25/25, con el Chromium preinstalado 1194.
+- lint, typecheck, `format:check`, build y `git diff --check`: en verde.
+
+**Qué queda**
+- La 2.9 no está completada: falta la revisión y el commit de H4,
+  pendientes de autorización.
+- La validación en Supabase real sigue pendiente dentro de la 2.8
+  (aparcada/bloqueada).
+- No se ha tocado Supabase remoto, ni se ha hecho commit, push ni PR.
+
+---
+
 ## 2026-10-04 — Sesión 26: Fase 2.9, punto A — `onboarding_completed_at` de una sola escritura
 
 **Qué se hizo**

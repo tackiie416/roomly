@@ -57,7 +57,7 @@ cerrada (shell autenticado y errores sin detalles técnicos, `1e6af49`;
 **2.8 (validación real del alta y E2E): APARCADA/BLOQUEADA — validación
 real pendiente. NO está cerrada ni completada.** La infraestructura está en
 `master` (PR #4 y #5, `cb88647`) y CI está en verde: runner SQL remoto
-aislado por archivo, preflight P0–P6 exacto (38 políticas), E1 (Playwright
+aislado por archivo, preflight P0–P6 exacto (38 políticas; 37 desde H4), E1 (Playwright
 contra Supabase simulado, también en CI), E2 (alta real con email real,
 solo desde el workflow manual) y diagnóstico de la guarda. La validación
 real **nunca se ha ejecutado**: los runs 3–10 del workflow manual se
@@ -73,8 +73,8 @@ no lo des por hecho. No borrar ni alterar la infraestructura de la 2.8.
 
 **2.9 (endurecimiento de integridad y privacidad): subfase NUEVA, definida
 por el propietario el 2026-10-04 (no formaba parte del roadmap original).
-En progreso: punto A implementado (`20261004120000`, `test:db` 240/240); H4
-sin empezar.** No sustituye ni cierra la 2.8. Alcance: punto
+En progreso, no completada: punto A (`20261004120000`) y H4
+(`20261004120100`) implementados; `test:db` 265/265.** No sustituye ni cierra la 2.8. Alcance: punto
 A de 2.3 (`onboarding_completed_at` de una sola escritura, para todos los
 roles) y H4 (eliminar `profiles_select_authenticated`). Decisiones en
 `docs/ROADMAP.md`. Claude no toca Supabase remoto, ni hace commit, push o
@@ -234,8 +234,11 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
 
 - RLS activada en **todas** las tablas de `public`, incluidas las de
   referencia (con política de lectura abierta explícita, no por omisión).
-- `profiles` completo requiere sesión; las páginas públicas usan la vista
-  `public_profile_previews` (solo nombre/avatar/rol).
+- `profiles`: cada usuario lee solo su perfil y un admin activo todos (Fase
+  2.9, H4: se eliminó `profiles_select_authenticated`; sustituye a la regla
+  de Fase 0 «`profiles` completo requiere sesión»). Los datos públicos de
+  otros usuarios salen de la vista `public_profile_previews` (solo
+  id/nombre/avatar/rol). No reabras la lectura de perfiles ajenos.
 - Dirección exacta de habitación aislada en `room_addresses`, solo
   legible por el propietario.
 - `matches`/`conversations`/`conversation_participants` no aceptan INSERT
@@ -297,7 +300,7 @@ Fase 1 completada — ver arriba.
 
 2.8 aparcada/bloqueada (validación real en `roomly-validation-2b` con los
 secrets corregidos y E2 real, ejecutados por el propietario), 2.9 (punto A
-hecho, H4 sin empezar) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
+y H4 implementados, sin completar) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 

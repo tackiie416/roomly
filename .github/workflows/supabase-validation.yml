@@ -108,14 +108,14 @@ jobs:
         run: bash tests/supabase/run-preflight.sh
 
   sql-suite:
-    name: Suite SQL tests/db 01–12 (roles reales, una sesión y un ROLLBACK por archivo)
+    name: Suite SQL tests/db 01–13 (roles reales, una sesión y un ROLLBACK por archivo)
     needs: preflight
     if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
     environment: roomly-validation-2
     steps:
       - uses: actions/checkout@v4
-      - name: tests/db 01–12 en Supabase real
+      - name: tests/db 01–13 en Supabase real
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}

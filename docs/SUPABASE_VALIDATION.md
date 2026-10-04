@@ -129,8 +129,8 @@ Orden de jobs (cada uno solo corre si el anterior pasa):
    - Cada migración nueva obliga a recrear un proyecto vacío (P1).
 3. **preflight**: `tests/supabase/preflight.sql` (P0–P6, solo lectura de
    catálogo, sin tablas temporales). **Si falla, no se ejecuta ninguna suite.**
-4. **sql-suite**: `tests/supabase/run-sql-suite.sh` ejecuta los 12 archivos
-   `tests/db/01`–`12` (218 aserciones) con los roles, dueños y `auth.uid()`
+4. **sql-suite**: `tests/supabase/run-sql-suite.sh` ejecuta los 13 archivos
+   `tests/db/01`–`13` (265 aserciones) con los roles, dueños y `auth.uid()`
    reales, sin shim. El aislamiento se explica abajo.
 5. **api-suite**: `npm run test:supabase`
    (`tests/integration/supabase-validation.test.ts`).
@@ -166,6 +166,9 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
     deshacía los tests 01–10 y el esquema de helpers, y el test fallaba.
   - El `WARNING` que lo delataba («there is already a transaction in
     progress») lo ocultaba el filtro de salida.
+  - Desde la Fase 2.9 (H4), `tests/db/12` usa la misma técnica (bloques
+    `begin;`/`rollback;` con una política SELECT temporal `zz_test_*`), que
+    el runner reescribe igual.
 - **Fallo cerrado antes de conectar.** La suite aborta sin conectar si
   aparece cualquier otro control de transacción:
   - `COMMIT`, `END`, `ABORT`, `START TRANSACTION`, `SAVEPOINT`, `RELEASE`,
@@ -188,7 +191,7 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 - **Auto-test local:** `tests/supabase/sql-suite-selftest.sh` (75
   comprobaciones, en CI).
   - Ejecuta el `run-sql-suite.sh` real, con la guarda, contra un PostgreSQL
-    local con la marca, y obtiene las mismas 218 aserciones que `run.sh`.
+    local con la marca, y obtiene las mismas aserciones que `run.sh` (265).
   - Comprueba el rollback de un bloque, la ausencia de fugas de rol o GUC
     entre archivos, 31 formas de control de transacción rechazadas, un
     WARNING, un fallo a mitad de test y la marca antigua.
@@ -207,12 +210,13 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 | P0 | Marca `roomly-validation-2` exacta |
 | P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y el seed (Barcelona activa) |
 | P2 | Mismo dueño para `is_conversation_participant` y `conversation_participants`, sin FORCE RLS, SECURITY DEFINER y `search_path` vacío |
-| P3 | RLS en las 18 tablas y **exactamente estas 38 políticas**, comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo) |
+| P3 | RLS en las 18 tablas y **exactamente estas 37 políticas**, comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo) |
 | P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE |
 | P5 | Equivalente SQL de los lints del Security Advisor |
 | P6 | **Exactamente 12 triggers activos** en `public`. **Exactamente 10 funciones propias**, con su SECURITY DEFINER y `search_path`. EXECUTE revocado donde las migraciones lo revocan |
 
-Las 38 políticas, por tabla:
+Las 37 políticas, por tabla (38 hasta la Fase 2.9: H4 eliminó
+`profiles_select_authenticated`):
 
 | Tabla | Políticas |
 |---|---|
@@ -228,7 +232,7 @@ Las 38 políticas, por tabla:
 | `messages` | `messages_select_participant` (SELECT), `messages_insert_participant` (INSERT) |
 | `neighborhoods` | `neighborhoods_select_all` (SELECT), `neighborhoods_admin_write` (ALL) |
 | `notifications` | `notifications_own` (ALL) |
-| `profiles` | `profiles_select_authenticated` (SELECT), `profiles_select_own_even_if_deleted` (SELECT), `profiles_update_own` (UPDATE), `profiles_insert_own` (INSERT), `profiles_admin_all` (ALL) |
+| `profiles` | `profiles_select_own_even_if_deleted` (SELECT), `profiles_update_own` (UPDATE), `profiles_insert_own` (INSERT), `profiles_admin_all` (ALL) |
 | `reports` | `reports_insert_own` (INSERT), `reports_select_own` (SELECT), `reports_admin_all` (ALL) |
 | `room_addresses` | `room_addresses_owner_only` (ALL) |
 | `room_images` | `room_images_select` (SELECT), `room_images_owner_write` (ALL) |
@@ -240,7 +244,9 @@ Las 38 políticas, por tabla:
 - `20260926120000`, `20260929120000` y `20260930140000` solo las
   sustituyen (`drop` + `create`), así que no cambian el total;
 - `20260930130000` sustituye `housing_preferences_own` por cuatro
-  políticas (38).
+  políticas (38);
+- `20261004120100` (Fase 2.9, H4) elimina `profiles_select_authenticated`
+  (37).
 
 Nadie actualizó el preflight entonces. Además solo contaba, y no
 comprobaba nada de la Fase 2.
@@ -253,7 +259,7 @@ comprobaba nada de la Fase 2.
   - con el esquema actual pasan P0–P6;
   - cada una de 27 mutaciones falla en su check, y cada una se deshace;
   - las mutaciones incluyen, entre otras, «misma cantidad, otra política
-    (38 = 38)» y «vuelve `housing_preferences_own`».
+    (37 = 37)» y «vuelve `housing_preferences_own`».
 
 ## E2E: E1 local y E2 real, separados
 
@@ -276,7 +282,9 @@ El mock cubre solo lo que usa el flujo:
   S256 y un solo uso, y `refresh_token`), `user` y `logout` (global).
 - **REST:** `profiles`, `housing_preferences`, `cities`, `universities` y
   `neighborhoods`, emulando las políticas, los GRANT de columnas, los
-  triggers de las migraciones y H4. Rechaza `select=*`.
+  triggers de las migraciones. Desde la Fase 2.9 (H4), `profiles` solo
+  devuelve la fila propia; `profiles_admin_all` no se emula porque el mock
+  nunca crea admins. Rechaza `select=*`.
 
 No es Supabase: la base de datos real la cubren `tests/db` y el E2. Los
 endpoints `/__test/*` hacen de buzón y de «servidor» (desactivar una
@@ -357,7 +365,7 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P0–P6 | `tests/supabase/preflight.sql` | Ver la tabla de arriba |
-| SQL 01–12 | `tests/db/*` vía `run-sql-suite.sh` | Las 218 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11) y ajustes (12) |
+| SQL 01–13 | `tests/db/*` vía `run-sql-suite.sh` | Las 265 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12) y privacidad de `profiles`, H4 (13) |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
 | RO1–RO9 | api-suite | Propietario edita y pausa; no pone ni saca de `removed` (también vía upsert); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario |

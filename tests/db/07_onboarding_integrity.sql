@@ -82,6 +82,9 @@ select roomly_test.expect_error(
   '23514', 'OB6: crear un perfil ya completo se rechaza');
 
 -- 7. Nadie completa el onboarding de otro (RLS: 0 filas).
+--    Desde la Fase 2.9 (H4) el 0 se debe ya a la lectura: B no ve la fila de
+--    A. La condición de dueño de `profiles_update_own`, aislada de la lectura
+--    con una política SELECT temporal, la comprueba tests/db/12 (ST5–ST10).
 select roomly_test.expect_affected(
   $$update public.profiles set onboarding_completed_at = now()
     where id = '70000000-0000-0000-0000-00000000000a'$$,

@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 ABIERTA (2.0–2.7 completadas; 2.8 aparcada/bloqueada; 2.9 en progreso: punto A hecho, H4 sin empezar)
+## Fase 2 — User 🚧 ABIERTA (2.0–2.7 completadas; 2.8 aparcada/bloqueada; 2.9 en progreso: punto A y H4 implementados, sin completar)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -140,20 +140,23 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   - **Runner**: aislamiento por archivo en `run-sql-suite.sh`, sin cambiar
     `tests/db/11`.
 
-  Hecho en local: runner aislado, preflight P0–P6 exacto (38 políticas, 12
+  Hecho en local: runner aislado, preflight P0–P6 exacto (38 políticas, 37
+  desde H4 de la 2.9; 12
   triggers, 10 funciones, GRANT de `housing_preferences`), E1 25/25, E2 y
   job `e2e-real` preparados, auto-tests en CI. **Pendiente, bloqueado**
   (del propietario; el proyecto es `roomly-validation-2b`, con la marca
   `roomly-validation-2`, y antes hay que corregir los secrets del
   Environment; sin más runs por ahora): elegir SMTP/buzón y su adaptador, crear y configurar
   `roomly-validation-2`, ejecutar el workflow (migraciones, P0–P6, SQL
-  01–12, supabase-js, AU3/AU5 y E2 real) y ver CI en verde tras el push.
+  01–13, supabase-js, AU3/AU5 y E2 real) y ver CI en verde tras el push.
   El punto A de 2.3 y H4 pasan a la 2.9.
 - 2.9 Endurecimiento de integridad y privacidad — 📝 **subfase NUEVA,
   definida por el propietario el 2026-10-04; no formaba parte del plan
-  original de la Fase 2** (que terminaba en 2.8). **En progreso: punto A
-  implementado (2026-10-04, `20261004120000`, PROGRESS.md sesión 26); H4
-  sin empezar.** No sustituye a la 2.8, que sigue bloqueada. Alcance:
+  original de la Fase 2** (que terminaba en 2.8). **En progreso, no
+  completada: punto A implementado (2026-10-04, `20261004120000`,
+  PROGRESS.md sesión 26) y H4 implementado (2026-10-04, `20261004120100`,
+  PROGRESS.md sesión 27), pendientes de revisión; su validación en Supabase
+  real queda dentro de la 2.8 bloqueada.** No sustituye a la 2.8, que sigue bloqueada. Alcance:
   1. **Punto A de 2.3**: `onboarding_completed_at`, una vez no nulo, no
      puede volver a `NULL` ni cambiar a otro timestamp. Decisión D1: para
      todos los roles (`authenticated`, admin y `service_role`), sin bypass;

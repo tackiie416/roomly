@@ -12,9 +12,9 @@ corregidas están en `docs/DATABASE.md`.
 | Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations`, todas vía `is_conversation_participant()` — un tercero no puede leer ni escribir aunque conozca el UUID de la conversación. **Hasta la migración `20260926120000_security_fixes.sql` esto NO era cierto** (ver "Correcciones de la auditoría inicial" abajo) |
 | Habitaciones editables solo por su propietario | `rooms_owner_write`. La dirección exacta va un paso más allá: `room_addresses_owner_only`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
-| Información privada protegida | `profiles` completo exige sesión (vista `public_profile_previews` para lo estrictamente público de SEO); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
+| Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); los datos públicos de otros, en la vista `public_profile_previews`; `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
 
-Las políticas (38 desde `20260930130000`) están en
+Las políticas (38 desde `20260930130000`, 37 desde `20261004120100`) están en
 `supabase/migrations/20260925120100_rls_policies.sql`, con 8 de ellas
 redefinidas en `supabase/migrations/20260926120000_security_fixes.sql` y
 las de `housing_preferences` y `profiles_update_own` rehechas en las
@@ -198,7 +198,7 @@ Auth/`?next=` (M6) y UI.
 
 Punto A de la auditoría de 2.3, en la migración incremental
 `20261004120000_onboarding_write_once.sql` (sin tocar migraciones
-históricas). H4 es la otra parte de la 2.9 y **no está hecha todavía**.
+históricas). H4 es la otra parte de la 2.9 (sección siguiente).
 
 - **Regla**: una vez no nulo, `profiles.onboarding_completed_at` no cambia.
   Timestamp → `NULL` y timestamp → otro timestamp se rechazan con `23514`
@@ -218,6 +218,39 @@ históricas). H4 es la otra parte de la 2.9 y **no está hecha todavía**.
   superusuario queda fuera del alcance; el mock de E1 no emula el bloqueo
   (la aplicación nunca reinicia un onboarding).
 - Tests: `tests/db/07_onboarding_integrity.sql` (OB5b, OB11–OB14).
+
+## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
+
+Migración incremental `20261004120100_profiles_privacy.sql` (decisión D2,
+H4-1): elimina `profiles_select_authenticated`, que dejaba a cualquier
+usuario autenticado leer la fila completa de cualquier perfil activo,
+incluida `date_of_birth`. Pasan de 38 a 37 políticas.
+
+- **Pierde un usuario autenticado**: toda lectura de perfiles ajenos por
+  `profiles`, aunque conozca su id: fecha de nacimiento, bio, estado de
+  búsqueda, avisos y onboarding.
+- **Conserva el propio usuario**: su fila completa, también con la cuenta
+  eliminada (`profiles_select_own_even_if_deleted`).
+- **Conserva un admin activo**: todos los perfiles (`profiles_admin_all`,
+  vía `is_admin()`); un admin con la cuenta eliminada no.
+- **anon**: sigue sin leer `profiles`.
+- **Datos públicos de otros**: solo `public_profile_previews` (id, nombre,
+  avatar, rol), sin `date_of_birth`. Que exponga `role` a anon es H3, sin
+  cambios.
+- **Contradice la regla de la Fase 0** «`profiles` completo requiere
+  sesión»: prevalece esta decisión específica de privacidad.
+- Sin cambios en INSERT, UPDATE, DELETE, GRANT, servicios, Server Actions
+  ni `types/database.ts`. No hay `service_role` ni `select("*")` nuevos, ni
+  `profile_id` que llegue del cliente.
+- **Infraestructura de la 2.8 ajustada**, sin cambiar sus guardas:
+  - P3 de `tests/supabase/preflight.sql` y sus auto-tests pasan a 37;
+  - el runner SQL y su auto-test cuentan 13 archivos;
+  - el mock de E1 solo devuelve la fila propia.
+- Tests: `tests/db/13_profiles_privacy.sql` (PV1–PV10). `tests/db/12` ya no
+  depende de ver la fila ajena: aísla la condición de dueño de
+  `profiles_update_own` con una política SELECT temporal dentro de un
+  bloque que se deshace, como `11`.
+- La validación en Supabase real sigue pendiente dentro de la 2.8.
 
 ## Fase 2.8 — infraestructura de validación (2026-09-30, en progreso)
 

@@ -44,6 +44,9 @@ select roomly_test.expect_error(
   '42501', 'OP4: updated_at no es actualizable por el cliente');
 
 -- 3. Perfil ajeno: 0 filas, aunque se conozca su id.
+--    Desde la Fase 2.9 (H4) el 0 se debe ya a la lectura: A no ve la fila de
+--    B. La condición de dueño de `profiles_update_own`, aislada de la lectura
+--    con una política SELECT temporal, la comprueba tests/db/12 (ST5–ST10).
 select roomly_test.expect_affected(
   $$update public.profiles set full_name = 'Suplantada', bio = 'x'
     where id = '90000000-0000-0000-0000-00000000000b'$$,
