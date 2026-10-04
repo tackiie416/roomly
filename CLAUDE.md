@@ -73,7 +73,8 @@ no lo des por hecho. No borrar ni alterar la infraestructura de la 2.8.
 
 **2.9 (endurecimiento de integridad y privacidad): subfase NUEVA, definida
 por el propietario el 2026-10-04 (no formaba parte del roadmap original).
-Definida, no implementada.** No sustituye ni cierra la 2.8. Alcance: punto
+En progreso: punto A implementado (`20261004120000`, `test:db` 240/240); H4
+sin empezar.** No sustituye ni cierra la 2.8. Alcance: punto
 A de 2.3 (`onboarding_completed_at` de una sola escritura, para todos los
 roles) y H4 (eliminar `profiles_select_authenticated`). Decisiones en
 `docs/ROADMAP.md`. Claude no toca Supabase remoto, ni hace commit, push o
@@ -295,8 +296,8 @@ Fase 1 completada — ver arriba.
 ## Funcionalidades pendientes
 
 2.8 aparcada/bloqueada (validación real en `roomly-validation-2b` con los
-secrets corregidos y E2 real, ejecutados por el propietario), 2.9 (definida,
-sin implementar) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
+secrets corregidos y E2 real, ejecutados por el propietario), 2.9 (punto A
+hecho, H4 sin empezar) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 

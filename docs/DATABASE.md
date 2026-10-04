@@ -185,7 +185,9 @@ Migración `supabase/migrations/20260930120000_phase2_onboarding_integrity.sql`
   onboarding_completed_at` en `profiles`): si el valor pasa a no nulo, exige
   una fila de `housing_preferences` del mismo perfil con `city_id`; si no,
   `23514` (`onboarding_incomplete:`). Poner la columna a `NULL` o no tocarla
-  no se comprueba. En un INSERT con valor no nulo siempre falla (las
+  no se comprueba. **Actualización (Fase 2.9)**: desde `20261004120000`, una
+  vez no nulo el valor ya no cambia, tampoco a `NULL` (ver "Fase 2.9"
+  abajo). En un INSERT con valor no nulo siempre falla (las
   preferencias exigen que el perfil exista antes).
   - Es una defensa de integridad: la operación normal y la regla completa
     siguen en `completeOnboarding` (`lib/services/profile.ts`). El GRANT de
@@ -277,6 +279,53 @@ una ya guardada que después se desactiva se puede conservar
 estudiantes" (`pets_allowed`, `smoking_allowed`, `students_only`) son
 columnas de `rooms` (Fase 4). No se añaden como preferencias en 2.5:
 sería un cambio de esquema pendiente de decisión.
+
+## Fase 2.9 — `onboarding_completed_at` de una sola escritura (2026-10-04)
+
+Punto A de la auditoría de 2.3. La 2.9 es una subfase nueva, definida por
+el propietario el 2026-10-04 (ver `docs/ROADMAP.md`). H4 (privacidad de
+`profiles`) es la segunda parte de la 2.9 y **todavía no está hecha**.
+
+Migración `supabase/migrations/20261004120000_onboarding_write_once.sql`:
+incremental; no modifica migraciones históricas ni toca RLS, GRANT,
+columnas ni triggers. Solo redefine con `create or replace` la función
+`public.enforce_onboarding_completion()` del trigger existente
+`trg_profiles_onboarding_completion` (`BEFORE INSERT OR UPDATE OF
+onboarding_completed_at`, de `20260930120000`), que ya se dispara
+exactamente cuando una escritura toca la columna.
+
+| Escritura sobre `onboarding_completed_at` ya no nulo | Resultado |
+|---|---|
+| timestamp → `NULL` | rechazada: `23514` `onboarding_locked:` |
+| timestamp → otro timestamp | rechazada: `23514` `onboarding_locked:` |
+| el mismo timestamp | permitida (con la comprobación de preferencias con ciudad de siempre) |
+| no tocar la columna (editar otros campos) | permitida; el trigger no se dispara |
+
+- **Para todos los roles** (decisión D1): `authenticated`, admin
+  (`profiles_admin_all`), `service_role` y el dueño de las tablas. Un
+  trigger se aplica aunque el rol no tenga RLS. **No hay bypass
+  administrativo**: reiniciar un onboarding sería una decisión explícita
+  nueva.
+- El bloqueo se evalúa antes del `return` que deja pasar los `NULL`, así que
+  volver a `NULL` no lo esquiva, tampoco tras borrar las preferencias.
+- `completeOnboarding` (`lib/services/profile.ts`) no cambia: ya escribe
+  solo `WHERE onboarding_completed_at IS NULL`.
+- La función sigue siendo `SECURITY INVOKER`, con `search_path` vacío y
+  `EXECUTE` revocado a `PUBLIC`, `anon` y `authenticated` (se repite el
+  `revoke`).
+- Consecuencia: queda cerrado el camino de volver a `NULL` para después
+  borrar las preferencias o quitarles la ciudad, que la 2.5 prohíbe con el
+  onboarding completo.
+- Siguen siendo 18 tablas, 38 políticas, 12 triggers y 10 funciones.
+
+**Límites conocidos** (fuera del alcance del punto A):
+- Borrar el perfil y volver a crearlo reinicia en la práctica el
+  onboarding. Solo pueden borrar un perfil un admin (`profiles_admin_all`) o
+  `service_role`; `authenticated` no tiene política de DELETE propia.
+- Un superusuario puede desactivar el trigger; eso queda fuera del alcance.
+- El mock de E1 (`tests/e2e/support/mock-supabase.mjs`) no emula este
+  bloqueo: la aplicación nunca reinicia un onboarding, así que el
+  comportamiento de E1 no cambia.
 
 ## Diagrama de entidades (simplificado)
 

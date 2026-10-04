@@ -6,6 +6,64 @@ próximos pasos.**
 
 ---
 
+## 2026-10-04 — Sesión 26: Fase 2.9, punto A — `onboarding_completed_at` de una sola escritura
+
+**Qué se hizo**
+- Migración incremental `20261004120000_onboarding_write_once.sql`, sin
+  tocar migraciones históricas. Solo redefine con `create or replace`
+  `public.enforce_onboarding_completion()`, la función del trigger
+  existente `trg_profiles_onboarding_completion`. Ese trigger ya cubría
+  `BEFORE INSERT OR UPDATE OF onboarding_completed_at`, así que no hay
+  trigger, función, tabla, columna ni política nuevos, y no cambian RLS ni
+  GRANT.
+- Regla: una vez no nulo, `profiles.onboarding_completed_at` no cambia.
+  - timestamp → `NULL`: rechazado (`23514` `onboarding_locked:`);
+  - timestamp → otro timestamp: rechazado;
+  - el mismo timestamp: permitido.
+- Para todos los roles (decisión D1): `authenticated`, admin,
+  `service_role` y el dueño de las tablas. **Sin bypass administrativo.**
+- Seguridad de la función: sigue `SECURITY INVOKER`, con `search_path`
+  vacío y `EXECUTE` revocado a `PUBLIC`, `anon` y `authenticated` (el
+  `revoke` se repite).
+- `completeOnboarding` no cambia: ya escribe solo
+  `WHERE onboarding_completed_at IS NULL`.
+- `tests/db/07_onboarding_integrity.sql`:
+  - OB5b ya no espera «volver a NULL está permitido», sino el rechazo;
+  - nuevos OB11–OB14: el propio usuario, un admin (con control positivo),
+    `service_role` (también tras borrar las preferencias) y el dueño de las
+    tablas; mismo valor permitido; editar otros campos con el onboarding
+    completo; fecha original conservada; propiedades de seguridad de la
+    función y un único trigger activo.
+- Mutaciones contra `test:db`, 3/3 detectadas y restauradas:
+  - sin la migración;
+  - bloqueo solo del paso a `NULL`;
+  - función `SECURITY DEFINER`.
+- Docs: `DATABASE.md` y `SECURITY.md` (secciones «Fase 2.9»; deja de ser
+  riesgo aceptado lo de la 2.3), `TESTING.md`, `ROADMAP.md` y `CLAUDE.md`.
+
+**Resultados**
+- `npm run test:db`: 240/240 (antes 218).
+- `npm test`: 597/597.
+- `npm run test:infra`: en verde; el runner SQL de la 2.8 ve las mismas
+  240 aserciones.
+- lint, typecheck, `format:check` y build: en verde.
+- No ejecutado: E1, porque no cambia nada que use.
+
+**Límites conocidos** (fuera del alcance del punto A)
+- Borrar el perfil y recrearlo (solo admin o `service_role`) reinicia en
+  la práctica el onboarding.
+- Desactivar el trigger desde un superusuario queda fuera del alcance.
+- El mock de E1 no se modifica: no emula el bloqueo, pero la aplicación
+  nunca reinicia un onboarding y el comportamiento de E1 no cambia.
+
+**Qué queda**
+- H4, la segunda parte de la 2.9: **sin empezar**, pendiente de
+  autorización.
+- La 2.8 sigue APARCADA/BLOQUEADA.
+- No se ha tocado Supabase remoto, ni se ha hecho push ni PR.
+
+---
+
 ## 2026-10-04 — Sesión 25: corrección del estado de la 2.8 y definición de la 2.9 (solo documentación)
 
 **Qué se hizo**

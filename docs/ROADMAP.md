@@ -45,7 +45,7 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 ABIERTA (2.0–2.7 completadas; 2.8 aparcada/bloqueada; 2.9 definida, sin implementar)
+## Fase 2 — User 🚧 ABIERTA (2.0–2.7 completadas; 2.8 aparcada/bloqueada; 2.9 en progreso: punto A hecho, H4 sin empezar)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
@@ -151,8 +151,9 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   El punto A de 2.3 y H4 pasan a la 2.9.
 - 2.9 Endurecimiento de integridad y privacidad — 📝 **subfase NUEVA,
   definida por el propietario el 2026-10-04; no formaba parte del plan
-  original de la Fase 2** (que terminaba en 2.8). **Definida, sin
-  implementar.** No sustituye a la 2.8, que sigue bloqueada. Alcance:
+  original de la Fase 2** (que terminaba en 2.8). **En progreso: punto A
+  implementado (2026-10-04, `20261004120000`, PROGRESS.md sesión 26); H4
+  sin empezar.** No sustituye a la 2.8, que sigue bloqueada. Alcance:
   1. **Punto A de 2.3**: `onboarding_completed_at`, una vez no nulo, no
      puede volver a `NULL` ni cambiar a otro timestamp. Decisión D1: para
      todos los roles (`authenticated`, admin y `service_role`), sin bypass;

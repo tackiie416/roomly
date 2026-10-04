@@ -170,8 +170,10 @@ Auth/`?next=` (M6) y UI.
   PostgREST también se puede escribir, pero el trigger
   `trg_profiles_onboarding_completion` impide ponerlo a no nulo sin
   preferencias con ciudad, venga de donde venga. Reescribir el timestamp o
-  volver a ponerlo a nulo por PostgREST solo afecta al propio usuario
-  (riesgo aceptado, ver `PROGRESS.md`). La
+  volver a ponerlo a nulo por PostgREST solo afectaba al propio usuario
+  (riesgo aceptado en 2.3, ver `PROGRESS.md`). **Ya no: desde la Fase 2.9**
+  (`20261004120000`, sección siguiente) ningún rol puede cambiarlo una vez
+  fijado. La
   función es `SECURITY INVOKER`, con `search_path` vacío y `EXECUTE`
   revocado a `PUBLIC`, `anon` y `authenticated` (no se puede llamar
   directamente).
@@ -191,6 +193,31 @@ Auth/`?next=` (M6) y UI.
 - Sin `service_role`, sin `select("*")`, sin `upsert`. Los datos de
   referencia (ciudades, universidades, barrios) se leen con el cliente
   normal: son tablas de lectura pública.
+
+## Fase 2.9 — `onboarding_completed_at` de una sola escritura (2026-10-04)
+
+Punto A de la auditoría de 2.3, en la migración incremental
+`20261004120000_onboarding_write_once.sql` (sin tocar migraciones
+históricas). H4 es la otra parte de la 2.9 y **no está hecha todavía**.
+
+- **Regla**: una vez no nulo, `profiles.onboarding_completed_at` no cambia.
+  Timestamp → `NULL` y timestamp → otro timestamp se rechazan con `23514`
+  `onboarding_locked:`; reescribir el mismo timestamp se permite.
+- **Sin bypass**: se aplica a `authenticated`, admin, `service_role` y el
+  dueño de las tablas (decisión D1). Volver a `NULL` no lo esquiva, ni tras
+  borrar las preferencias.
+- **Mecanismo**: se reutiliza el trigger existente
+  `trg_profiles_onboarding_completion`; solo se redefine su función con
+  `create or replace`. Sigue `SECURITY INVOKER` (no da privilegios), con
+  `search_path` vacío y nombres cualificados, y con `EXECUTE` revocado a
+  `PUBLIC`, `anon` y `authenticated`. Sin cambios de RLS ni de GRANT:
+  `authenticated` conserva el GRANT de UPDATE de la columna, que necesita
+  `completeOnboarding`, y este no cambia.
+- **Límites**: borrar el perfil y recrearlo (solo admin o `service_role`)
+  reinicia en la práctica el onboarding; desactivar el trigger como
+  superusuario queda fuera del alcance; el mock de E1 no emula el bloqueo
+  (la aplicación nunca reinicia un onboarding).
+- Tests: `tests/db/07_onboarding_integrity.sql` (OB5b, OB11–OB14).
 
 ## Fase 2.8 — infraestructura de validación (2026-09-30, en progreso)
 
