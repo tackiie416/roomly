@@ -6,6 +6,55 @@ próximos pasos.**
 
 ---
 
+## 2026-10-04 — Sesión 24: runs remotos 3–10 y cierre de la 2.8 con validación real diferida
+
+**Qué se hizo**
+- PR #4 y PR #5 fusionados con merge commit; `master` en `cb88647`. El PR #5
+  añade a la guarda un diagnóstico, de solo lectura y sin datos sensibles,
+  para cuando la marca no coincide: los 4 primeros caracteres del ref, la
+  base de datos, la marca y el número de tablas en `public`. Tiene
+  auto-test en `guard-selftest.sh`.
+- Workflow manual `Supabase validation`, runs 3–10, todos fallidos de forma
+  segura sin escribir nada en ningún proyecto:
+  - runs 3–5: apply-migrations se negó porque «el esquema ya existe»;
+  - runs 6–10: la guarda rechazó la marca.
+  - Diagnóstico del run 10 (id 37227755623, sobre `cb88647`): ref
+    `qhwu…`, base `postgres`, marca `'roomly-retirado'`, 18 tablas en
+    `public`, es decir, el proyecto **retirado**.
+  - El proyecto vacío `roomly-validation-2b` tiene la marca
+    `roomly-validation-2` y 0 tablas (comprobado por el propietario en su
+    SQL Editor).
+- **Decisión del propietario: cerrar la 2.8 sin seguir intentándolo.** La
+  validación real queda **diferida, no superada**.
+
+**Qué queda (diferido)**
+- Corregir los cinco secrets del Environment `roomly-validation-2` con los
+  datos de `roomly-validation-2b`. El ref, la URL y la cadena de conexión
+  del run 10 eran coherentes entre sí y del proyecto retirado.
+- Ejecutar el workflow completo: migraciones, P0–P6, SQL 01–12,
+  supabase-js y AU3/AU5.
+- Elegir SMTP y buzón, con su adaptador, y ejecutar el E2 real.
+- Siguen abiertos el punto A de 2.3 y H4.
+
+**Problemas encontrados**
+- Los secrets no se pueden leer desde aquí: la API de Environments y
+  secrets responde 403 a través del proxy. La causa exacta de que apunten
+  al proyecto retirado no está determinada.
+- El código del workflow usa `environment: roomly-validation-2` en todos
+  los jobs, y la guarda no tiene ningún proyecto escrito en el código.
+
+**Consecuencia**
+- Sin verificar en Supabase real:
+  - el alta real por magic link;
+  - las migraciones y la RLS de Fase 2.
+- Lo verificado en local y en CI, con el PostgreSQL + shim y E1, sigue
+  siendo válido.
+
+**Próximos pasos**
+- La Fase 3 **no** se empieza sin confirmación explícita.
+
+---
+
 ## 2026-10-01 — Sesión 23: auditoría final de la 2.8 y correcciones (EN PROGRESO, sin commit)
 
 Sobre los cambios de la sesión 22, todavía sin commit (HEAD sigue en

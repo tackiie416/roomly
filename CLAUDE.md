@@ -34,7 +34,8 @@ migración a `proxy.ts` (runtime Node.js).
   link (el login sí se validó; el registro estaba desactivado). Es parte de
   la 2.8. Ver `docs/ROADMAP.md`.
 
-**Fase 2 (User): en progreso.** 2.0 completada (endurecimiento de datos y
+**Fase 2 (User): cerrada por decisión del propietario, con la validación
+real de la 2.8 diferida (ver abajo).** 2.0 completada (endurecimiento de datos y
 RLS/GRANT de `profiles` y `housing_preferences`, integridad de barrios con
 triggers; `test:db` 119/119 en local) y 2.1 completada (validación Zod y
 servicios de perfil y preferencias en `lib/validation/*` y
@@ -53,18 +54,23 @@ completada (ajustes en `/ajustes`: avisos por email y cerrar sesión) y 2.7
 cerrada (shell autenticado y errores sin detalles técnicos, `1e6af49`;
 `test` 532/532, `test:db` 218/218).
 
-**2.8 (validación real del alta y E2E): en progreso, NO cerrada.** La
-infraestructura está implementada y commiteada en `03c4349` (sin push): runner SQL
+**2.8 (validación real del alta y E2E): cerrada por decisión del
+propietario (2026-10-04) con la validación real DIFERIDA — no superada.**
+La infraestructura está en `master` (PR #4 y #5, `cb88647`): runner SQL
 remoto aislado por archivo, preflight P0–P6 exacto (38 políticas), E1
-(Playwright contra Supabase simulado, también en CI) y E2 (alta real con
-email real, solo desde el workflow manual). La validación real **no se ha
-ejecutado**: el proyecto nuevo `roomly-validation-2` (marca de identidad
-`roomly-validation-2`, comparación exacta) todavía no existe, ni el SMTP ni
-el buzón de prueba. El proyecto antiguo `roomly-validation` no tiene las
-migraciones de Fase 2 y ya no se usa. Crear y configurar el proyecto, abrir
-el registro y ejecutar la validación remota lo hace el propietario; Claude
-no toca Supabase remoto, ni hace commit, push o PR, sin autorización
-explícita. Subfases y decisiones: `docs/ROADMAP.md`.
+(Playwright contra Supabase simulado, también en CI), E2 (alta real con
+email real, solo desde el workflow manual) y diagnóstico de la guarda. La
+validación real **nunca se ha ejecutado**: los runs 3–10 del workflow
+manual se detuvieron antes de escribir nada, porque los secrets del
+Environment `roomly-validation-2` apuntan al proyecto retirado (run 10:
+marca `roomly-retirado`, 18 tablas) y no al proyecto vacío
+`roomly-validation-2b`. Pendiente, para cuando el propietario lo retome:
+corregir los secrets, ejecutar el workflow (migraciones, P0–P6, SQL,
+supabase-js, AU3/AU5) y, con SMTP y buzón, el E2 real. Hasta entonces el
+alta real por magic link y la RLS de Fase 2 en Supabase real **no están
+verificadas** — no lo des por hecho. Claude no toca Supabase remoto, ni
+hace commit, push o PR, sin autorización explícita. La Fase 3 no ha
+empezado: espera confirmación. Detalle: `docs/ROADMAP.md`.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -281,8 +287,9 @@ Fase 1 completada — ver arriba.
 
 ## Funcionalidades pendientes
 
-Cierre de la 2.8 (validación real en `roomly-validation-2` y E2 real,
-ejecutados por el propietario) y Fases 3 a 9 — ver `docs/ROADMAP.md`.
+Validación real diferida de la 2.8 (workflow en `roomly-validation-2b` con
+los secrets corregidos y E2 real, ejecutados por el propietario) y Fases 3
+a 9 — ver `docs/ROADMAP.md`.
 
 ## Pendiente de decisión humana (no lo decide Claude)
 
