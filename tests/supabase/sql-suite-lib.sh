@@ -8,7 +8,7 @@
 #     otro GUC pasa de un test al siguiente.
 #   - Cada sesión: BEGIN → identidad (P0) → comprobación de sesión limpia →
 #     helpers.sql → el test → ROLLBACK → comprobación posterior. Nada persiste.
-#   - Un test con su propio BEGIN/ROLLBACK (hoy solo tests/db/11) se ejecuta
+#   - Un test con su propio BEGIN/ROLLBACK (hoy tests/db/11 y 12) se ejecuta
 #     sin tocar el archivo: el flujo reescribe exactamente las líneas
 #     `begin;` y `rollback;` a `savepoint roomly_file;` y
 #     `rollback to savepoint roomly_file;`. Su ROLLBACK deshace solo su

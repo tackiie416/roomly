@@ -95,8 +95,10 @@ end $$;
 -- ============================================================
 -- Lista derivada de supabase/migrations (Fase 2.8): 35 de 20260925120100,
 -- sustituciones sin cambio de número en 20260926120000, 20260929120000 y
--- 20260930140000, y en 20260930130000 `housing_preferences_own` pasa a ser
--- cuatro políticas (select/insert/update/delete_own). Total: 38 en 18 tablas.
+-- 20260930140000, en 20260930130000 `housing_preferences_own` pasa a ser
+-- cuatro políticas (select/insert/update/delete_own) y en 20261004120100
+-- (Fase 2.9, H4) se elimina `profiles_select_authenticated`. Total: 37 en 18
+-- tablas.
 -- Se compara (tabla, política, comando) en los dos sentidos: falta o sobra
 -- cualquiera → fallo, con el nombre.
 do $$
@@ -136,7 +138,6 @@ begin
     ('notifications', 'notifications_own', 'ALL'),
     ('profiles', 'profiles_admin_all', 'ALL'),
     ('profiles', 'profiles_insert_own', 'INSERT'),
-    ('profiles', 'profiles_select_authenticated', 'SELECT'),
     ('profiles', 'profiles_select_own_even_if_deleted', 'SELECT'),
     ('profiles', 'profiles_update_own', 'UPDATE'),
     ('reports', 'reports_admin_all', 'ALL'),
@@ -165,15 +166,15 @@ begin
      from (select * from actual except select * from expected) a)
   into n_expected, missing, unexpected;
 
-  if n_expected <> 38 then
-    raise exception 'FALLO P3: la lista esperada no tiene 38 entradas (error del propio preflight)';
+  if n_expected <> 37 then
+    raise exception 'FALLO P3: la lista esperada no tiene 37 entradas (error del propio preflight)';
   end if;
   if missing is not null or unexpected is not null then
     raise exception 'FALLO P3: políticas distintas de las esperadas. Faltan: %. Sobran: %',
       coalesce(missing, 'ninguna'), coalesce(unexpected, 'ninguna');
   end if;
 
-  raise notice 'ok - P3: RLS activa en las 18 tablas y exactamente las 38 políticas esperadas';
+  raise notice 'ok - P3: RLS activa en las 18 tablas y exactamente las 37 políticas esperadas';
 end $$;
 
 -- ============================================================

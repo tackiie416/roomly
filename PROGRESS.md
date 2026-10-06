@@ -6,7 +6,343 @@ próximos pasos.**
 
 ---
 
-## 2026-10-01 — Sesión 23: auditoría final de la 2.8 y correcciones (EN PROGRESO, sin commit)
+## 2026-10-06 — Sesión 30: E2 real en verde y cierre de la 2.8 y de la Fase 2 (solo documentación)
+
+**Qué se hizo**
+- **Run 14** (`37541867043`, `ec7c3fc`, `apply_migrations=false`,
+  `run_e2e_real=true`):
+  - estructural en verde;
+  - el E2 falló a los 276 ms, al cargar el adaptador y antes de enviar
+    ningún email: «E2E_MAILBOX_CONFIG no es un JSON válido»;
+  - la limpieza: 0 usuarios;
+  - sin residuos ni escrituras.
+
+  El propietario creó de nuevo el secret con un token nuevo de Mailtrap.
+- **Run 15** (`37543144825`, `ec7c3fc`, mismos parámetros): **todo en
+  verde**.
+  - Estructural: guarda, P0–P6, SQL 01–13, supabase-js y AU3/AU5.
+  - **E2 real 1/1 (22,1 s):** `/login` → `signInWithOtp` → email real en
+    Mailtrap → enlace `/auth/v1/verify` validado → `/callback?code=` con
+    PKCE → onboarding → `/perfil`, `/preferencias` y `/ajustes`, guardados y
+    releídos → logout → `/perfil` sin sesión vuelve a `/login`.
+  - Sin `generateLink` ni `token_hash`.
+  - Limpieza: «1 usuario(s) de prueba borrado(s), sin datos asociados» y
+    «mensajes del buzón de prueba borrados». Sin residuos.
+- **Registro de Auth:** el propietario lo abrió a mano solo para la ventana
+  del E2 (runs 14 y 15) y lo cerró a mano después del run 15. El workflow
+  avisó de que seguía abierto, como está previsto.
+- **Proyecto validado:** `roomly-validation-2b` (ref `uwxb…`, marca
+  `roomly-validation-2`). El histórico `roomly-validation` y el retirado
+  `qhwu…` no se tocaron.
+- **Cierre documental:**
+  - la **2.8 queda completada**: estructural en el run 13 y E2 real en el
+    run 15;
+  - la **Fase 2 queda completada**: 2.0–2.9 cerradas y el criterio de
+    aceptación demostrado por el run 15;
+  - los runs 3–12 y 14 quedan como diagnóstico en
+    `docs/SUPABASE_VALIDATION.md`;
+  - `NEXT_PHASE_AUDIT.md` se actualiza: se corrigen las conclusiones sobre
+    la Fase 2 abierta y se conservan el análisis de la Fase 3 y las
+    discrepancias vigentes;
+  - en `TESTING.md` se corrigen las frases antiguas sobre CI;
+  - las cabeceras de las sesiones 22 y 23 se anotan sin reescribir su
+    contenido.
+- **CI del PR #6:** en verde en `f9f08ad` (CI #11) y en `ec7c3fc` (CI #12).
+
+**Qué queda**
+- Fusionar el PR #6 en `master`, con autorización aparte.
+- Pendiente operativo: rotar claves y pausar o borrar
+  `roomly-validation-2b`. Sigue activo, con el esquema, el seed y el SMTP de
+  Mailtrap, y se tratará en una acción de seguridad específica.
+- Fuera de alcance por decisión del usuario: Google y Apple OAuth, foto de
+  perfil (M3) y borrado de cuenta (H6).
+- La Fase 3 no se empieza sin confirmación explícita.
+
+---
+
+## 2026-10-06 — Sesión 29: Fase 2.8 — validación estructural real en verde y adaptador del buzón (2.8 sigue ABIERTA)
+
+**Qué se hizo**
+- Causa del bloqueo de la 2.8: el workflow leía 5 secrets **de repositorio**
+  antiguos (proyecto retirado `qhwu…`). Luego los nuevos se crearon en un
+  Environment equivocado, llamado `SUPABASE_VALIDATION_PROJECT_REF`.
+  - El propietario borró los de repositorio y los creó en
+    `roomly-validation-2` con los datos de `roomly-validation-2b` (`uwxb…`).
+  - Run 11: la guarda llegó a `qhwu…`. Run 12: los secrets llegaron vacíos.
+    Ninguno de los dos escribió nada.
+- **Run 13 (`37533380047`), sobre `f9f08ad`, en verde:**
+  - guarda superada;
+  - las 9 migraciones y el seed aplicados en una transacción en `uwxb…`;
+  - P0–P6 (37 políticas), suite SQL 01–13 (los 13 archivos, cada uno
+    revertido, sin restos), supabase-js 46/46 y AU3/AU5 16/16;
+  - E2 no ejecutado. El proyecto retirado y el histórico, sin tocar.
+- E2 real preparado sin ejecutarlo. Proveedor elegido: **Mailtrap Email
+  Sandbox** (SMTP más API).
+  - Adaptador nuevo: `tests/e2e/real/mailboxes/mailtrap.mjs`.
+  - Tests nuevos: `tests/unit/mailtrap-mailbox.test.ts`, 20, sin red.
+  - Mutaciones detectadas: 3/3 (sin decodificar `&amp;`, sin filtrar el
+    destinatario, otra cabecera de autenticación).
+  - API comprobada en el SDK oficial `mailtrap-nodejs`; la documentación
+    de Mailtrap no era accesible desde el entorno.
+- Configurado por el propietario:
+  - SMTP de Mailtrap en `uwxb…`;
+  - secrets `E2E_EMAIL_TEMPLATE` y `E2E_MAILBOX_CONFIG`, y la variable
+    `E2E_MAILBOX_ADAPTER`, en `roomly-validation-2`.
+
+**Qué queda**
+- Abrir temporalmente el registro en `uwxb…`.
+- Lanzar el workflow con `apply_migrations=false` y `run_e2e_real=true` (el
+  esquema ya existe).
+- Cerrar el registro después.
+- La 2.8 sigue ABIERTA hasta que el E2 real pase.
+
+---
+
+## 2026-10-04 — Sesión 28: auditoría final, CI y cierre de la Fase 2.9 (solo documentación)
+
+**Qué se hizo**
+- Auditoría final de la 2.9 (punto A `73d6028`, H4 `f9f08ad`), en local:
+  - comparación del catálogo antes y después (migraciones de `f4f0f7f`
+    frente a `HEAD`): solo cambian la política eliminada (38 → 37) y el
+    cuerpo de `enforce_onboarding_completion`; GRANT de tabla y de
+    columna, EXECUTE, triggers, columnas y la vista quedan idénticos;
+  - casos límite rechazados: upsert `ON CONFLICT DO UPDATE` y `MERGE` con
+    `onboarding_locked`, y un join no devuelve perfiles ajenos;
+  - sin restos (`zz_test_*`, `roomly_test`, usuarios `@test`, bases
+    `roomly_*`), sin secretos, sin `service_role` ni `select("*")` nuevos y
+    sin cambios en `app/`, `lib/`, `components/` ni `types/`.
+- Push autorizado de la rama (`d79c35d..f9f08ad`, sin force). `ci.yml` no se
+  dispara con un push a esta rama, así que se abrió el PR #6 (borrador,
+  hacia `master`, sin fusionar) solo para ejecutar CI.
+- CI del PR #6, run `37231766834` (CI #11), sobre `f9f08ad` (merge de prueba
+  `ea20735` con `master` `cb88647`), en verde:
+  - `lint-typecheck-test-build`: `format:check`, lint, typecheck,
+    `npm test` 597/597 y build en verde;
+  - `db-security`: `tests/db/run.sh`, `guard-selftest.sh`,
+    `sql-suite-selftest.sh` y `preflight-selftest.sh` en verde;
+  - `e2e-local`: 25/25 con el Chromium oficial (Chrome for Testing
+    153.0.8010.12, chromium v1243), instalado por
+    `npx playwright install --with-deps chromium`.
+- Corrección documental:
+  - la sesión 27 ya no dice «sin commit»;
+  - la 2.9 queda **COMPLETADA** en `ROADMAP.md` y `CLAUDE.md`;
+  - `TESTING.md` recoge los resultados de CI.
+- Estado al cerrar: SHA validado
+  `f9f08ad4fef9d518a36ab26f1eeaecfdf3d68998`, local igual a remoto, working
+  tree limpio antes de este commit documental.
+
+**Qué queda**
+- La 2.8 sigue APARCADA/BLOQUEADA, con la validación en Supabase real
+  pendiente; ahí también se validarán en real el punto A y H4.
+- La Fase 2 sigue abierta.
+- El PR #6 sigue abierto solo para CI.
+- Riesgos no bloqueantes, en `ROADMAP.md` (2.9).
+- No se ha tocado Supabase remoto ni lanzado `Supabase validation`, ni ha
+  habido E2, signup ni SMTP.
+
+---
+
+## 2026-10-04 — Sesión 27: Fase 2.9, H4 — privacidad de `profiles` (commit `f9f08ad`; CI en verde en la sesión 28)
+
+**Qué se hizo**
+- Migración incremental `20261004120100_profiles_privacy.sql`: solo
+  `drop policy "profiles_select_authenticated"` (decisión D2, H4-1).
+  - No toca migraciones históricas, ni INSERT, UPDATE, DELETE ni GRANT.
+  - No añade tablas, columnas ni políticas.
+  - Pasan de **38 a 37 políticas**.
+- Comportamiento:
+  - un usuario autenticado lee solo su perfil, también eliminado
+    (`profiles_select_own_even_if_deleted`);
+  - un admin activo lee todos (`profiles_admin_all`);
+  - anon no lee ninguno;
+  - los datos públicos de otros salen de `public_profile_previews`, sin
+    `date_of_birth`.
+  - Sustituye a la regla de Fase 0 «`profiles` completo requiere sesión».
+- Tests de base de datos:
+  - `13_profiles_privacy.sql` nuevo (PV1–PV10, 22 aserciones);
+  - `12` reescrito: ST5–ST10 aíslan la condición de dueño de
+    `profiles_update_own` con una política SELECT temporal en bloques
+    `begin;`/`rollback;`, como `11`; nuevo ST12 comprueba que no queda nada
+    abierto y que con la lectura normal B no ve a A;
+  - notas en `07` (OB7) y `09` (OP5): su 0 se debe ya a la lectura;
+  - `10` PX4 pasa a 37 políticas.
+- Infraestructura de la 2.8 ajustada, sin cambiar su comportamiento ni sus
+  guardas:
+  - P3 de `tests/supabase/preflight.sql` a 37;
+  - `preflight-selftest.sh` a 37;
+  - `sql-suite-selftest.sh` a 13 archivos y 37 políticas;
+  - comentarios de `run-sql-suite.sh` y `sql-suite-lib.sh`;
+  - nombres de los pasos del workflow (01–13);
+  - `tests/unit/validation-infra.test.ts` a 37;
+  - el mock de E1 solo devuelve la fila propia.
+- Mutaciones contra `test:db`, 5/5 detectadas:
+  - sin la migración;
+  - `profiles_select_authenticated` recreada;
+  - otra política SELECT `using (true)`;
+  - la política propia, con su nombre, pero permisiva;
+  - la vista pública con `date_of_birth`.
+- Docs: `DATABASE.md`, `SECURITY.md`, `TESTING.md`,
+  `SUPABASE_VALIDATION.md`, `ARCHITECTURE.md`, `ROADMAP.md` y `CLAUDE.md`.
+
+**Resultados**
+- `npm run test:db`: 265/265.
+- `npm test`: 597/597.
+- `npm run test:infra`: en verde (13 archivos, 265 = 265, 37 políticas).
+- `npm run test:e2e` (E1): 25/25, con el Chromium preinstalado 1194.
+- lint, typecheck, `format:check`, build y `git diff --check`: en verde.
+
+**Qué queda** (actualizado en la sesión 28)
+- H4 quedó en el commit `f9f08ad`, validado en CI en el PR #6. La 2.9 se
+  cierra en la sesión 28.
+- La validación en Supabase real sigue pendiente dentro de la 2.8
+  (aparcada/bloqueada).
+- No se tocó Supabase remoto.
+
+---
+
+## 2026-10-04 — Sesión 26: Fase 2.9, punto A — `onboarding_completed_at` de una sola escritura
+
+**Qué se hizo**
+- Migración incremental `20261004120000_onboarding_write_once.sql`, sin
+  tocar migraciones históricas. Solo redefine con `create or replace`
+  `public.enforce_onboarding_completion()`, la función del trigger
+  existente `trg_profiles_onboarding_completion`. Ese trigger ya cubría
+  `BEFORE INSERT OR UPDATE OF onboarding_completed_at`, así que no hay
+  trigger, función, tabla, columna ni política nuevos, y no cambian RLS ni
+  GRANT.
+- Regla: una vez no nulo, `profiles.onboarding_completed_at` no cambia.
+  - timestamp → `NULL`: rechazado (`23514` `onboarding_locked:`);
+  - timestamp → otro timestamp: rechazado;
+  - el mismo timestamp: permitido.
+- Para todos los roles (decisión D1): `authenticated`, admin,
+  `service_role` y el dueño de las tablas. **Sin bypass administrativo.**
+- Seguridad de la función: sigue `SECURITY INVOKER`, con `search_path`
+  vacío y `EXECUTE` revocado a `PUBLIC`, `anon` y `authenticated` (el
+  `revoke` se repite).
+- `completeOnboarding` no cambia: ya escribe solo
+  `WHERE onboarding_completed_at IS NULL`.
+- `tests/db/07_onboarding_integrity.sql`:
+  - OB5b ya no espera «volver a NULL está permitido», sino el rechazo;
+  - nuevos OB11–OB14: el propio usuario, un admin (con control positivo),
+    `service_role` (también tras borrar las preferencias) y el dueño de las
+    tablas; mismo valor permitido; editar otros campos con el onboarding
+    completo; fecha original conservada; propiedades de seguridad de la
+    función y un único trigger activo.
+- Mutaciones contra `test:db`, 3/3 detectadas y restauradas:
+  - sin la migración;
+  - bloqueo solo del paso a `NULL`;
+  - función `SECURITY DEFINER`.
+- Docs: `DATABASE.md` y `SECURITY.md` (secciones «Fase 2.9»; deja de ser
+  riesgo aceptado lo de la 2.3), `TESTING.md`, `ROADMAP.md` y `CLAUDE.md`.
+
+**Resultados**
+- `npm run test:db`: 240/240 (antes 218).
+- `npm test`: 597/597.
+- `npm run test:infra`: en verde; el runner SQL de la 2.8 ve las mismas
+  240 aserciones.
+- lint, typecheck, `format:check` y build: en verde.
+- No ejecutado: E1, porque no cambia nada que use.
+
+**Límites conocidos** (fuera del alcance del punto A)
+- Borrar el perfil y recrearlo (solo admin o `service_role`) reinicia en
+  la práctica el onboarding.
+- Desactivar el trigger desde un superusuario queda fuera del alcance.
+- El mock de E1 no se modifica: no emula el bloqueo, pero la aplicación
+  nunca reinicia un onboarding y el comportamiento de E1 no cambia.
+
+**Qué queda**
+- H4, la segunda parte de la 2.9: **sin empezar**, pendiente de
+  autorización.
+- La 2.8 sigue APARCADA/BLOQUEADA.
+- No se ha tocado Supabase remoto, ni se ha hecho push ni PR.
+
+---
+
+## 2026-10-04 — Sesión 25: corrección del estado de la 2.8 y definición de la 2.9 (solo documentación)
+
+**Qué se hizo**
+- Corregido el estado que dejó `d79c35d` (que no se reescribe: este es un
+  commit nuevo encima):
+  - la **2.8 está APARCADA/BLOQUEADA, con la validación real pendiente**;
+    no está cerrada ni completada;
+  - la **Fase 2 sigue ABIERTA**: su criterio de aceptación (un usuario real
+    completa registro → perfil → preferencias) depende de esa validación.
+- Motivo del bloqueo:
+  - la infraestructura de validación está implementada y CI está en verde;
+  - el Environment `roomly-validation-2` sigue resolviendo al proyecto
+    retirado (`roomly-retirado`) en vez de a `roomly-validation-2b`;
+  - el run 10 lo detuvo la guarda antes de cualquier escritura: **no hubo
+    cambios remotos en Supabase** en ninguno de los runs 3–10.
+- **2.9 definida como subfase nueva** por el propietario. No existía una
+  2.9 en el roadmap ni en el historial (auditado con `git grep` y
+  `git log -S`). Alcance: punto A de 2.3 y H4, con las decisiones D1 y D2
+  en `docs/ROADMAP.md`. **Solo definida: sin migraciones, RLS, tests,
+  preflight ni E1 cambiados.**
+
+**Qué queda**
+- 2.8: bloqueada hasta que se corrijan los secrets. Sin más runs, E2,
+  signup ni SMTP por ahora.
+- 2.9: implementar cuando el propietario lo autorice.
+  - Migraciones nuevas: redefinir `enforce_onboarding_completion()` y
+    `drop policy profiles_select_authenticated`.
+  - Tests de base de datos: `07`, `12` reescrito y `13` nuevo.
+  - P3 de `preflight.sql` a 37 políticas, mock de E1 y documentación.
+- No se ha tocado Supabase remoto, ni se ha hecho push ni PR.
+
+---
+
+## 2026-10-04 — Sesión 24: runs remotos 3–10 y aparcamiento de la 2.8 (corregido en la sesión 25)
+
+**Qué se hizo**
+- PR #4 y PR #5 fusionados con merge commit; `master` en `cb88647`. El PR #5
+  añade a la guarda un diagnóstico, de solo lectura y sin datos sensibles,
+  para cuando la marca no coincide: los 4 primeros caracteres del ref, la
+  base de datos, la marca y el número de tablas en `public`. Tiene
+  auto-test en `guard-selftest.sh`.
+- Workflow manual `Supabase validation`, runs 3–10, todos fallidos de forma
+  segura sin escribir nada en ningún proyecto:
+  - runs 3–5: apply-migrations se negó porque «el esquema ya existe»;
+  - runs 6–10: la guarda rechazó la marca.
+  - Diagnóstico del run 10 (id 37227755623, sobre `cb88647`): ref
+    `qhwu…`, base `postgres`, marca `'roomly-retirado'`, 18 tablas en
+    `public`, es decir, el proyecto **retirado**.
+  - El proyecto vacío `roomly-validation-2b` tiene la marca
+    `roomly-validation-2` y 0 tablas (comprobado por el propietario en su
+    SQL Editor).
+- **Decisión del propietario: no seguir intentándolo por ahora.** El commit
+  `d79c35d` la registró como «cerrada con la validación real diferida»;
+  eso era incorrecto y lo corrige la sesión 25: la 2.8 está
+  **APARCADA/BLOQUEADA**, no cerrada.
+
+**Qué queda (diferido)**
+- Corregir los cinco secrets del Environment `roomly-validation-2` con los
+  datos de `roomly-validation-2b`. El ref, la URL y la cadena de conexión
+  del run 10 eran coherentes entre sí y del proyecto retirado.
+- Ejecutar el workflow completo: migraciones, P0–P6, SQL 01–12,
+  supabase-js y AU3/AU5.
+- Elegir SMTP y buzón, con su adaptador, y ejecutar el E2 real.
+- Siguen abiertos el punto A de 2.3 y H4.
+
+**Problemas encontrados**
+- Los secrets no se pueden leer desde aquí: la API de Environments y
+  secrets responde 403 a través del proxy. La causa exacta de que apunten
+  al proyecto retirado no está determinada.
+- El código del workflow usa `environment: roomly-validation-2` en todos
+  los jobs, y la guarda no tiene ningún proyecto escrito en el código.
+
+**Consecuencia**
+- Sin verificar en Supabase real:
+  - el alta real por magic link;
+  - las migraciones y la RLS de Fase 2.
+- Lo verificado en local y en CI, con el PostgreSQL + shim y E1, sigue
+  siendo válido.
+
+**Próximos pasos**
+- La Fase 3 **no** se empieza sin confirmación explícita.
+
+---
+
+## 2026-10-01 — Sesión 23: auditoría final de la 2.8 y correcciones (anotada entonces «EN PROGRESO, sin commit»; commit posterior `03c4349`, 2.8 completada en la sesión 30)
 
 Sobre los cambios de la sesión 22, todavía sin commit (HEAD sigue en
 `1e6af49`). Primero, auditoría final de solo lectura; después, con
@@ -70,7 +406,7 @@ remota sigue pendiente. No se ha tocado Supabase remoto.
 
 ---
 
-## 2026-09-30 — Sesión 22: Fase 2.8 — infraestructura de validación (EN PROGRESO, sin commit)
+## 2026-09-30 — Sesión 22: Fase 2.8 — infraestructura de validación (anotada entonces «EN PROGRESO, sin commit»; commit posterior `03c4349`, 2.8 completada en la sesión 30)
 
 Sobre `1e6af49`. Decisiones del usuario tras la segunda auditoría:
 - **Supabase real, opción A:** la validación remota la ejecuta el propietario.

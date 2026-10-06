@@ -1,0 +1,31 @@
+-- ROOMLY — Fase 2.9 (H4): privacidad de `profiles`
+-- (ver PROGRESS.md, sesión 27, y docs/SECURITY.md §"Fase 2.9 — H4").
+--
+-- Migración NUEVA: las anteriores quedan intactas. Solo elimina una política.
+--
+-- Antes: `profiles_select_authenticated` (20260925120100,
+-- `using (auth.uid() is not null and deleted_at is null)`) dejaba a cualquier
+-- usuario autenticado leer la fila COMPLETA de cualquier perfil activo:
+-- `date_of_birth`, `bio`, `seeking_status`, `email_notifications_enabled` y
+-- `onboarding_completed_at`. Ningún código de la aplicación la necesitaba:
+-- todas las lecturas de `profiles` son de la fila propia.
+--
+-- Después (decisión D2 / H4-1 del propietario, 2026-10-04):
+--   - cada usuario autenticado lee solo su perfil, también si está eliminado
+--     (`profiles_select_own_even_if_deleted`, sin cambios);
+--   - un admin activo lee todos (`profiles_admin_all`, sin cambios);
+--   - anon sigue sin leer ninguno;
+--   - los datos públicos de otros usuarios (id, nombre, avatar, rol) siguen
+--     saliendo de la vista `public_profile_previews`, que no depende de esta
+--     política (`security_invoker = false`) y no incluye `date_of_birth`.
+-- Sustituye a la regla genérica de la Fase 0 «`profiles` completo requiere
+-- sesión»: ahora prevalece esta decisión específica de privacidad.
+--
+-- Sin cambios en INSERT, UPDATE, DELETE ni GRANT: ninguna política, trigger
+-- ni función lee perfiles ajenos con el rol del usuario (`is_admin()` es
+-- SECURITY DEFINER; las de `housing_preferences` solo leen la fila propia).
+-- Pasan a ser 37 políticas en `public` (antes 38).
+--
+-- Se aplica una sola vez, como las demás migraciones (sin `if exists`).
+
+drop policy "profiles_select_authenticated" on public.profiles;

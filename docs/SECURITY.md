@@ -12,9 +12,9 @@ corregidas están en `docs/DATABASE.md`.
 | Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations`, todas vía `is_conversation_participant()` — un tercero no puede leer ni escribir aunque conozca el UUID de la conversación. **Hasta la migración `20260926120000_security_fixes.sql` esto NO era cierto** (ver "Correcciones de la auditoría inicial" abajo) |
 | Habitaciones editables solo por su propietario | `rooms_owner_write`. La dirección exacta va un paso más allá: `room_addresses_owner_only`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
-| Información privada protegida | `profiles` completo exige sesión (vista `public_profile_previews` para lo estrictamente público de SEO); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
+| Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); los datos públicos de otros, en la vista `public_profile_previews`; `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
 
-Las políticas (38 desde `20260930130000`) están en
+Las políticas (38 desde `20260930130000`, 37 desde `20261004120100`) están en
 `supabase/migrations/20260925120100_rls_policies.sql`, con 8 de ellas
 redefinidas en `supabase/migrations/20260926120000_security_fixes.sql` y
 las de `housing_preferences` y `profiles_update_own` rehechas en las
@@ -170,8 +170,10 @@ Auth/`?next=` (M6) y UI.
   PostgREST también se puede escribir, pero el trigger
   `trg_profiles_onboarding_completion` impide ponerlo a no nulo sin
   preferencias con ciudad, venga de donde venga. Reescribir el timestamp o
-  volver a ponerlo a nulo por PostgREST solo afecta al propio usuario
-  (riesgo aceptado, ver `PROGRESS.md`). La
+  volver a ponerlo a nulo por PostgREST solo afectaba al propio usuario
+  (riesgo aceptado en 2.3, ver `PROGRESS.md`). **Ya no: desde la Fase 2.9**
+  (`20261004120000`, sección siguiente) ningún rol puede cambiarlo una vez
+  fijado. La
   función es `SECURITY INVOKER`, con `search_path` vacío y `EXECUTE`
   revocado a `PUBLIC`, `anon` y `authenticated` (no se puede llamar
   directamente).
@@ -192,11 +194,78 @@ Auth/`?next=` (M6) y UI.
   referencia (ciudades, universidades, barrios) se leen con el cliente
   normal: son tablas de lectura pública.
 
-## Fase 2.8 — infraestructura de validación (2026-09-30, en progreso)
+## Fase 2.9 — `onboarding_completed_at` de una sola escritura (2026-10-04)
+
+Punto A de la auditoría de 2.3, en la migración incremental
+`20261004120000_onboarding_write_once.sql` (sin tocar migraciones
+históricas). H4 es la otra parte de la 2.9 (sección siguiente).
+
+- **Regla**: una vez no nulo, `profiles.onboarding_completed_at` no cambia.
+  Timestamp → `NULL` y timestamp → otro timestamp se rechazan con `23514`
+  `onboarding_locked:`; reescribir el mismo timestamp se permite.
+- **Sin bypass**: se aplica a `authenticated`, admin, `service_role` y el
+  dueño de las tablas (decisión D1). Volver a `NULL` no lo esquiva, ni tras
+  borrar las preferencias.
+- **Mecanismo**: se reutiliza el trigger existente
+  `trg_profiles_onboarding_completion`; solo se redefine su función con
+  `create or replace`. Sigue `SECURITY INVOKER` (no da privilegios), con
+  `search_path` vacío y nombres cualificados, y con `EXECUTE` revocado a
+  `PUBLIC`, `anon` y `authenticated`. Sin cambios de RLS ni de GRANT:
+  `authenticated` conserva el GRANT de UPDATE de la columna, que necesita
+  `completeOnboarding`, y este no cambia.
+- **Límites**: borrar el perfil y recrearlo (solo admin o `service_role`)
+  reinicia en la práctica el onboarding; desactivar el trigger como
+  superusuario queda fuera del alcance; el mock de E1 no emula el bloqueo
+  (la aplicación nunca reinicia un onboarding).
+- Tests: `tests/db/07_onboarding_integrity.sql` (OB5b, OB11–OB14), en verde
+  también en Supabase real (`roomly-validation-2b`, runs 13 y 15).
+
+## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
+
+Migración incremental `20261004120100_profiles_privacy.sql` (decisión D2,
+H4-1): elimina `profiles_select_authenticated`, que dejaba a cualquier
+usuario autenticado leer la fila completa de cualquier perfil activo,
+incluida `date_of_birth`. Pasan de 38 a 37 políticas.
+
+- **Pierde un usuario autenticado**: toda lectura de perfiles ajenos por
+  `profiles`, aunque conozca su id: fecha de nacimiento, bio, estado de
+  búsqueda, avisos y onboarding.
+- **Conserva el propio usuario**: su fila completa, también con la cuenta
+  eliminada (`profiles_select_own_even_if_deleted`).
+- **Conserva un admin activo**: todos los perfiles (`profiles_admin_all`,
+  vía `is_admin()`); un admin con la cuenta eliminada no.
+- **anon**: sigue sin leer `profiles`.
+- **Datos públicos de otros**: solo `public_profile_previews` (id, nombre,
+  avatar, rol), sin `date_of_birth`. Que exponga `role` a anon es H3, sin
+  cambios.
+- **Contradice la regla de la Fase 0** «`profiles` completo requiere
+  sesión»: prevalece esta decisión específica de privacidad.
+- Sin cambios en INSERT, UPDATE, DELETE, GRANT, servicios, Server Actions
+  ni `types/database.ts`. No hay `service_role` ni `select("*")` nuevos, ni
+  `profile_id` que llegue del cliente.
+- **Infraestructura de la 2.8 ajustada**, sin cambiar sus guardas:
+  - P3 de `tests/supabase/preflight.sql` y sus auto-tests pasan a 37;
+  - el runner SQL y su auto-test cuentan 13 archivos;
+  - el mock de E1 solo devuelve la fila propia.
+- Tests: `tests/db/13_profiles_privacy.sql` (PV1–PV10). `tests/db/12` ya no
+  depende de ver la fila ajena: aísla la condición de dueño de
+  `profiles_update_own` con una política SELECT temporal dentro de un
+  bloque que se deshace, como `11`.
+- Validado también en Supabase real (`roomly-validation-2b`) en los runs 13
+  y 15 de la 2.8: P3 con 37 políticas y `tests/db/13` en verde.
+
+## Fase 2.8 — infraestructura de validación (2026-09-30; completada el 2026-10-06)
 
 Solo infraestructura de test: sin cambios en la app, RLS, migraciones ni
-`/callback`. Implementada en local y sin commit; la validación real
-**no se ha ejecutado** (ver `docs/SUPABASE_VALIDATION.md`).
+`/callback`. Se implementó en local el 2026-09-30. La validación real se
+completó el 2026-10-06 en `roomly-validation-2b` (`uwxb…`): parte
+estructural en el run 13 y E2 real en el run 15 (ver
+`docs/SUPABASE_VALIDATION.md`, «Resultado de la Fase 2.8»).
+- **Registro de Auth:** se abrió solo para la ventana del E2 y el
+  propietario lo cerró después.
+- **Sin residuos:** no quedaron usuarios, filas ni mensajes de prueba.
+- **Sin atajos:** sin `generateLink` y sin aceptar `token_hash` en
+  `/callback`.
 
 - **Identidad del proyecto.** El proyecto de validación nuevo debe llevar
   `comment on database postgres is 'roomly-validation-2'`. Lo comprueban,

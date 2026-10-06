@@ -89,8 +89,8 @@ usa).
 | `SUPABASE_VALIDATION_SERVICE_ROLE_KEY` | secret | guard, api-suite, preparación y limpieza del E2 | **Privilegiada**: nunca llega a la app ni a Playwright |
 | `SUPABASE_VALIDATION_DB_URL` | secret | guard, migraciones, preflight, suite SQL, api-suite, preparación y limpieza del E2 | **Privilegiada**: Session pooler con contraseña |
 | `E2E_EMAIL_TEMPLATE` | secret | E2 (spec, preparación, limpieza) | Dirección del buzón de prueba con `{id}` |
-| `E2E_MAILBOX_CONFIG` | secret | adaptador del buzón (todavía no existe) | Opaca; el workflow la pasa al spec y a la limpieza |
-| `E2E_MAILBOX_ADAPTER` | variable | E2 | Ruta del adaptador, dentro de `tests/e2e/` |
+| `E2E_MAILBOX_CONFIG` | secret | adaptador del buzón (`tests/e2e/real/mailboxes/mailtrap.mjs`) | **Privilegiada** (acceso al buzón). JSON `{"accountId":"…","inboxId":"…","apiToken":"…"}`, `accountId` opcional |
+| `E2E_MAILBOX_ADAPTER` | variable | E2 | Ruta del adaptador, dentro de `tests/e2e/`: `tests/e2e/real/mailboxes/mailtrap.mjs` |
 | `E2E_RUN_ID` | la pone el workflow | E2 | `e2e-<run_id>-<intento>`; no se configura |
 | `E2E_APP_URL` | la pone el workflow | E2 | `http://localhost:3000` |
 

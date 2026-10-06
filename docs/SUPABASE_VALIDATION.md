@@ -4,10 +4,55 @@ Objetivo: demostrar que las migraciones, la RLS y el flujo de alta se
 comportan en **Supabase real** igual que en el PostgreSQL + shim de
 `tests/db/` y en el Supabase simulado del E2E local.
 
-Estado (Fase 2.8, 2026-09-30): **infraestructura preparada, validación real
-pendiente**. El proyecto nuevo `roomly-validation-2` todavía no existe, y ni
-el workflow ni el E2E real se han ejecutado contra él. El checkpoint anterior
-contra `roomly-validation` (Fase 1) es histórico y está al final.
+Estado (2026-10-06): **validación real de la Fase 2.8 completada** en el
+proyecto `roomly-validation-2b` (ref `uwxb…`, marca `roomly-validation-2`):
+- **run 13:** validación estructural real;
+- **run 15:** E2 real.
+
+Detalle y diagnóstico de los runs anteriores en «Resultado de la Fase 2.8».
+El checkpoint anterior contra `roomly-validation` (Fase 1) es histórico y
+está al final.
+
+## Resultado de la Fase 2.8 (2026-10-06)
+
+**Resultado final**
+
+| Run | Id | Commit | Parámetros | Resultado |
+|---|---|---|---|---|
+| **13** | `37533380047` | `f9f08ad` | `apply_migrations=true`, `run_e2e_real=false` | ✅ **Validación estructural real.** Guarda; las 9 migraciones y el seed en una transacción; P0–P6 (37 políticas); suite SQL 01–13 (13 archivos, cada uno revertido, sin restos); supabase-js 46/46; AU3/AU5 16/16 |
+| **15** | `37543144825` | `ec7c3fc` (con el adaptador de Mailtrap) | `apply_migrations=false`, `run_e2e_real=true` | ✅ **E2 real 1/1**, con la parte estructural otra vez en verde |
+
+**Qué recorrió el E2 del run 15:**
+- formulario real de `/login` → `signInWithOtp`;
+- email real recibido en Mailtrap;
+- enlace `https://uwxb….supabase.co/auth/v1/verify` validado, con
+  `redirect_to` exactamente `http://localhost:3000/callback`;
+- `/callback?code=` con PKCE, en el mismo navegador;
+- onboarding → `/perfil`, `/preferencias` y `/ajustes`, guardados y
+  releídos → logout → `/perfil` sin sesión vuelve a `/login`.
+
+Sin `generateLink` ni `token_hash`, y sin cambios en `/callback`.
+
+**Limpieza:** «1 usuario(s) de prueba borrado(s), sin datos asociados» y
+«mensajes del buzón de prueba borrados». No quedaron usuarios, filas ni
+mensajes de prueba.
+
+**Registro de Auth:** abierto a mano por el propietario solo para la ventana
+del E2 (runs 14 y 15) y cerrado a mano después del run 15. La limpieza avisó
+de que seguía abierto, como está previsto: el workflow no lo cierra.
+
+**Otros proyectos:** no se tocaron ni el histórico `roomly-validation` ni el
+retirado `qhwu…` (marca `roomly-retirado`).
+
+**Historial de diagnóstico** (no es resultado; ningún run escribió nada)
+
+| Runs | Qué pasó | Causa |
+|---|---|---|
+| 3–5 | apply-migrations se negó: «el esquema ya existe» | Los secrets apuntaban al proyecto antiguo, con esquema |
+| 6–10 | La guarda rechazó la marca (run 10: ref `qhwu…`, marca `roomly-retirado`, 18 tablas) | Secrets **de repositorio** antiguos, que GitHub usa si el Environment no tiene los suyos |
+| 11 | Igual que el 10, sobre `f9f08ad` | Los mismos secrets de repositorio |
+| 12 | «faltan variables de entorno»: los cinco secrets vacíos | Borrados los de repositorio, los nuevos estaban en un Environment llamado `SUPABASE_VALIDATION_PROJECT_REF` y no en `roomly-validation-2` |
+| 14 | Estructural en verde; el E2 falló antes de enviar nada: «E2E_MAILBOX_CONFIG no es un JSON válido» | Valor mal formado del secret; se creó de nuevo con un token nuevo de Mailtrap |
 
 ## Proyecto de validación P1: `roomly-validation-2`
 
@@ -125,8 +170,8 @@ Orden de jobs (cada uno solo corre si el anterior pasa):
    - Cada migración nueva obliga a recrear un proyecto vacío (P1).
 3. **preflight**: `tests/supabase/preflight.sql` (P0–P6, solo lectura de
    catálogo, sin tablas temporales). **Si falla, no se ejecuta ninguna suite.**
-4. **sql-suite**: `tests/supabase/run-sql-suite.sh` ejecuta los 12 archivos
-   `tests/db/01`–`12` (218 aserciones) con los roles, dueños y `auth.uid()`
+4. **sql-suite**: `tests/supabase/run-sql-suite.sh` ejecuta los 13 archivos
+   `tests/db/01`–`13` (265 aserciones) con los roles, dueños y `auth.uid()`
    reales, sin shim. El aislamiento se explica abajo.
 5. **api-suite**: `npm run test:supabase`
    (`tests/integration/supabase-validation.test.ts`).
@@ -162,6 +207,9 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
     deshacía los tests 01–10 y el esquema de helpers, y el test fallaba.
   - El `WARNING` que lo delataba («there is already a transaction in
     progress») lo ocultaba el filtro de salida.
+  - Desde la Fase 2.9 (H4), `tests/db/12` usa la misma técnica (bloques
+    `begin;`/`rollback;` con una política SELECT temporal `zz_test_*`), que
+    el runner reescribe igual.
 - **Fallo cerrado antes de conectar.** La suite aborta sin conectar si
   aparece cualquier otro control de transacción:
   - `COMMIT`, `END`, `ABORT`, `START TRANSACTION`, `SAVEPOINT`, `RELEASE`,
@@ -184,7 +232,7 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 - **Auto-test local:** `tests/supabase/sql-suite-selftest.sh` (75
   comprobaciones, en CI).
   - Ejecuta el `run-sql-suite.sh` real, con la guarda, contra un PostgreSQL
-    local con la marca, y obtiene las mismas 218 aserciones que `run.sh`.
+    local con la marca, y obtiene las mismas aserciones que `run.sh` (265).
   - Comprueba el rollback de un bloque, la ausencia de fugas de rol o GUC
     entre archivos, 31 formas de control de transacción rechazadas, un
     WARNING, un fallo a mitad de test y la marca antigua.
@@ -203,12 +251,13 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 | P0 | Marca `roomly-validation-2` exacta |
 | P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y el seed (Barcelona activa) |
 | P2 | Mismo dueño para `is_conversation_participant` y `conversation_participants`, sin FORCE RLS, SECURITY DEFINER y `search_path` vacío |
-| P3 | RLS en las 18 tablas y **exactamente estas 38 políticas**, comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo) |
+| P3 | RLS en las 18 tablas y **exactamente estas 37 políticas**, comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo) |
 | P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE |
 | P5 | Equivalente SQL de los lints del Security Advisor |
 | P6 | **Exactamente 12 triggers activos** en `public`. **Exactamente 10 funciones propias**, con su SECURITY DEFINER y `search_path`. EXECUTE revocado donde las migraciones lo revocan |
 
-Las 38 políticas, por tabla:
+Las 37 políticas, por tabla (38 hasta la Fase 2.9: H4 eliminó
+`profiles_select_authenticated`):
 
 | Tabla | Políticas |
 |---|---|
@@ -224,7 +273,7 @@ Las 38 políticas, por tabla:
 | `messages` | `messages_select_participant` (SELECT), `messages_insert_participant` (INSERT) |
 | `neighborhoods` | `neighborhoods_select_all` (SELECT), `neighborhoods_admin_write` (ALL) |
 | `notifications` | `notifications_own` (ALL) |
-| `profiles` | `profiles_select_authenticated` (SELECT), `profiles_select_own_even_if_deleted` (SELECT), `profiles_update_own` (UPDATE), `profiles_insert_own` (INSERT), `profiles_admin_all` (ALL) |
+| `profiles` | `profiles_select_own_even_if_deleted` (SELECT), `profiles_update_own` (UPDATE), `profiles_insert_own` (INSERT), `profiles_admin_all` (ALL) |
 | `reports` | `reports_insert_own` (INSERT), `reports_select_own` (SELECT), `reports_admin_all` (ALL) |
 | `room_addresses` | `room_addresses_owner_only` (ALL) |
 | `room_images` | `room_images_select` (SELECT), `room_images_owner_write` (ALL) |
@@ -236,7 +285,9 @@ Las 38 políticas, por tabla:
 - `20260926120000`, `20260929120000` y `20260930140000` solo las
   sustituyen (`drop` + `create`), así que no cambian el total;
 - `20260930130000` sustituye `housing_preferences_own` por cuatro
-  políticas (38).
+  políticas (38);
+- `20261004120100` (Fase 2.9, H4) elimina `profiles_select_authenticated`
+  (37).
 
 Nadie actualizó el preflight entonces. Además solo contaba, y no
 comprobaba nada de la Fase 2.
@@ -249,7 +300,7 @@ comprobaba nada de la Fase 2.
   - con el esquema actual pasan P0–P6;
   - cada una de 27 mutaciones falla en su check, y cada una se deshace;
   - las mutaciones incluyen, entre otras, «misma cantidad, otra política
-    (38 = 38)» y «vuelve `housing_preferences_own`».
+    (37 = 37)» y «vuelve `housing_preferences_own`».
 
 ## E2E: E1 local y E2 real, separados
 
@@ -272,7 +323,9 @@ El mock cubre solo lo que usa el flujo:
   S256 y un solo uso, y `refresh_token`), `user` y `logout` (global).
 - **REST:** `profiles`, `housing_preferences`, `cities`, `universities` y
   `neighborhoods`, emulando las políticas, los GRANT de columnas, los
-  triggers de las migraciones y H4. Rechaza `select=*`.
+  triggers de las migraciones. Desde la Fase 2.9 (H4), `profiles` solo
+  devuelve la fila propia; `profiles_admin_all` no se emula porque el mock
+  nunca crea admins. Rechaza `select=*`.
 
 No es Supabase: la base de datos real la cubren `tests/db` y el E2. Los
 endpoints `/__test/*` hacen de buzón y de «servidor» (desactivar una
@@ -296,7 +349,7 @@ su enlace no puede pasar por `/callback`.
 | Signup | «Allow new users to sign up» **activado solo durante la ventana del E2**. La preparación falla si está desactivado. La limpieza avisa (`::warning::` y resumen del job) si sigue abierto al terminar; cerrarlo es un paso manual (ver «Pendiente de decisión»). |
 | Proveedor de correo | **SMTP propio** (Authentication → Emails → SMTP Settings). No se asume que el SMTP por defecto de Supabase baste: tiene límites de envío muy bajos y, según la documentación de Supabase, solo entrega a direcciones del equipo. Esto no se ha podido verificar sin red. |
 | Enlaces sin reescribir | En el proveedor SMTP hay que **desactivar el seguimiento de clics y cualquier reescritura de enlaces** (*click tracking*, *link tracking*, *link branding*). El E2 valida el enlace tal como llega al buzón: solo lo abre si apunta al `/auth/v1/verify` del proyecto y su `redirect_to` es exactamente `<app>/callback`. Un enlace reescrito por el proveedor apuntaría a otro dominio y el E2 lo rechazaría, con razón: no se puede comprobar adónde lleva. |
-| Buzón de prueba | Un buzón que reciba ese correo y se pueda leer **por API**. El proveedor **no está decidido** y el repo no incluye ninguno. |
+| Buzón de prueba | Un buzón que reciba ese correo y se pueda leer **por API**. Proveedor elegido (2026-10-06): **Mailtrap Email Sandbox**, que da a la vez el SMTP (configurado en `uwxb…`) y la API del buzón, sin dominio propio y sin entregar a nadie real. |
 | `emailRedirectTo` | El código lo fija como `${window.location.origin}/callback` (`components/auth/login-form.tsx`). En el workflow la app corre en `http://localhost:3000`, así que el resultado es `http://localhost:3000/callback`. Hay que usar siempre `localhost`, nunca `127.0.0.1`. |
 | Allowlist | Site URL `http://localhost:3000` y Redirect URLs exactamente `http://localhost:3000/callback`. Lo comprueba AU2 en la api-suite. |
 | Plantillas | Las de Supabase. Un usuario nuevo recibe «Confirm signup» y uno existente «Magic link»: las dos usan `{{ .ConfirmationURL }}`. |
@@ -310,10 +363,22 @@ su enlace no puede pasar por `/callback`.
 - `waitForMagicLink({ to, since, timeoutMs })`, que devuelve el enlace;
 - `deleteMessages(to)`.
 
-El adaptador lee su configuración de `E2E_MAILBOX_CONFIG`. Cuando se elija
-el proveedor, hay que añadir su adaptador, por ejemplo en
-`tests/e2e/real/mailboxes/`. Hasta entonces el E2 falla al empezar con
-«E2E_MAILBOX_ADAPTER no está definida». El adaptador simulado
+El adaptador lee su configuración de `E2E_MAILBOX_CONFIG`. El de Mailtrap es
+`tests/e2e/real/mailboxes/mailtrap.mjs` (`E2E_MAILBOX_ADAPTER` =
+`tests/e2e/real/mailboxes/mailtrap.mjs`), con `E2E_MAILBOX_CONFIG` como JSON
+de una línea `{"accountId":"…","inboxId":"…","apiToken":"…"}`:
+- `accountId` es opcional: si falta, el adaptador busca entre las cuentas
+  del token la que tiene el sandbox;
+- el token necesita permiso **Admin** solo sobre ese sandbox (leer y borrar);
+- usa la API que usa el SDK oficial `mailtrap-nodejs`
+  (`https://mailtrap.io/api/accounts/{a}/inboxes/{i}/messages…`, cabecera
+  `Authorization: Bearer`), espera el email del destinatario de la
+  ejecución, saca el primer enlace a `/auth/v1/verify` del HTML (o del
+  texto) y nunca registra el token, el email ni el enlace;
+- tests sin red en `tests/unit/mailtrap-mailbox.test.ts`.
+
+Sin adaptador, el E2 falla al empezar con «E2E_MAILBOX_ADAPTER no está
+definida». El adaptador simulado
 (`tests/e2e/support/mock-mailbox.mjs`) solo sirve para ensayar el spec
 contra el mock, y se niega a funcionar en GitHub Actions o contra una URL
 que no sea `127.0.0.1`.
@@ -353,7 +418,7 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P0–P6 | `tests/supabase/preflight.sql` | Ver la tabla de arriba |
-| SQL 01–12 | `tests/db/*` vía `run-sql-suite.sh` | Las 218 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11) y ajustes (12) |
+| SQL 01–13 | `tests/db/*` vía `run-sql-suite.sh` | Las 265 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12) y privacidad de `profiles`, H4 (13) |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
 | RO1–RO9 | api-suite | Propietario edita y pausa; no pone ni saca de `removed` (también vía upsert); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario |
@@ -408,21 +473,27 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
 
 ## Pendiente de decisión o de ejecución (no lo hace Claude)
 
-1. **Proveedor de SMTP y de buzón de prueba** con API, y su adaptador en
-   `tests/e2e/`. El SMTP debe tener desactivado el seguimiento y la
-   reescritura de enlaces.
-2. **Crear y configurar `roomly-validation-2`**, y cargar los secrets del
-   Environment (pasos en `PROGRESS.md`, entrada de la Fase 2.8).
-3. **Ejecutar el workflow**:
-   - una vez con `apply_migrations=true` y `run_e2e_real=false`;
-   - después, con el registro abierto y el buzón listo, `run_e2e_real=true`.
-4. **Cerrar el registro** después del E2. Automatizarlo exigiría un token
-   de la Management API, que da acceso a toda la cuenta: no se ha añadido.
-5. **Rotar las claves y pausar o borrar** `roomly-validation-2` cuando no
-   se use.
+Hechos (2026-10-06):
+1. ✅ **Proveedor de SMTP y de buzón:** Mailtrap Email Sandbox, con su
+   adaptador en `tests/e2e/real/mailboxes/mailtrap.mjs` (`ec7c3fc`).
+2. ✅ **Proyecto y secrets:** `roomly-validation-2b` (`uwxb…`), con sus
+   secrets en el Environment `roomly-validation-2`.
+3. ✅ **Workflow:** run 13 (`apply_migrations=true`, `run_e2e_real=false`)
+   y run 15 (`apply_migrations=false`, `run_e2e_real=true`).
+4. ✅ **Registro cerrado** a mano después del E2. Automatizarlo exigiría un
+   token de la Management API, que da acceso a toda la cuenta: no se ha
+   añadido.
 
-La validación real **no** está completada: nada de lo anterior se ha
-ejecutado todavía.
+Pendiente operativo, aparte del cierre de la 2.8:
+
+5. **Rotar las claves y pausar o borrar** `roomly-validation-2b` cuando no
+   se use. Sigue activo, con el esquema, el seed y el SMTP de Mailtrap; el
+   propietario lo tratará en una acción específica de seguridad y
+   limpieza.
+
+Si se vuelve a lanzar el workflow contra este proyecto, siempre con
+`apply_migrations=false`: el esquema ya existe y apply-migrations se
+negaría.
 
 ---
 

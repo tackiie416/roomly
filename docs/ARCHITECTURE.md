@@ -262,7 +262,10 @@ de `lib/services/profile.ts`, formulario en `components/profile/` y campos
 y valores del formulario en `lib/validation/own-profile-form.ts` (sin E/S,
 compartido por la página y la acción). Reutiliza los controles de
 `components/onboarding/form-controls.tsx`. `app/(app)/perfil/[id]` sigue
-vacía: perfiles de terceros (H3/H4) no están en Fase 2.
+vacía: perfiles de terceros (H3/H4) no están en Fase 2. Desde la Fase 2.9
+(H4), la RLS de `profiles` solo deja leer la fila propia (y todas a un admin
+activo); los datos públicos de otros usuarios salen de la vista
+`public_profile_previews`.
 
 Preferencias propias (Fase 2.5): `app/(app)/preferencias/page.tsx` (mismo
 guard, `requireOwnProfile("/preferencias")`), Server Action

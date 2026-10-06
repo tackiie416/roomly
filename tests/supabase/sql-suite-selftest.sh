@@ -2,7 +2,7 @@
 # Auto-test del runner SQL remoto (Fase 2.8) contra un PostgreSQL LOCAL
 # (nunca contra Supabase). Simula el proyecto de validación con el usuario de
 # pooler postgres.<ref> y la marca exacta, y comprueba:
-#   A. run-sql-suite.sh completo (con guard.sh) pasa los 12 archivos, con las
+#   A. run-sql-suite.sh completo (con guard.sh) pasa los 13 archivos, con las
 #      mismas aserciones que tests/db/run.sh, y no deja restos.
 #   B. El ROLLBACK propio de un test deshace solo su bloque: lo anterior del
 #      mismo archivo y roomly_test siguen vivos, y los demás archivos no se
@@ -76,7 +76,7 @@ leftovers() {
     + (select count(*) from pg_policies where policyname like 'zz_test%')"
 }
 
-echo "== A. run-sql-suite.sh completo (guard.sh + 01–12)"
+echo "== A. run-sql-suite.sh completo (guard.sh + 01–13)"
 export SUPABASE_VALIDATION_PROJECT_REF="$REF" SUPABASE_VALIDATION_URL="https://${REF}.supabase.co" \
   SUPABASE_VALIDATION_DB_URL="$DB_URL"
 if bash "$ROOT/tests/supabase/run-sql-suite.sh" >"$WORK/full.log" 2>&1; then
@@ -85,22 +85,22 @@ else
   ko "la suite completa falla"
   sed -n '1,400p' "$WORK/full.log"
 fi
-check "se ejecutan los 12 archivos, cada uno en su sesión" \
-  '[ "$(grep -c "^== [0-9][0-9]_" "$WORK/full.log")" -eq 12 ]'
-check "12 comprobaciones de aislamiento tras ROLLBACK" \
-  '[ "$(grep -c "ok - aislamiento: ROLLBACK completo" "$WORK/full.log")" -eq 12 ]'
+check "se ejecutan los 13 archivos, cada uno en su sesión" \
+  '[ "$(grep -c "^== [0-9][0-9]_" "$WORK/full.log")" -eq 13 ]'
+check "13 comprobaciones de aislamiento tras ROLLBACK" \
+  '[ "$(grep -c "ok - aislamiento: ROLLBACK completo" "$WORK/full.log")" -eq 13 ]'
 check "comprobación final de restos superada" 'grep -q "ok - tras la suite" "$WORK/full.log"'
 check "ningún WARNING" '! grep -q "WARNING" "$WORK/full.log"'
 remote_asserts="$(grep -c "^   ok - " "$WORK/full.log" || true)"
-remote_asserts=$((remote_asserts - 13))
+remote_asserts=$((remote_asserts - 14))
 local_asserts="$(bash "$ROOT/tests/db/run.sh" 2>&1 | grep -c "^   ok - " || true)"
 check "mismas aserciones que tests/db/run.sh (${remote_asserts} = ${local_asserts})" \
   '[ "$remote_asserts" -eq "$local_asserts" ] && [ "$remote_asserts" -gt 0 ]'
 check "11 recorre sus dos bloques y OWN4" \
   '[ "$(grep -c "ok - OWN" "$WORK/full.log")" -ge 10 ] && grep -q "OWN4: housing_preferences sigue con sus 4 políticas" "$WORK/full.log"'
 check "sin restos: usuarios @test, roomly_test, políticas zz_test" '[ "$(leftovers)" = "0" ]'
-check "siguen las 38 políticas" \
-  '[ "$("${Q[@]}" -c "select count(*) from pg_policies where schemaname = '"'"'public'"'"'")" = "38" ]'
+check "siguen las 37 políticas" \
+  '[ "$("${Q[@]}" -c "select count(*) from pg_policies where schemaname = '"'"'public'"'"'")" = "37" ]'
 if bash "$ROOT/tests/supabase/run-preflight.sh" >"$WORK/preflight.log" 2>&1; then
   ok "preflight completo sigue pasando después de la suite"
 else

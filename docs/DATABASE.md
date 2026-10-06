@@ -24,7 +24,7 @@ Esto es lo que cambió:
 
 | Riesgo | Corrección |
 |---|---|
-| `profiles` era legible por cualquiera, incluso sin sesión — nombre, bio, fecha de nacimiento de cada usuario quedaban rascables por bots anónimos. | El SELECT completo ahora exige `auth.uid() is not null`. Para que las páginas SEO públicas (`/barcelona/habitaciones`) sigan siendo rastreables por Google sin sesión, se añadió la vista `public_profile_previews` (solo id, nombre, avatar, rol) con permiso explícito para `anon`. |
+| `profiles` era legible por cualquiera, incluso sin sesión — nombre, bio, fecha de nacimiento de cada usuario quedaban rascables por bots anónimos. | El SELECT completo ahora exige `auth.uid() is not null`. Para que las páginas SEO públicas (`/barcelona/habitaciones`) sigan siendo rastreables por Google sin sesión, se añadió la vista `public_profile_previews` (solo id, nombre, avatar, rol) con permiso explícito para `anon`. **Actualización (Fase 2.9, H4)**: ya no basta con tener sesión; cada usuario lee solo su perfil (ver "Fase 2.9 — H4"). |
 | Nada impedía que un usuario (o un bot) enviara cientos de "me interesa" por minuto — vector de spam/acoso. | Trigger `enforce_interest_rate_limit` en `interests`: tope de 30 por usuario cada 24h a nivel de base de datos, como backstop además del check "amigable" que hará la UI. |
 | Sin una regla explícita, alguien podría añadir sin querer una política de INSERT en `matches` o `conversation_participants` y permitir que un cliente se "auto-matchee" o se cuele en una conversación ajena. | Se documenta explícitamente en el SQL que la ausencia de política de INSERT en `matches`/`conversations`/`conversation_participants` es intencional: esas filas solo las crea el servidor tras verificar interés mutuo. |
 | La dirección exacta de una habitación vivía en la misma tabla que el resto de campos públicos — un `SELECT *` mal escrito en cualquier punto del código la habría filtrado. | Se movió a `room_addresses`, tabla propia con su propia política RLS (solo el propietario). Es el único campo de todo el esquema cuya fuga tiene una consecuencia física (localizar dónde vive alguien), así que es el único que se protege a nivel de base de datos y no solo "acordándose" de proyectar las columnas correctas en el código. |
@@ -185,7 +185,9 @@ Migración `supabase/migrations/20260930120000_phase2_onboarding_integrity.sql`
   onboarding_completed_at` en `profiles`): si el valor pasa a no nulo, exige
   una fila de `housing_preferences` del mismo perfil con `city_id`; si no,
   `23514` (`onboarding_incomplete:`). Poner la columna a `NULL` o no tocarla
-  no se comprueba. En un INSERT con valor no nulo siempre falla (las
+  no se comprueba. **Actualización (Fase 2.9)**: desde `20261004120000`, una
+  vez no nulo el valor ya no cambia, tampoco a `NULL` (ver "Fase 2.9"
+  abajo). En un INSERT con valor no nulo siempre falla (las
   preferencias exigen que el perfil exista antes).
   - Es una defensa de integridad: la operación normal y la regla completa
     siguen en `completeOnboarding` (`lib/services/profile.ts`). El GRANT de
@@ -277,6 +279,87 @@ una ya guardada que después se desactiva se puede conservar
 estudiantes" (`pets_allowed`, `smoking_allowed`, `students_only`) son
 columnas de `rooms` (Fase 4). No se añaden como preferencias en 2.5:
 sería un cambio de esquema pendiente de decisión.
+
+## Fase 2.9 — `onboarding_completed_at` de una sola escritura (2026-10-04)
+
+Punto A de la auditoría de 2.3. La 2.9 es una subfase nueva, definida por
+el propietario el 2026-10-04 (ver `docs/ROADMAP.md`). H4 (privacidad de
+`profiles`) es la segunda parte de la 2.9: ver la sección siguiente.
+
+Migración `supabase/migrations/20261004120000_onboarding_write_once.sql`:
+incremental; no modifica migraciones históricas ni toca RLS, GRANT,
+columnas ni triggers. Solo redefine con `create or replace` la función
+`public.enforce_onboarding_completion()` del trigger existente
+`trg_profiles_onboarding_completion` (`BEFORE INSERT OR UPDATE OF
+onboarding_completed_at`, de `20260930120000`), que ya se dispara
+exactamente cuando una escritura toca la columna.
+
+| Escritura sobre `onboarding_completed_at` ya no nulo | Resultado |
+|---|---|
+| timestamp → `NULL` | rechazada: `23514` `onboarding_locked:` |
+| timestamp → otro timestamp | rechazada: `23514` `onboarding_locked:` |
+| el mismo timestamp | permitida (con la comprobación de preferencias con ciudad de siempre) |
+| no tocar la columna (editar otros campos) | permitida; el trigger no se dispara |
+
+- **Para todos los roles** (decisión D1): `authenticated`, admin
+  (`profiles_admin_all`), `service_role` y el dueño de las tablas. Un
+  trigger se aplica aunque el rol no tenga RLS. **No hay bypass
+  administrativo**: reiniciar un onboarding sería una decisión explícita
+  nueva.
+- El bloqueo se evalúa antes del `return` que deja pasar los `NULL`, así que
+  volver a `NULL` no lo esquiva, tampoco tras borrar las preferencias.
+- `completeOnboarding` (`lib/services/profile.ts`) no cambia: ya escribe
+  solo `WHERE onboarding_completed_at IS NULL`.
+- La función sigue siendo `SECURITY INVOKER`, con `search_path` vacío y
+  `EXECUTE` revocado a `PUBLIC`, `anon` y `authenticated` (se repite el
+  `revoke`).
+- Consecuencia: queda cerrado el camino de volver a `NULL` para después
+  borrar las preferencias o quitarles la ciudad, que la 2.5 prohíbe con el
+  onboarding completo.
+- Siguen siendo 18 tablas, 38 políticas (37 desde H4, abajo), 12 triggers y
+  10 funciones.
+- Validado también en Supabase real (`roomly-validation-2b`) en los runs 13
+  y 15 de la 2.8: OB5b y OB11–OB14 en verde.
+
+**Límites conocidos** (fuera del alcance del punto A):
+- Borrar el perfil y volver a crearlo reinicia en la práctica el
+  onboarding. Solo pueden borrar un perfil un admin (`profiles_admin_all`) o
+  `service_role`; `authenticated` no tiene política de DELETE propia.
+- Un superusuario puede desactivar el trigger; eso queda fuera del alcance.
+- El mock de E1 (`tests/e2e/support/mock-supabase.mjs`) no emula este
+  bloqueo: la aplicación nunca reinicia un onboarding, así que el
+  comportamiento de E1 no cambia.
+
+## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
+
+Segunda parte de la 2.9 (decisión D2, opción H4-1 del propietario).
+Migración incremental
+`supabase/migrations/20261004120100_profiles_privacy.sql`: solo
+`drop policy "profiles_select_authenticated"`. No modifica migraciones
+históricas, ni INSERT, UPDATE, DELETE ni GRANT, y no añade tablas,
+columnas ni políticas. Pasan de **38 a 37 políticas** en `public`
+(18 tablas, 12 triggers y 10 funciones, sin cambios).
+
+| Quién | Antes | Ahora |
+|---|---|---|
+| Usuario autenticado, perfiles ajenos | fila completa de cualquier perfil activo (`date_of_birth`, `bio`, `seeking_status`, `email_notifications_enabled`, `onboarding_completed_at`) | ninguna fila |
+| Usuario autenticado, su perfil | fila completa, también eliminada | igual (`profiles_select_own_even_if_deleted`) |
+| Admin activo | todos (`profiles_admin_all`) | igual |
+| anon | ninguno | igual |
+| Datos públicos de otros (id, nombre, avatar, rol) | `public_profile_previews` | igual: la vista no depende de la política (`security_invoker = false`) y no tiene `date_of_birth` |
+
+- **Contradice la regla genérica de la Fase 0** («`profiles` completo
+  requiere sesión», "Riesgos de seguridad corregidos" arriba): ahora
+  prevalece esta decisión específica de privacidad.
+- Nada de la aplicación leía perfiles ajenos: todas las consultas a
+  `profiles` de `lib/services/*` son de la fila propia (`.eq("id", userId)`).
+- Ninguna política, trigger ni función lee perfiles ajenos con el rol del
+  usuario. `is_admin()` es `SECURITY DEFINER`; las políticas y triggers de
+  `housing_preferences` solo leen la fila del propio perfil.
+- Una funcionalidad futura que necesite datos de otros perfiles usará la
+  vista pública o el servidor; no se reabre esta política.
+- Validado también en Supabase real (`roomly-validation-2b`) en los runs 13
+  y 15 de la 2.8: P3 con 37 políticas y `tests/db/13` en verde.
 
 ## Diagrama de entidades (simplificado)
 

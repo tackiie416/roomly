@@ -188,5 +188,5 @@ select roomly_test.ok(
      and policyname = 'housing_preferences_delete_own'),
   'PX3: la política de DELETE exige cuenta activa y onboarding sin completar');
 select roomly_test.ok(
-  (select count(*) = 38 from pg_policies where schemaname = 'public'),
-  'PX4: siguen 38 políticas');
+  (select count(*) = 37 from pg_policies where schemaname = 'public'),
+  'PX4: siguen 37 políticas (38 hasta que la 2.9 quitó profiles_select_authenticated)');

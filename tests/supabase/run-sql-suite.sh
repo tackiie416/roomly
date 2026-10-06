@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Ejecuta la suite SQL de tests/db (01–12) contra el Supabase de VALIDACIÓN,
+# Ejecuta la suite SQL de tests/db (01–13) contra el Supabase de VALIDACIÓN,
 # con los roles, auth.uid() y dueños REALES de Supabase (sin shim).
 #
 # Aislamiento (Fase 2.8, ver tests/supabase/sql-suite-lib.sh): una sesión de
 # psql por archivo, cada una dentro de BEGIN ... ROLLBACK, con la identidad
 # comprobada dentro de la propia sesión. El BEGIN/ROLLBACK propio de un test
-# (tests/db/11) se convierte en SAVEPOINT, así que no puede deshacer ni
+# (tests/db/11 y 12) se convierte en SAVEPOINT, así que no puede deshacer ni
 # cerrar la transacción del runner. Los usuarios de prueba insertados en
 # auth.users, los datos y el schema auxiliar roomly_test no persisten; al
 # final se comprueba en otra sesión que no queda nada.
