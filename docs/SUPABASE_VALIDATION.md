@@ -4,14 +4,55 @@ Objetivo: demostrar que las migraciones, la RLS y el flujo de alta se
 comportan en **Supabase real** igual que en el PostgreSQL + shim de
 `tests/db/` y en el Supabase simulado del E2E local.
 
-Estado (2026-10-04): **infraestructura preparada; Fase 2.8 APARCADA/BLOQUEADA,
-validación real pendiente y nunca ejecutada**. El proyecto vacío existe
-(`roomly-validation-2b`, con la marca `roomly-validation-2`), pero los runs
-3–10 del workflow se detuvieron en la guarda o en apply-migrations sin
-escribir nada: los secrets del Environment apuntan al proyecto retirado
-(marca `roomly-retirado`); no hubo cambios remotos en Supabase. Para retomarla, corregir los cinco secrets con
-los datos de `roomly-validation-2b` y relanzar el workflow. El checkpoint anterior
-contra `roomly-validation` (Fase 1) es histórico y está al final.
+Estado (2026-10-06): **validación real de la Fase 2.8 completada** en el
+proyecto `roomly-validation-2b` (ref `uwxb…`, marca `roomly-validation-2`):
+- **run 13:** validación estructural real;
+- **run 15:** E2 real.
+
+Detalle y diagnóstico de los runs anteriores en «Resultado de la Fase 2.8».
+El checkpoint anterior contra `roomly-validation` (Fase 1) es histórico y
+está al final.
+
+## Resultado de la Fase 2.8 (2026-10-06)
+
+**Resultado final**
+
+| Run | Id | Commit | Parámetros | Resultado |
+|---|---|---|---|---|
+| **13** | `37533380047` | `f9f08ad` | `apply_migrations=true`, `run_e2e_real=false` | ✅ **Validación estructural real.** Guarda; las 9 migraciones y el seed en una transacción; P0–P6 (37 políticas); suite SQL 01–13 (13 archivos, cada uno revertido, sin restos); supabase-js 46/46; AU3/AU5 16/16 |
+| **15** | `37543144825` | `ec7c3fc` (con el adaptador de Mailtrap) | `apply_migrations=false`, `run_e2e_real=true` | ✅ **E2 real 1/1**, con la parte estructural otra vez en verde |
+
+**Qué recorrió el E2 del run 15:**
+- formulario real de `/login` → `signInWithOtp`;
+- email real recibido en Mailtrap;
+- enlace `https://uwxb….supabase.co/auth/v1/verify` validado, con
+  `redirect_to` exactamente `http://localhost:3000/callback`;
+- `/callback?code=` con PKCE, en el mismo navegador;
+- onboarding → `/perfil`, `/preferencias` y `/ajustes`, guardados y
+  releídos → logout → `/perfil` sin sesión vuelve a `/login`.
+
+Sin `generateLink` ni `token_hash`, y sin cambios en `/callback`.
+
+**Limpieza:** «1 usuario(s) de prueba borrado(s), sin datos asociados» y
+«mensajes del buzón de prueba borrados». No quedaron usuarios, filas ni
+mensajes de prueba.
+
+**Registro de Auth:** abierto a mano por el propietario solo para la ventana
+del E2 (runs 14 y 15) y cerrado a mano después del run 15. La limpieza avisó
+de que seguía abierto, como está previsto: el workflow no lo cierra.
+
+**Otros proyectos:** no se tocaron ni el histórico `roomly-validation` ni el
+retirado `qhwu…` (marca `roomly-retirado`).
+
+**Historial de diagnóstico** (no es resultado; ningún run escribió nada)
+
+| Runs | Qué pasó | Causa |
+|---|---|---|
+| 3–5 | apply-migrations se negó: «el esquema ya existe» | Los secrets apuntaban al proyecto antiguo, con esquema |
+| 6–10 | La guarda rechazó la marca (run 10: ref `qhwu…`, marca `roomly-retirado`, 18 tablas) | Secrets **de repositorio** antiguos, que GitHub usa si el Environment no tiene los suyos |
+| 11 | Igual que el 10, sobre `f9f08ad` | Los mismos secrets de repositorio |
+| 12 | «faltan variables de entorno»: los cinco secrets vacíos | Borrados los de repositorio, los nuevos estaban en un Environment llamado `SUPABASE_VALIDATION_PROJECT_REF` y no en `roomly-validation-2` |
+| 14 | Estructural en verde; el E2 falló antes de enviar nada: «E2E_MAILBOX_CONFIG no es un JSON válido» | Valor mal formado del secret; se creó de nuevo con un token nuevo de Mailtrap |
 
 ## Proyecto de validación P1: `roomly-validation-2`
 
@@ -432,21 +473,27 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
 
 ## Pendiente de decisión o de ejecución (no lo hace Claude)
 
-1. **Proveedor de SMTP y de buzón de prueba** con API, y su adaptador en
-   `tests/e2e/`. El SMTP debe tener desactivado el seguimiento y la
-   reescritura de enlaces.
-2. **Crear y configurar `roomly-validation-2`**, y cargar los secrets del
-   Environment (pasos en `PROGRESS.md`, entrada de la Fase 2.8).
-3. **Ejecutar el workflow**:
-   - una vez con `apply_migrations=true` y `run_e2e_real=false`;
-   - después, con el registro abierto y el buzón listo, `run_e2e_real=true`.
-4. **Cerrar el registro** después del E2. Automatizarlo exigiría un token
-   de la Management API, que da acceso a toda la cuenta: no se ha añadido.
-5. **Rotar las claves y pausar o borrar** `roomly-validation-2` cuando no
-   se use.
+Hechos (2026-10-06):
+1. ✅ **Proveedor de SMTP y de buzón:** Mailtrap Email Sandbox, con su
+   adaptador en `tests/e2e/real/mailboxes/mailtrap.mjs` (`ec7c3fc`).
+2. ✅ **Proyecto y secrets:** `roomly-validation-2b` (`uwxb…`), con sus
+   secrets en el Environment `roomly-validation-2`.
+3. ✅ **Workflow:** run 13 (`apply_migrations=true`, `run_e2e_real=false`)
+   y run 15 (`apply_migrations=false`, `run_e2e_real=true`).
+4. ✅ **Registro cerrado** a mano después del E2. Automatizarlo exigiría un
+   token de la Management API, que da acceso a toda la cuenta: no se ha
+   añadido.
 
-La validación real **no** está completada: nada de lo anterior se ha
-ejecutado todavía.
+Pendiente operativo, aparte del cierre de la 2.8:
+
+5. **Rotar las claves y pausar o borrar** `roomly-validation-2b` cuando no
+   se use. Sigue activo, con el esquema, el seed y el SMTP de Mailtrap; el
+   propietario lo tratará en una acción específica de seguridad y
+   limpieza.
+
+Si se vuelve a lanzar el workflow contra este proyecto, siempre con
+`apply_migrations=false`: el esquema ya existe y apply-migrations se
+negaría.
 
 ---
 

@@ -12,7 +12,7 @@
 - **E2E (Playwright)**: los 3 flujos completos que pide el brief
   (sección 39).
 
-## Estado actual (2026-10-04)
+## Estado actual (2026-10-06)
 
 **Qué demuestra cada capa** (no confundirlas):
 - `npm run test` (Vitest): lógica de la aplicación con un cliente Supabase
@@ -28,20 +28,21 @@
   GRANT y triggers de las 5 tablas del flujo). Sin red ni secrets; en CI
   (`e2e-local`). Prueba el flujo y el routing de la app, no la base de datos.
 - **E2** (`npm run test:e2e:real`, Fase 2.8): el mismo flujo contra el
-  proyecto real `roomly-validation-2` con email real, solo desde el workflow
-  manual. **Preparado, no ejecutado.**
+  proyecto real `roomly-validation-2b` (`uwxb…`) con email real, solo desde
+  el workflow manual. **En verde en el run 15** (2026-10-06).
 - Chromium con scripts del scratchpad (2.3–2.7): `next start` contra un
   Supabase simulado con estado; no están en el repositorio. E1 los sustituye
   como suite reproducible.
-- Supabase real: solo el checkpoint de Fase 1 en `roomly-validation`
-  (histórico). La validación de Fase 2 en `roomly-validation-2` está
-  pendiente (ver `docs/SUPABASE_VALIDATION.md`).
+- Supabase real: el checkpoint de Fase 1 en `roomly-validation` (histórico)
+  y la validación de la Fase 2 en `roomly-validation-2b`, con la parte
+  estructural en el run 13 y el E2 en el run 15 (ver
+  `docs/SUPABASE_VALIDATION.md`).
 
 
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 597/597 (65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local; en CI corrían 39/39, los nuevos correrán en el próximo push |
+| `npm run test` | ✅ 617/617 (20 del adaptador de Mailtrap del E2 real, Fase 2.8; 65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local; en CI (`lint-typecheck-test-build`) en verde en el PR #6: CI #11 (`f9f08ad`, 597) y CI #12 (`ec7c3fc`, 617) |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
 | Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
@@ -58,13 +59,16 @@
 | Mutaciones del punto A de la 2.9 contra `test:db` | ✅ 3/3 detectadas (sin la migración, bloqueo solo del paso a `NULL`, función `SECURITY DEFINER`) | local, migración restaurada y comprobada con `cmp` |
 | Mutaciones de H4 (2.9) contra `test:db` | ✅ 5/5 detectadas: sin la migración; `profiles_select_authenticated` recreada; otra política SELECT `using (true)`; la política propia, con su nombre, pero `using (auth.uid() is not null)`; `public_profile_previews` con `date_of_birth` | local, con migraciones temporales borradas y la de H4 comprobada por hash |
 | `tests/supabase/preflight-selftest.sh` | ✅ 35/35: P0–P6 pasan con el esquema actual y 27 mutaciones fallan cada una en su check | local; en CI (`db-security`) desde 2.8 |
-| Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ⏳ 265 (`01`–`13`) pendiente | `roomly-validation` (Fase 1) · `roomly-validation-2` (sin crear) |
-| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ⏳ pendiente | `roomly-validation` · `roomly-validation-2` |
-| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ⏳ pendiente | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2` |
+| Migraciones + seed en Supabase real | ✅ las 9 migraciones y el seed, en una transacción (run 13) | `roomly-validation-2b` (`uwxb…`) |
+| Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) | `roomly-validation-2b` |
+| Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) | `roomly-validation` (Fase 1) · `roomly-validation-2b` |
+| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ✅ 46/46 (run 13; en verde en el 15) | `roomly-validation` · `roomly-validation-2b` |
+| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ✅ 16/16 (run 13; en verde en el 15) | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2b` |
 | AU4 magic link / AU5 con sesión | ✅ manual (histórico; login de un usuario creado en el dashboard) | `roomly-validation`, PC del propietario |
-| E2 real (alta por magic link con email real) | ⏳ preparado, **no ejecutado** (sin proyecto, SMTP ni buzón) | workflow manual, job `e2e-real` |
+| E2 real (alta por magic link con email real) | ✅ 1/1, run 15 (`37543144825`, `ec7c3fc`): `signInWithOtp` → email en Mailtrap → `/auth/v1/verify` → `/callback?code=` con PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout; limpieza sin residuos (1 usuario borrado, buzón vacío). Run 14: falló antes de enviar nada por `E2E_MAILBOX_CONFIG` mal formado | workflow manual, job `e2e-real`, `roomly-validation-2b` |
+| Adaptador de Mailtrap (`tests/unit/mailtrap-mailbox.test.ts`) | ✅ 20/20 sin red; mutaciones 3/3 detectadas (sin decodificar `&amp;`, sin filtrar el destinatario, otra cabecera de autenticación) | local y CI |
 | Ensayo del spec de E2 contra el mock | ✅ 1/1, y 5 fallos esperados (sin adaptador, buzón simulado en Actions, adaptador fuera de `tests/e2e`, id de ejecución inválido, enlace de otro origen) sin email ni enlace en la salida | local, adaptador `tests/e2e/support/mock-mailbox.mjs`; no es la validación real |
-| CI `ci.yml` en GitHub Actions | ✅ 6 runs en verde (PR + `master`) antes de Fase 2; los jobs nuevos no se han ejecutado todavía | GitHub |
+| CI `ci.yml` en GitHub Actions | ✅ `lint-typecheck-test-build`, `db-security` y `e2e-local` (25/25, con el Chromium oficial de Playwright) en verde en los PR #4, #5 y #6; los últimos son CI #11 (`f9f08ad`) y CI #12 (`ec7c3fc`) | GitHub |
 
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
@@ -296,13 +300,14 @@ sin restringir) pone rojo su test correspondiente.
 
 **Limitación**: el shim no es Supabase. Por eso la misma suite se ejecutó
 también en `roomly-validation` con roles reales (58/58, `01`–`04`, Fase 1).
-Las 265 aserciones de `01`–`13` están pendientes en `roomly-validation-2`.
+La suite `01`–`13` pasó en Supabase real, en `roomly-validation-2b`, en los
+runs 13 y 15 (Fase 2.8).
 
 ## Validación contra Supabase real (checkpoint previo a Fase 1, histórico)
 
 Desde la Fase 2.8 la validación real usa un proyecto nuevo,
-`roomly-validation-2` (marca propia, P0–P6, suite 01–13 y E2); **todavía no
-se ha ejecutado**. Lo que sigue es el checkpoint de Fase 1.
+`roomly-validation-2b` (marca `roomly-validation-2`, P0–P6, suite 01–13 y
+E2), completada en los runs 13 y 15. Lo que sigue es el checkpoint de Fase 1.
 
 **Ejecutada** (2026-09-28, run `36493446123`): guarda F1 y P0–P5 ✅, suite
 SQL 58/58, supabase-js 46/46, AU3/AU5 6/6. AU4/AU5 con sesión, manual,

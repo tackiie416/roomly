@@ -45,14 +45,16 @@ auth funcionando de extremo a extremo y CI básica.
   cada PR. [✅]
 - Layout base y navegación (sin diseño final todavía). [✅]
 
-## Fase 2 — User 🚧 ABIERTA (2.0–2.7 completadas; 2.8 aparcada/bloqueada; 2.9 completada)
+## Fase 2 — User ✅ COMPLETADA (2026-10-06)
 
 Registro, login, recuperación de acceso, perfil (la foto queda fuera de
 Fase 2, ver abajo), preferencias de vivienda, onboarding completo.
 
 **Recibido de Fase 1**: validar contra Supabase real el alta de un
 usuario nuevo por magic link (con signups activos) junto con la creación
-de perfil tras el primer login (M6), y los E2E con Playwright.
+de perfil tras el primer login (M6), y los E2E con Playwright. [✅ alta real
+y perfil tras el primer login en el E2 real, run 15; E1 con Playwright en CI
+(`e2e-local`)]
 
 **Subfases** (plan aprobado el 2026-09-29, PROGRESS.md sesión 9):
 - 2.0 Endurecimiento de datos y RLS/GRANT de `profiles` y
@@ -118,13 +120,10 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   `/`, las páginas públicas (p. ej. la 404) no muestran «Entrar». Resultados:
   `npm test` 532/532, `test:db` 218/218, lint, typecheck, format y build en
   verde; Chromium con y sin JavaScript (shell 35/35 y regresión de 2.4–2.6).
-- 2.8 Validación real del alta (entorno con signups) y E2E — ⏸️
-  **APARCADA/BLOQUEADA, validación real pendiente** (no cerrada ni
-  completada): infraestructura en `master` (`cb88647`) y CI en verde; la
-  validación real no se ha ejecutado nunca. Los runs 3–10 se detuvieron
-  antes de cualquier escritura, sin cambios remotos en Supabase: el
-  Environment sigue resolviendo al proyecto retirado (`roomly-retirado`) y
-  no a `roomly-validation-2b` (PROGRESS.md sesiones 22–25). Decisiones del usuario:
+- 2.8 Validación real del alta (entorno con signups) y E2E — ✅
+  **COMPLETADA el 2026-10-06** (PROGRESS.md sesiones 22–30) en el proyecto
+  Supabase `roomly-validation-2b` (ref `uwxb…`, marca `roomly-validation-2`),
+  con el workflow manual `Supabase validation`. Decisiones del usuario:
   - **A + P1**: la validación real se hace en un proyecto **nuevo y vacío**,
     `roomly-validation-2`, que crea y configura el propietario. No se repara
     ni se migra `roomly-validation` (esto sustituye la «estrategia de
@@ -140,22 +139,53 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
   - **Runner**: aislamiento por archivo en `run-sql-suite.sh`, sin cambiar
     `tests/db/11`.
 
-  Hecho en local: runner aislado, preflight P0–P6 exacto (38 políticas, 37
-  desde H4 de la 2.9; 12
-  triggers, 10 funciones, GRANT de `housing_preferences`), E1 25/25, E2 y
-  job `e2e-real` preparados, auto-tests en CI. **Pendiente, bloqueado**
-  (del propietario; el proyecto es `roomly-validation-2b`, con la marca
-  `roomly-validation-2`, y antes hay que corregir los secrets del
-  Environment; sin más runs por ahora): elegir SMTP/buzón y su adaptador, crear y configurar
-  `roomly-validation-2`, ejecutar el workflow (migraciones, P0–P6, SQL
-  01–13, supabase-js, AU3/AU5 y E2 real) y ver CI en verde tras el push.
-  El punto A de 2.3 y H4 pasan a la 2.9.
+  Infraestructura: runner aislado, preflight P0–P6 exacto (38 políticas, 37
+  desde H4 de la 2.9; 12 triggers, 10 funciones, GRANT de
+  `housing_preferences`), E1 25/25, job `e2e-real` y adaptador del buzón
+  de Mailtrap (`tests/e2e/real/mailboxes/mailtrap.mjs`, commit `ec7c3fc`).
+  El punto A de 2.3 y H4 pasaron a la 2.9.
+
+  **Evidencia estructural — run 13** (`37533380047`, sobre `f9f08ad`,
+  `apply_migrations=true`, `run_e2e_real=false`):
+  - guarda en verde;
+  - las 9 migraciones y el seed, aplicados en una sola transacción;
+  - P0–P6 en verde (37 políticas);
+  - suite SQL 01–13 con roles reales: los 13 archivos en verde, cada uno
+    revertido con ROLLBACK y sin restos;
+  - supabase-js 46/46 y AU3/AU5 16/16.
+
+  **E2 real — run 15** (`37543144825`, sobre `ec7c3fc`,
+  `apply_migrations=false`, `run_e2e_real=true`):
+  - la parte estructural, otra vez en verde, sin migraciones;
+  - E2 1/1: formulario real → `signInWithOtp` → email real recibido en
+    Mailtrap → enlace `/auth/v1/verify` validado → `/callback?code=` con
+    PKCE → onboarding → `/perfil`, `/preferencias` y `/ajustes` guardados y
+    releídos → logout → `/perfil` sin sesión vuelve a `/login`;
+  - sin `generateLink` ni `token_hash`, y sin cambios en `/callback`;
+  - limpieza: 1 usuario de prueba borrado, sin filas asociadas, y el buzón
+    de Mailtrap vacío. No quedaron residuos.
+
+  El registro público de Auth se abrió solo para la ventana del E2 y el
+  propietario lo cerró después. El proyecto histórico `roomly-validation` y
+  el retirado `qhwu…` (marca `roomly-retirado`) no se tocaron.
+
+  **Historial de diagnóstico** (ningún run escribió nada en ningún
+  proyecto; detalle en `docs/SUPABASE_VALIDATION.md`):
+  - runs 3–5: apply-migrations se negó porque el esquema ya existía;
+  - runs 6–11: la guarda rechazó el proyecto retirado `qhwu…`, al que
+    apuntaban unos secrets antiguos de repositorio;
+  - run 12: los secrets llegaron vacíos (estaban en otro Environment);
+  - run 14: `E2E_MAILBOX_CONFIG` no era un JSON válido.
+
+  Fuera de la 2.8: la cuenta desactivada no forma parte del E2. La cubren
+  E1 (`deleted-account.spec.ts`, contra el Supabase simulado) y
+  `tests/db/08`, en verde también en Supabase real.
 - 2.9 Endurecimiento de integridad y privacidad — 📝 **subfase NUEVA,
   definida por el propietario el 2026-10-04; no formaba parte del plan
   original de la Fase 2** (que terminaba en 2.8). ✅ **COMPLETADA el
   2026-10-04** (PROGRESS.md sesiones 26–28): punto A en `20261004120000`
-  (commit `73d6028`) y H4 en `20261004120100` (commit `f9f08ad`). No
-  sustituye a la 2.8, que sigue bloqueada. Alcance:
+  (commit `73d6028`) y H4 en `20261004120100` (commit `f9f08ad`), validados
+  después también en Supabase real (runs 13 y 15 de la 2.8). Alcance:
   1. **Punto A de 2.3**: `onboarding_completed_at`, una vez no nulo, no
      puede volver a `NULL` ni cambiar a otro timestamp. Decisión D1: para
      todos los roles (`authenticated`, admin y `service_role`), sin bypass;
@@ -198,10 +228,11 @@ de perfil tras el primer login (M6), y los E2E con Playwright.
     `npm audit` con 5 vulnerabilidades altas.
 
   **Pendiente en fases posteriores**:
-  - validar el punto A y H4 en Supabase real dentro de la 2.8, aparcada;
   - H3;
-  - cualquier reinicio administrativo de un onboarding (decisión nueva);
-  - el PR #6, abierto solo para CI y sin fusionar.
+  - cualquier reinicio administrativo de un onboarding (decisión nueva).
+
+  La validación en Supabase real del punto A y H4, antes pendiente, se hizo
+  en los runs 13 y 15 de la 2.8.
 
 Fuera de Fase 2 por decisión del usuario: foto de perfil/Storage (M3) y
 borrado de cuenta (H6). Una cuenta con `deleted_at` verá una pantalla de
@@ -210,7 +241,14 @@ cuenta desactivada (decisión de producto, se implementa en 2.2).
 **Criterios de aceptación**: un usuario real puede completar
 registro → perfil → preferencias sin errores, con validación Zod en
 servidor, y los datos persisten correctamente separados entre `profiles`
-y `housing_preferences`.
+y `housing_preferences`. [✅ E2 real, run 15 de la 2.8, en
+`roomly-validation-2b`, con la RLS de las dos tablas validada en el mismo
+proyecto (suite SQL 01–13 y supabase-js)]
+
+**Cierre de la Fase 2 (2026-10-06)**: 2.0–2.9 completadas, con los tests en
+verde en local, en CI y en Supabase real. Siguen fuera de alcance por
+decisión del usuario: Google y Apple OAuth (diferidos), foto de perfil y
+Storage (M3) y borrado de cuenta (H6).
 
 ## Fase 3 — Compatibility
 

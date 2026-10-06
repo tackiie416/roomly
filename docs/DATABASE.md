@@ -318,6 +318,8 @@ exactamente cuando una escritura toca la columna.
   onboarding completo.
 - Siguen siendo 18 tablas, 38 políticas (37 desde H4, abajo), 12 triggers y
   10 funciones.
+- Validado también en Supabase real (`roomly-validation-2b`) en los runs 13
+  y 15 de la 2.8: OB5b y OB11–OB14 en verde.
 
 **Límites conocidos** (fuera del alcance del punto A):
 - Borrar el perfil y volver a crearlo reinicia en la práctica el
@@ -356,8 +358,8 @@ columnas ni políticas. Pasan de **38 a 37 políticas** en `public`
   `housing_preferences` solo leen la fila del propio perfil.
 - Una funcionalidad futura que necesite datos de otros perfiles usará la
   vista pública o el servidor; no se reabre esta política.
-- La validación en Supabase real sigue pendiente dentro de la 2.8
-  (aparcada/bloqueada).
+- Validado también en Supabase real (`roomly-validation-2b`) en los runs 13
+  y 15 de la 2.8: P3 con 37 políticas y `tests/db/13` en verde.
 
 ## Diagrama de entidades (simplificado)
 

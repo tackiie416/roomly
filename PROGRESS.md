@@ -6,6 +6,60 @@ próximos pasos.**
 
 ---
 
+## 2026-10-06 — Sesión 30: E2 real en verde y cierre de la 2.8 y de la Fase 2 (solo documentación)
+
+**Qué se hizo**
+- **Run 14** (`37541867043`, `ec7c3fc`, `apply_migrations=false`,
+  `run_e2e_real=true`):
+  - estructural en verde;
+  - el E2 falló a los 276 ms, al cargar el adaptador y antes de enviar
+    ningún email: «E2E_MAILBOX_CONFIG no es un JSON válido»;
+  - la limpieza: 0 usuarios;
+  - sin residuos ni escrituras.
+
+  El propietario creó de nuevo el secret con un token nuevo de Mailtrap.
+- **Run 15** (`37543144825`, `ec7c3fc`, mismos parámetros): **todo en
+  verde**.
+  - Estructural: guarda, P0–P6, SQL 01–13, supabase-js y AU3/AU5.
+  - **E2 real 1/1 (22,1 s):** `/login` → `signInWithOtp` → email real en
+    Mailtrap → enlace `/auth/v1/verify` validado → `/callback?code=` con
+    PKCE → onboarding → `/perfil`, `/preferencias` y `/ajustes`, guardados y
+    releídos → logout → `/perfil` sin sesión vuelve a `/login`.
+  - Sin `generateLink` ni `token_hash`.
+  - Limpieza: «1 usuario(s) de prueba borrado(s), sin datos asociados» y
+    «mensajes del buzón de prueba borrados». Sin residuos.
+- **Registro de Auth:** el propietario lo abrió a mano solo para la ventana
+  del E2 (runs 14 y 15) y lo cerró a mano después del run 15. El workflow
+  avisó de que seguía abierto, como está previsto.
+- **Proyecto validado:** `roomly-validation-2b` (ref `uwxb…`, marca
+  `roomly-validation-2`). El histórico `roomly-validation` y el retirado
+  `qhwu…` no se tocaron.
+- **Cierre documental:**
+  - la **2.8 queda completada**: estructural en el run 13 y E2 real en el
+    run 15;
+  - la **Fase 2 queda completada**: 2.0–2.9 cerradas y el criterio de
+    aceptación demostrado por el run 15;
+  - los runs 3–12 y 14 quedan como diagnóstico en
+    `docs/SUPABASE_VALIDATION.md`;
+  - `NEXT_PHASE_AUDIT.md` se actualiza: se corrigen las conclusiones sobre
+    la Fase 2 abierta y se conservan el análisis de la Fase 3 y las
+    discrepancias vigentes;
+  - en `TESTING.md` se corrigen las frases antiguas sobre CI;
+  - las cabeceras de las sesiones 22 y 23 se anotan sin reescribir su
+    contenido.
+- **CI del PR #6:** en verde en `f9f08ad` (CI #11) y en `ec7c3fc` (CI #12).
+
+**Qué queda**
+- Fusionar el PR #6 en `master`, con autorización aparte.
+- Pendiente operativo: rotar claves y pausar o borrar
+  `roomly-validation-2b`. Sigue activo, con el esquema, el seed y el SMTP de
+  Mailtrap, y se tratará en una acción de seguridad específica.
+- Fuera de alcance por decisión del usuario: Google y Apple OAuth, foto de
+  perfil (M3) y borrado de cuenta (H6).
+- La Fase 3 no se empieza sin confirmación explícita.
+
+---
+
 ## 2026-10-06 — Sesión 29: Fase 2.8 — validación estructural real en verde y adaptador del buzón (2.8 sigue ABIERTA)
 
 **Qué se hizo**
@@ -288,7 +342,7 @@ próximos pasos.**
 
 ---
 
-## 2026-10-01 — Sesión 23: auditoría final de la 2.8 y correcciones (EN PROGRESO, sin commit)
+## 2026-10-01 — Sesión 23: auditoría final de la 2.8 y correcciones (anotada entonces «EN PROGRESO, sin commit»; commit posterior `03c4349`, 2.8 completada en la sesión 30)
 
 Sobre los cambios de la sesión 22, todavía sin commit (HEAD sigue en
 `1e6af49`). Primero, auditoría final de solo lectura; después, con
@@ -352,7 +406,7 @@ remota sigue pendiente. No se ha tocado Supabase remoto.
 
 ---
 
-## 2026-09-30 — Sesión 22: Fase 2.8 — infraestructura de validación (EN PROGRESO, sin commit)
+## 2026-09-30 — Sesión 22: Fase 2.8 — infraestructura de validación (anotada entonces «EN PROGRESO, sin commit»; commit posterior `03c4349`, 2.8 completada en la sesión 30)
 
 Sobre `1e6af49`. Decisiones del usuario tras la segunda auditoría:
 - **Supabase real, opción A:** la validación remota la ejecuta el propietario.

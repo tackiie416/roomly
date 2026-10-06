@@ -217,7 +217,8 @@ históricas). H4 es la otra parte de la 2.9 (sección siguiente).
   reinicia en la práctica el onboarding; desactivar el trigger como
   superusuario queda fuera del alcance; el mock de E1 no emula el bloqueo
   (la aplicación nunca reinicia un onboarding).
-- Tests: `tests/db/07_onboarding_integrity.sql` (OB5b, OB11–OB14).
+- Tests: `tests/db/07_onboarding_integrity.sql` (OB5b, OB11–OB14), en verde
+  también en Supabase real (`roomly-validation-2b`, runs 13 y 15).
 
 ## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
 
@@ -250,13 +251,21 @@ incluida `date_of_birth`. Pasan de 38 a 37 políticas.
   depende de ver la fila ajena: aísla la condición de dueño de
   `profiles_update_own` con una política SELECT temporal dentro de un
   bloque que se deshace, como `11`.
-- La validación en Supabase real sigue pendiente dentro de la 2.8.
+- Validado también en Supabase real (`roomly-validation-2b`) en los runs 13
+  y 15 de la 2.8: P3 con 37 políticas y `tests/db/13` en verde.
 
-## Fase 2.8 — infraestructura de validación (2026-09-30, en progreso)
+## Fase 2.8 — infraestructura de validación (2026-09-30; completada el 2026-10-06)
 
 Solo infraestructura de test: sin cambios en la app, RLS, migraciones ni
-`/callback`. Implementada en local y sin commit; la validación real
-**no se ha ejecutado** (ver `docs/SUPABASE_VALIDATION.md`).
+`/callback`. Se implementó en local el 2026-09-30. La validación real se
+completó el 2026-10-06 en `roomly-validation-2b` (`uwxb…`): parte
+estructural en el run 13 y E2 real en el run 15 (ver
+`docs/SUPABASE_VALIDATION.md`, «Resultado de la Fase 2.8»).
+- **Registro de Auth:** se abrió solo para la ventana del E2 y el
+  propietario lo cerró después.
+- **Sin residuos:** no quedaron usuarios, filas ni mensajes de prueba.
+- **Sin atajos:** sin `generateLink` y sin aceptar `token_hash` en
+  `/callback`.
 
 - **Identidad del proyecto.** El proyecto de validación nuevo debe llevar
   `comment on database postgres is 'roomly-validation-2'`. Lo comprueban,

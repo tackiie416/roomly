@@ -32,10 +32,11 @@ contra un Supabase real (checkpoint en el proyecto antiguo
 migración a `proxy.ts` (runtime Node.js).
 - **Trasladado a Fase 2**: el alta real de un usuario nuevo por magic
   link (el login sí se validó; el registro estaba desactivado). Es parte de
-  la 2.8. Ver `docs/ROADMAP.md`.
+  la 2.8, validado en el run 15. Ver `docs/ROADMAP.md`.
 
-**Fase 2 (User): ABIERTA.** No está cerrada: su criterio de aceptación
-depende de la validación real de la 2.8, que está aparcada (ver abajo). 2.0 completada (endurecimiento de datos y
+**Fase 2 (User): completada (2026-10-06).** Su criterio de aceptación (un
+usuario real completa registro → perfil → preferencias) lo demuestra el E2
+real de la 2.8 (run 15, ver abajo). 2.0 completada (endurecimiento de datos y
 RLS/GRANT de `profiles` y `housing_preferences`, integridad de barrios con
 triggers; `test:db` 119/119 en local) y 2.1 completada (validación Zod y
 servicios de perfil y preferencias en `lib/validation/*` y
@@ -54,29 +55,34 @@ completada (ajustes en `/ajustes`: avisos por email y cerrar sesión) y 2.7
 cerrada (shell autenticado y errores sin detalles técnicos, `1e6af49`;
 `test` 532/532, `test:db` 218/218).
 
-**2.8 (validación real del alta y E2E): APARCADA/BLOQUEADA — validación
-real pendiente. NO está cerrada ni completada.** La infraestructura está en
-`master` (PR #4 y #5, `cb88647`) y CI está en verde: runner SQL remoto
-aislado por archivo, preflight P0–P6 exacto (38 políticas; 37 desde H4), E1 (Playwright
-contra Supabase simulado, también en CI), E2 (alta real con email real,
-solo desde el workflow manual) y diagnóstico de la guarda. La validación
-real **nunca se ha ejecutado**: los runs 3–10 del workflow manual se
-detuvieron antes de cualquier escritura (sin cambios remotos en Supabase),
-porque el Environment `roomly-validation-2` sigue resolviendo al proyecto
-retirado (run 10: marca `roomly-retirado`, 18 tablas) en vez de al
-proyecto vacío `roomly-validation-2b`. Bloqueada hasta que el propietario
-corrija los secrets; entonces: workflow (migraciones, P0–P6, SQL,
-supabase-js, AU3/AU5) y, con SMTP y buzón, el E2 real. No hacer más runs,
-ni E2, signup o SMTP, sin autorización. Hasta entonces el alta real por
-magic link y la RLS de Fase 2 en Supabase real **no están verificadas** —
-no lo des por hecho. No borrar ni alterar la infraestructura de la 2.8.
+**2.8 (validación real del alta y E2E): completada (2026-10-06)** en el
+proyecto Supabase `roomly-validation-2b` (ref `uwxb…`, marca
+`roomly-validation-2`), mediante el workflow manual `Supabase validation`:
+- **Validación estructural real: run 13** (`37533380047`, `f9f08ad`,
+  `apply_migrations=true`). Guarda, las 9 migraciones y el seed en una
+  transacción, P0–P6 (37 políticas), suite SQL 01–13 con roles reales,
+  supabase-js 46/46 y AU3/AU5 16/16.
+- **E2 real: run 15** (`37543144825`, `ec7c3fc`, que contiene el adaptador
+  de Mailtrap; `apply_migrations=false`). `signInWithOtp` → email real en
+  Mailtrap → `/auth/v1/verify` → `/callback?code=` con PKCE → onboarding →
+  `/perfil` → `/preferencias` → `/ajustes` → logout, 1/1. Sin
+  `generateLink` ni `token_hash`. La limpieza no dejó usuarios, filas ni
+  mensajes de prueba.
+- El registro público de Auth se abrió solo para la ventana del E2 y el
+  propietario lo cerró después.
+- Los runs 3–12 y 14 fallaron sin escribir nada; son diagnóstico, no
+  resultado (`docs/SUPABASE_VALIDATION.md`, «Resultado de la Fase 2.8»).
+- No borrar ni alterar la infraestructura de la 2.8. Cualquier run nuevo,
+  E2, apertura del registro o cambio en Supabase remoto requiere
+  autorización explícita. El proyecto `uwxb…` sigue activo (rotar claves y
+  pausarlo es un pendiente operativo aparte).
 
 **2.9 (endurecimiento de integridad y privacidad): subfase NUEVA, definida
 por el propietario el 2026-10-04 (no formaba parte del roadmap original).
 COMPLETADA (2026-10-04): punto A (`20261004120000`, commit `73d6028`) y H4
 (`20261004120100`, commit `f9f08ad`); `test:db` 265/265 y CI en verde en el
-PR #6 (sin fusionar).** No sustituye ni cierra la 2.8: su validación en
-Supabase real sigue pendiente dentro de la 2.8. Alcance: punto
+PR #6.** Validada también en Supabase real en los runs 13 y 15 de la 2.8.
+Alcance: punto
 A de 2.3 (`onboarding_completed_at` de una sola escritura, para todos los
 roles) y H4 (eliminar `profiles_select_authenticated`). Decisiones en
 `docs/ROADMAP.md`. Claude no toca Supabase remoto, ni hace commit, push o
@@ -274,14 +280,14 @@ Ver `docs/TESTING.md` para resultados reales de la última sesión.
 Prioridad: algoritmo de matching (casi cobertura total cuando exista, es
 el diferencial del producto), RLS por rol, y los 3 flujos E2E
 obligatorios (estudiante, room provider, admin). La conexión con
-Supabase real se verificó en la Fase 1 (`roomly-validation`, histórico); la
-de Fase 2 en `roomly-validation-2` está pendiente
+Supabase real se verificó en la Fase 1 (`roomly-validation`, histórico) y
+la de Fase 2 en `roomly-validation-2b` (`uwxb…`), runs 13 y 15
 (`docs/SUPABASE_VALIDATION.md`). E2E: E1 (`npm run test:e2e`, Supabase
 simulado) corre en local y en CI; el entorno cloud de Claude Code no puede
 descargar el navegador de Playwright 1.63 y usa el Chromium preinstalado
 con `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (resultado orientativo; el de CI es el
-de referencia). E2 (real) solo se ejecuta desde el workflow manual y aún no
-se ha ejecutado — no lo des por hecho.
+de referencia). E2 (real) solo se ejecuta desde el workflow manual; pasó en
+el run 15 y cada ejecución nueva requiere autorización.
 
 ## Alcance del MVP — qué NO construir todavía
 
@@ -294,16 +300,19 @@ para añadirse después sin reescritura — ver `docs/ROADMAP.md` y
 
 ## Funcionalidades terminadas
 
-Ninguna funcionalidad de producto todavía (matching, habitaciones,
-intereses, chat, admin real son Fase 3 en adelante). Fase 0 completa.
-Fase 1 completada — ver arriba.
+Fase 0 completa. Fase 1 completada. Fase 2 completada (2026-10-06): alta
+e inicio de sesión por magic link, onboarding, perfil propio, preferencias
+de vivienda, ajustes, logout, cuenta desactivada e integridad y privacidad
+de la 2.9. En Supabase real se validaron la RLS y los triggers (suite SQL
+01–13) y el alta completa (E2); la cuenta desactivada, en E1 y en
+`tests/db/08`. Todavía no hay matching,
+habitaciones, intereses, chat ni admin real (Fase 3 en adelante).
 
 ## Funcionalidades pendientes
 
-2.8 aparcada/bloqueada (validación real en `roomly-validation-2b` con los
-secrets corregidos y E2 real, ejecutados por el propietario; también
-validará en real lo de la 2.9, ya completada) y Fases 3 a 9 — ver
-`docs/ROADMAP.md`.
+Fases 3 a 9 — ver `docs/ROADMAP.md`. Siguen fuera de alcance, por decisión
+del usuario: Google y Apple OAuth (diferidos), foto de perfil (M3) y
+borrado de cuenta (H6).
 
 ## Pendiente de decisión humana (no lo decide Claude)
 
