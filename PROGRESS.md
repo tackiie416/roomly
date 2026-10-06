@@ -6,6 +6,44 @@ próximos pasos.**
 
 ---
 
+## 2026-10-06 — Sesión 29: Fase 2.8 — validación estructural real en verde y adaptador del buzón (2.8 sigue ABIERTA)
+
+**Qué se hizo**
+- Causa del bloqueo de la 2.8: el workflow leía 5 secrets **de repositorio**
+  antiguos (proyecto retirado `qhwu…`). Luego los nuevos se crearon en un
+  Environment equivocado, llamado `SUPABASE_VALIDATION_PROJECT_REF`.
+  - El propietario borró los de repositorio y los creó en
+    `roomly-validation-2` con los datos de `roomly-validation-2b` (`uwxb…`).
+  - Run 11: la guarda llegó a `qhwu…`. Run 12: los secrets llegaron vacíos.
+    Ninguno de los dos escribió nada.
+- **Run 13 (`37533380047`), sobre `f9f08ad`, en verde:**
+  - guarda superada;
+  - las 9 migraciones y el seed aplicados en una transacción en `uwxb…`;
+  - P0–P6 (37 políticas), suite SQL 01–13 (los 13 archivos, cada uno
+    revertido, sin restos), supabase-js 46/46 y AU3/AU5 16/16;
+  - E2 no ejecutado. El proyecto retirado y el histórico, sin tocar.
+- E2 real preparado sin ejecutarlo. Proveedor elegido: **Mailtrap Email
+  Sandbox** (SMTP más API).
+  - Adaptador nuevo: `tests/e2e/real/mailboxes/mailtrap.mjs`.
+  - Tests nuevos: `tests/unit/mailtrap-mailbox.test.ts`, 20, sin red.
+  - Mutaciones detectadas: 3/3 (sin decodificar `&amp;`, sin filtrar el
+    destinatario, otra cabecera de autenticación).
+  - API comprobada en el SDK oficial `mailtrap-nodejs`; la documentación
+    de Mailtrap no era accesible desde el entorno.
+- Configurado por el propietario:
+  - SMTP de Mailtrap en `uwxb…`;
+  - secrets `E2E_EMAIL_TEMPLATE` y `E2E_MAILBOX_CONFIG`, y la variable
+    `E2E_MAILBOX_ADAPTER`, en `roomly-validation-2`.
+
+**Qué queda**
+- Abrir temporalmente el registro en `uwxb…`.
+- Lanzar el workflow con `apply_migrations=false` y `run_e2e_real=true` (el
+  esquema ya existe).
+- Cerrar el registro después.
+- La 2.8 sigue ABIERTA hasta que el E2 real pase.
+
+---
+
 ## 2026-10-04 — Sesión 28: auditoría final, CI y cierre de la Fase 2.9 (solo documentación)
 
 **Qué se hizo**

@@ -308,7 +308,7 @@ su enlace no puede pasar por `/callback`.
 | Signup | «Allow new users to sign up» **activado solo durante la ventana del E2**. La preparación falla si está desactivado. La limpieza avisa (`::warning::` y resumen del job) si sigue abierto al terminar; cerrarlo es un paso manual (ver «Pendiente de decisión»). |
 | Proveedor de correo | **SMTP propio** (Authentication → Emails → SMTP Settings). No se asume que el SMTP por defecto de Supabase baste: tiene límites de envío muy bajos y, según la documentación de Supabase, solo entrega a direcciones del equipo. Esto no se ha podido verificar sin red. |
 | Enlaces sin reescribir | En el proveedor SMTP hay que **desactivar el seguimiento de clics y cualquier reescritura de enlaces** (*click tracking*, *link tracking*, *link branding*). El E2 valida el enlace tal como llega al buzón: solo lo abre si apunta al `/auth/v1/verify` del proyecto y su `redirect_to` es exactamente `<app>/callback`. Un enlace reescrito por el proveedor apuntaría a otro dominio y el E2 lo rechazaría, con razón: no se puede comprobar adónde lleva. |
-| Buzón de prueba | Un buzón que reciba ese correo y se pueda leer **por API**. El proveedor **no está decidido** y el repo no incluye ninguno. |
+| Buzón de prueba | Un buzón que reciba ese correo y se pueda leer **por API**. Proveedor elegido (2026-10-06): **Mailtrap Email Sandbox**, que da a la vez el SMTP (configurado en `uwxb…`) y la API del buzón, sin dominio propio y sin entregar a nadie real. |
 | `emailRedirectTo` | El código lo fija como `${window.location.origin}/callback` (`components/auth/login-form.tsx`). En el workflow la app corre en `http://localhost:3000`, así que el resultado es `http://localhost:3000/callback`. Hay que usar siempre `localhost`, nunca `127.0.0.1`. |
 | Allowlist | Site URL `http://localhost:3000` y Redirect URLs exactamente `http://localhost:3000/callback`. Lo comprueba AU2 en la api-suite. |
 | Plantillas | Las de Supabase. Un usuario nuevo recibe «Confirm signup» y uno existente «Magic link»: las dos usan `{{ .ConfirmationURL }}`. |
@@ -322,10 +322,22 @@ su enlace no puede pasar por `/callback`.
 - `waitForMagicLink({ to, since, timeoutMs })`, que devuelve el enlace;
 - `deleteMessages(to)`.
 
-El adaptador lee su configuración de `E2E_MAILBOX_CONFIG`. Cuando se elija
-el proveedor, hay que añadir su adaptador, por ejemplo en
-`tests/e2e/real/mailboxes/`. Hasta entonces el E2 falla al empezar con
-«E2E_MAILBOX_ADAPTER no está definida». El adaptador simulado
+El adaptador lee su configuración de `E2E_MAILBOX_CONFIG`. El de Mailtrap es
+`tests/e2e/real/mailboxes/mailtrap.mjs` (`E2E_MAILBOX_ADAPTER` =
+`tests/e2e/real/mailboxes/mailtrap.mjs`), con `E2E_MAILBOX_CONFIG` como JSON
+de una línea `{"accountId":"…","inboxId":"…","apiToken":"…"}`:
+- `accountId` es opcional: si falta, el adaptador busca entre las cuentas
+  del token la que tiene el sandbox;
+- el token necesita permiso **Admin** solo sobre ese sandbox (leer y borrar);
+- usa la API que usa el SDK oficial `mailtrap-nodejs`
+  (`https://mailtrap.io/api/accounts/{a}/inboxes/{i}/messages…`, cabecera
+  `Authorization: Bearer`), espera el email del destinatario de la
+  ejecución, saca el primer enlace a `/auth/v1/verify` del HTML (o del
+  texto) y nunca registra el token, el email ni el enlace;
+- tests sin red en `tests/unit/mailtrap-mailbox.test.ts`.
+
+Sin adaptador, el E2 falla al empezar con «E2E_MAILBOX_ADAPTER no está
+definida». El adaptador simulado
 (`tests/e2e/support/mock-mailbox.mjs`) solo sirve para ensayar el spec
 contra el mock, y se niega a funcionar en GitHub Actions o contra una URL
 que no sea `127.0.0.1`.
