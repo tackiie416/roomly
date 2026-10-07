@@ -252,9 +252,9 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 | P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y el seed (Barcelona activa) |
 | P2 | Mismo dueño para `is_conversation_participant` y `conversation_participants`, sin FORCE RLS, SECURITY DEFINER y `search_path` vacío |
 | P3 | RLS en las 18 tablas y **exactamente estas 37 políticas**, comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo) |
-| P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE |
+| P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE. Desde la Fase 3.1, en `compatibility_responses`: `anon` sin ningún privilegio de tabla ni de columna; `authenticated` solo con SELECT, sin INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES ni TRIGGER ni escritura de columna |
 | P5 | Equivalente SQL de los lints del Security Advisor |
-| P6 | **Exactamente 12 triggers activos** en `public`. **Exactamente 10 funciones propias**, con su SECURITY DEFINER y `search_path`. EXECUTE revocado donde las migraciones lo revocan |
+| P6 | **Exactamente 13 triggers activos** en `public` (12 hasta la Fase 3.1, que añade `trg_compatibility_responses_integrity`). **Exactamente 11 funciones propias** (10 hasta la Fase 3.1, que añade `enforce_compatibility_responses_integrity()`), con su SECURITY DEFINER y `search_path`. EXECUTE revocado donde las migraciones lo revocan |
 
 Las 37 políticas, por tabla (38 hasta la Fase 2.9: H4 eliminó
 `profiles_select_authenticated`):
@@ -263,7 +263,7 @@ Las 37 políticas, por tabla (38 hasta la Fase 2.9: H4 eliminó
 |---|---|
 | `admin_action_logs` | `admin_action_logs_admin_only` (ALL) |
 | `cities` | `cities_select_all` (SELECT), `cities_admin_write` (ALL) |
-| `compatibility_responses` | `compatibility_responses_own` (ALL) |
+| `compatibility_responses` | `compatibility_responses_select_own` (SELECT, `to authenticated`; desde la Fase 3.1 sustituye a `compatibility_responses_own` FOR ALL) |
 | `conversation_participants` | `participants_select_own_conversations` (SELECT), `participants_update_own` (UPDATE) |
 | `conversations` | `conversations_select_participant` (SELECT) |
 | `favorites` | `favorites_own` (ALL) |
@@ -287,7 +287,9 @@ Las 37 políticas, por tabla (38 hasta la Fase 2.9: H4 eliminó
 - `20260930130000` sustituye `housing_preferences_own` por cuatro
   políticas (38);
 - `20261004120100` (Fase 2.9, H4) elimina `profiles_select_authenticated`
-  (37).
+  (37);
+- `20261007120000` (Fase 3.1) sustituye `compatibility_responses_own` por
+  `compatibility_responses_select_own` (siguen 37).
 
 Nadie actualizó el preflight entonces. Además solo contaba, y no
 comprobaba nada de la Fase 2.
@@ -296,11 +298,15 @@ comprobaba nada de la Fase 2.
 - `tests/unit/validation-infra.test.ts` deriva de las migraciones el
   conjunto final de políticas y triggers y lo compara con las listas del
   preflight.
-- `tests/supabase/preflight-selftest.sh` (35 comprobaciones, en CI):
+- `tests/supabase/preflight-selftest.sh` (43 comprobaciones, en CI):
   - con el esquema actual pasan P0–P6;
-  - cada una de 27 mutaciones falla en su check, y cada una se deshace;
+  - cada una de 35 mutaciones falla en su check, y cada una se deshace;
   - las mutaciones incluyen, entre otras, «misma cantidad, otra política
-    (37 = 37)» y «vuelve `housing_preferences_own`».
+    (37 = 37)» y «vuelve `housing_preferences_own`»;
+  - desde la Fase 3.1, otras 8 de `compatibility_responses`: vuelve la
+    política FOR ALL, `anon` con SELECT, `authenticated` con INSERT, con
+    UPDATE de `completed_at` o sin SELECT, falta el trigger, la función pasa
+    a SECURITY DEFINER, y `authenticated` puede ejecutarla.
 
 ## E2E: E1 local y E2 real, separados
 
@@ -418,14 +424,15 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P0–P6 | `tests/supabase/preflight.sql` | Ver la tabla de arriba |
-| SQL 01–13 | `tests/db/*` vía `run-sql-suite.sh` | Las 265 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12) y privacidad de `profiles`, H4 (13) |
+| SQL 01–14 | `tests/db/*` vía `run-sql-suite.sh` | Las 305 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **El 14 todavía no se ha ejecutado en Supabase real** |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
 | RO1–RO9 | api-suite | Propietario edita y pausa; no pone ni saca de `removed` (también vía upsert); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario |
 | RE1–RE9 | api-suite | Reporte válido nace `pending`; ningún campo administrativo en el INSERT; no en nombre de otro; no autocierre; el denunciado no lo ve; el admin resuelve |
+| CRA1–CRA6 | api-suite (Fase 3.1) | `compatibility_responses` por PostgREST: B lee su fila y C no; ningún JWT escribe (INSERT, UPDATE de `completed_at` o de versión, DELETE → `42501`); `anon` no lee; service_role completa una vez y después no cambia la fecha (S4), no baja de versión (S3) y sube completando (S5); con la cuenta eliminada ni service_role escribe. **Todavía no se ha ejecutado en Supabase real** |
 | AU2 | api-suite | La lista de redirects de Supabase Auth conserva `http://localhost:3000/callback` y no conserva destinos externos |
 | AU3, AU5 (sin sesión) | `auth-redirects.sh` | El callback con código inválido y `next` malicioso redirige siempre dentro del origen; `/admin` sin sesión → `/login?next=%2Fadmin` |
-| E2 (alta real) | job `e2e-real` | Registro por magic link con email real, `/callback` PKCE, onboarding, `/perfil`, `/preferencias`, `/ajustes` y logout |
+| E2 (alta real) | job `e2e-real` | Registro por magic link con email real, `/callback` PKCE, onboarding (desde la Fase 3 termina en `/test`, que se abre sin service_role), `/perfil`, `/preferencias`, `/ajustes` y logout |
 | AU6 (Google) | Fuera de alcance (diferido) | — |
 
 Actores de la api-suite: A, B, C (chat), O (propietario), R (denunciante),
@@ -468,8 +475,14 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
   otro proyecto, secrets coherentes de otro proyecto, la marca antigua,
   marcas parecidas o una marca ausente, y comprueba que migraciones, P0 y
   suite SQL abortan antes de hacer nada.
-- **`sql-suite-selftest.sh` (75) y `preflight-selftest.sh` (35):** ver
-  arriba.
+- **`sql-suite-selftest.sh` (75) y `preflight-selftest.sh` (43):** ver
+  arriba. Desde la Fase 3.1, el primero cuenta los archivos de `tests/db` en
+  vez de fijar el número.
+- **`migration-upgrade-selftest.sh` (Fase 3.1):** aplica las migraciones de
+  la Fase 2, inserta datos (incluidas filas de `compatibility_responses` con
+  los DEFAULT antiguos), aplica después las migraciones nuevas y comprueba
+  que los datos se conservan y quedan sujetos al trigger. Es la actualización
+  incremental, solo en local.
 
 ## Pendiente de decisión o de ejecución (no lo hace Claude)
 
@@ -494,6 +507,31 @@ Pendiente operativo, aparte del cierre de la 2.8:
 Si se vuelve a lanzar el workflow contra este proyecto, siempre con
 `apply_migrations=false`: el esquema ya existe y apply-migrations se
 negaría.
+
+### Fase 3: la próxima validación real (pendiente, con autorización)
+
+`uwxb…` tiene el esquema de la Fase 2 y **no se toca**. El código de la
+Fase 3 ya no encaja con ese esquema:
+- la suite SQL 14 y la api-suite CRA1–CRA6 necesitan
+  `20261007120000_compatibility_responses_hardening.sql`;
+- el preflight espera 13 triggers y 11 funciones.
+
+Un run del workflow actual contra `uwxb…` fallaría. La estrategia aprobada
+es un **proyecto Supabase nuevo y vacío**:
+1. Crear el proyecto, su marca, el GitHub Environment y los secrets
+   (autorización aparte; lo hace el propietario).
+2. Adaptar la marca, que hoy está fijada a `roomly-validation-2`, en
+   `tests/supabase/guard.sh`, `preflight.sql` P0, los selftests y
+   `supabase-validation.yml`. Es un cambio de infraestructura revisable.
+3. Run con `apply_migrations=true` desde cero: guarda, migraciones, P0–P6,
+   SQL 01–14, api-suite y AU.
+4. E2 en el proyecto nuevo (SMTP de Mailtrap y una ventana de registro), con
+   su propia autorización.
+
+Mientras tanto, en local: `test:db` (14 archivos), `test:infra` (incluida la
+actualización incremental), unitarios y E1.
+
+D6 = B: la app del workflow sigue sin service_role.
 
 ---
 

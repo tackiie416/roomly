@@ -1,10 +1,17 @@
-# Auditoría de transición tras la Fase 2 (2026-10-04, actualizada el 2026-10-06)
+# Auditoría de transición tras la Fase 2 (2026-10-04, actualizada el 2026-10-06 y el 2026-10-07)
 
 Informe de solo lectura, escrito el 2026-10-04 tras cerrar la 2.9 y
 **actualizado el 2026-10-06 tras cerrar la 2.8 y la Fase 2** (commit
 `docs: cerrar fase 2.8 y fase 2`). Lo que en la primera versión dependía de
 la 2.8 bloqueada está corregido. Se conservan el análisis de la Fase 3 y las
 discrepancias que siguen vigentes.
+
+**Actualización del 2026-10-07**: el PR #6 se fusionó (`master` = `ae5258b`).
+El propietario cerró la especificación de la Fase 3 (D1–D18, D6 = B) y la
+implementación local está hecha y probada, pero **la Fase 3 no está
+cerrada**. Las discrepancias 2–6 quedan resueltas por esa especificación
+(ver la tabla) y el estado actual está en la sección 6. Las secciones 1, 2,
+4 y 5 son la foto anterior a la implementación: se conservan como registro.
 
 ## 1. Estado de Git (2026-10-06)
 
@@ -99,11 +106,11 @@ seguridad abierto ni test roto).
 | # | Severidad | Discrepancia | Dónde |
 |---|---|---|---|
 | 1 | ✅ RESUELTA (2026-10-06) | Era ALTA: la Fase 2 seguía abierta por la 2.8 bloqueada y la regla 8 impedía empezar la Fase 3. La 2.8 se completó (runs 13 y 15) y la Fase 2 está cerrada; la regla 8 ya no bloquea la Fase 3, que solo espera la confirmación del propietario. | `CLAUDE.md`, `ROADMAP.md` |
-| 2 | **ALTA** | La Fase 3 necesita comparar datos de **otros** usuarios (respuestas del test y `housing_preferences`: ubicación y presupuesto suman el 30% del score), pero la RLS solo deja leer lo propio (`compatibility_responses_own`, `housing_preferences_select_own`) y, desde H4, tampoco `profiles` ajenos. No hay ningún diseño documentado de cómo se calcula el score de un candidato (¿servidor con `service_role`?, ¿función `SECURITY DEFINER` que devuelva solo score y razones?). `createAdminClient()` existe pero no se usa en ningún sitio. | `20260925120100`, `20261004120100`, `ARCHITECTURE.md` §Motor de matching, `lib/supabase/admin.ts` |
-| 3 | **MEDIA** | «Guardado de progreso parcial» del cuestionario (`ROADMAP.md` Fase 3, spec §8) frente al esquema: `compatibility_responses.completed_at` es `NOT NULL DEFAULT now()`, así que una fila siempre parece completada. Para guardar progreso hace falta una decisión de esquema (migración nueva) o guardarlo en otro sitio. | `20260925120000`, `ROADMAP.md`, `ROOMLY_MASTER_SPEC.md` §8 |
-| 4 | **MEDIA** | «Pantalla de matches» en la Fase 3 frente a la tabla `matches`, que según `DATABASE.md` y la Fase 5 solo se crea desde el servidor **tras interés mutuo**. En la Fase 3 «matches» solo puede ser una lista de candidatos calculada al vuelo; no está escrito en ningún sitio. | `ROADMAP.md` Fases 3 y 5, `DATABASE.md` |
-| 5 | **MEDIA** | `compatibility_responses` no tiene el endurecimiento que sí tienen `profiles`/`housing_preferences`: ni bloqueo de escrituras de cuentas eliminadas (pendiente desde `20260930130000`: «la misma regla para el resto de tablas… cuando tengan flujo, Fase 3+»), ni GRANT por columnas (el cliente puede escribir `questionnaire_version`, `completed_at` y `updated_at`), ni tests en `tests/db`. | `20260925120100`, `PROGRESS.md` sesión 13, `tests/db` |
-| 6 | **MEDIA** | El destino tras el onboarding es `/` (decisión de 2.3) y la guarda de destino no conoce ningún paso de test. La spec pone el test dentro del flujo principal (perfil → test → match). Integrarlo toca `lib/auth/destination.ts` (Fase 2.2, cerrada): hace falta decidir si el test es obligatorio u opcional. | `lib/auth/destination.ts`, `ROOMLY_MASTER_SPEC.md` §5 |
+| 2 | ✅ RESUELTA (2026-10-07, D17) — era ALTA | Lectura cruzada con service_role en `lib/services/matching.ts` (`server-only`, una consulta con columnas explícitas, DTO con lista blanca); la RLS de lectura ajena no se reabre. Texto original: La Fase 3 necesita comparar datos de **otros** usuarios (respuestas del test y `housing_preferences`: ubicación y presupuesto suman el 30% del score), pero la RLS solo deja leer lo propio (`compatibility_responses_own`, `housing_preferences_select_own`) y, desde H4, tampoco `profiles` ajenos. No hay ningún diseño documentado de cómo se calcula el score de un candidato (¿servidor con `service_role`?, ¿función `SECURITY DEFINER` que devuelva solo score y razones?). `createAdminClient()` existe pero no se usa en ningún sitio. | `20260925120100`, `20261004120100`, `ARCHITECTURE.md` §Motor de matching, `lib/supabase/admin.ts` |
+| 3 | ✅ RESUELTA (2026-10-07, migración `20261007120000`) — era MEDIA | `completed_at` admite NULL (borrador) y no tiene DEFAULT. Texto original: «Guardado de progreso parcial» del cuestionario (`ROADMAP.md` Fase 3, spec §8) frente al esquema: `compatibility_responses.completed_at` es `NOT NULL DEFAULT now()`, así que una fila siempre parece completada. Para guardar progreso hace falta una decisión de esquema (migración nueva) o guardarlo en otro sitio. | `20260925120000`, `ROADMAP.md`, `ROOMLY_MASTER_SPEC.md` §8 |
+| 4 | ✅ RESUELTA (2026-10-07, D13) — era MEDIA | La lista de candidatos va en `/explorar`, calculada al vuelo y sin escribir en `matches`; `/matches` queda para la Fase 5. Texto original: «Pantalla de matches» en la Fase 3 frente a la tabla `matches`, que según `DATABASE.md` y la Fase 5 solo se crea desde el servidor **tras interés mutuo**. En la Fase 3 «matches» solo puede ser una lista de candidatos calculada al vuelo; no está escrito en ningún sitio. | `ROADMAP.md` Fases 3 y 5, `DATABASE.md` |
+| 5 | ✅ RESUELTA (2026-10-07, D18 y `20261007120000`) — era MEDIA | Solo escribe el servidor; `authenticated` solo SELECT de su fila; `anon` sin acceso; trigger S1–S6 y de cuentas eliminadas para todos los roles; `tests/db/14`. Texto original: `compatibility_responses` no tiene el endurecimiento que sí tienen `profiles`/`housing_preferences`: ni bloqueo de escrituras de cuentas eliminadas (pendiente desde `20260930130000`: «la misma regla para el resto de tablas… cuando tengan flujo, Fase 3+»), ni GRANT por columnas (el cliente puede escribir `questionnaire_version`, `completed_at` y `updated_at`), ni tests en `tests/db`. | `20260925120100`, `PROGRESS.md` sesión 13, `tests/db` |
+| 6 | ✅ RESUELTA (2026-10-07, D5) — era MEDIA | El test es obligatorio para `/explorar` y el onboarding termina en `/test` (sin `next`). `resolveDestination` no cambia; cambia la Server Action del onboarding. Texto original: El destino tras el onboarding es `/` (decisión de 2.3) y la guarda de destino no conoce ningún paso de test. La spec pone el test dentro del flujo principal (perfil → test → match). Integrarlo toca `lib/auth/destination.ts` (Fase 2.2, cerrada): hace falta decidir si el test es obligatorio u opcional. | `lib/auth/destination.ts`, `ROOMLY_MASTER_SPEC.md` §5 |
 | 7 | ✅ RESUELTA (2026-10-06, commit de cierre: corregidas las filas de `npm run test` y de CI) | `TESTING.md` sigue con frases anteriores a los CI de los PR #4–#6: la fila de CI («6 runs… los jobs nuevos no se han ejecutado todavía») y la de `npm run test` («en CI corrían 39/39, los nuevos correrán en el próximo push»). | `docs/TESTING.md` (filas de `npm run test` y CI) |
 | 8 | ✅ RESUELTA (2026-10-06, commit de cierre: el título de la 2.8 en `SECURITY.md` dice «completada el 2026-10-06») | `SECURITY.md` titula la sección «Fase 2.8 — infraestructura de validación (2026-09-30, **en progreso**)»; el estado real era entonces «aparcada/bloqueada». | `docs/SECURITY.md` |
 | 9 | ✅ RESUELTA (2026-10-06, commit de cierre: las cabeceras de las sesiones 22 y 23 se anotan con el commit posterior, sin reescribir su contenido) | `PROGRESS.md`: las sesiones 22 y 23 siguen tituladas «EN PROGRESO, sin commit», aunque ese trabajo está en `03c4349`/`4ff8489` y en `master`. | `PROGRESS.md` |
@@ -256,3 +263,40 @@ servidor como dos capas, sin N+1, sin IA generativa, y CI en verde.
 3. Antes de escribir código de la Fase 3, una ronda de decisiones sobre los
    puntos 2–7 de «Dependencias y decisiones previas» y sobre cómo validar
    en real sus migraciones (riesgos).
+
+## 6. Estado tras la implementación local de la Fase 3 (2026-10-07)
+
+**Hecho, en local** (detalle en `PROGRESS.md`, sesión 31, y `docs/ROADMAP.md`):
+- **3.1** Migración `20261007120000`, `lib/services/compatibility.ts` y el
+  test estático de service_role.
+- **3.2** Cuestionario v1 (29 preguntas) y motor en `lib/matching/*`.
+- **3.3** Filtros duros.
+- **3.4** `lib/services/matching.ts`.
+- **3.5** `/test`, `/explorar`, la función `questionnaireStatus` y la
+  navegación.
+- **3.6** Tests: unitarios, `tests/db/14`, P3/P4/P6 y sus selftests, la
+  actualización incremental, E1 y E2 adaptado sin ejecutar.
+- **3.7** Documentación.
+
+Respecto a lo previsto en la sección 4:
+- la ruta es `/explorar` (no `app/(app)/matches`);
+- el test va en `app/(app)/test`, no en `bienvenida/test`, que sigue vacía;
+- el cuestionario vive en `lib/matching/questionnaire.ts`, no en
+  `lib/questionnaire/*`;
+- los componentes están en `components/questionnaire/*`; no hay
+  `components/matches/*`, porque la tarjeta se renderiza en la propia
+  página.
+
+**Pendiente para cerrar la Fase 3** (cada punto con su autorización):
+1. CI en verde en un PR. Hace falta un push, que no se ha hecho.
+2. Validación real en un proyecto Supabase **nuevo**: `uwxb…` no se toca y
+   el código de la Fase 3 ya no encaja con su esquema. Ver
+   `docs/SUPABASE_VALIDATION.md`, «Fase 3: la próxima validación real».
+3. E2 con destino `/test`, en ese proyecto.
+4. Textos y etiquetas finales del cuestionario.
+5. `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción, antes de
+   desplegar.
+
+**Discrepancias que siguen abiertas**: 11–14 (BAJA) y las informativas. La
+12 cambia en parte: el mock de E1 ahora sí emula `compatibility_responses` y
+su trigger, pero sigue sin emular el punto A ni `profiles_admin_all`.

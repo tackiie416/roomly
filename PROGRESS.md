@@ -6,6 +6,159 @@ próximos pasos.**
 
 ---
 
+## 2026-10-07 — Sesión 31: Fase 3 — implementación local (NO cerrada)
+
+**Contexto**
+- El PR #6 se fusionó en `master` (`ae5258b`) después de la sesión 30.
+- El propietario cerró la especificación de la Fase 3 tras varias rondas de
+  propuesta y auditoría sin código: **D1–D18, todas con la opción
+  recomendada, y D6 = B**.
+- Autorizó la implementación local; no autorizó proyectos Supabase nuevos,
+  E2 real, cambios en `uwxb…` ni push.
+
+**Decisiones aplicadas** (especificación cerrada)
+
+*Acceso y escritura*
+- **D17**: service_role solo en el servidor, en dos servicios.
+- **D18**: el servidor es el único que escribe en `compatibility_responses`.
+
+*Versionado*
+- **D15a**: un id nunca cambia de significado, escala, tipo, categoría ni
+  pareja.
+- **D15b**: al cambiar de versión se reutilizan las respuestas por id.
+- **D7**: reglas S1–S6 con los casos D7.1–D7.5.
+
+*Motor*
+- **D1**: las parejas conducta/tolerancia valen `min`.
+- **D3**: un dato ausente excluye la categoría y se renormaliza.
+- **D8**: `BUDGET_GAP_REF = 150`.
+
+*Filtros*
+- **D9**: filtro por número de compañeros.
+- **D2**: `0` significa «sin compañeros».
+- **D10**: los admins no son candidatos.
+
+*Cuestionario y explicaciones*
+- **D4**: se elimina `study_silence_need` y `remote_work_calls` pasa a ser la
+  pareja `remote_calls_common_own`/`_tolerance`.
+- **D16**: los temas de convivencia van dentro de Personalidad (5 %).
+- **D11**: se acepta el riesgo residual de las explicaciones.
+
+*Navegación y presentación*
+- **D13**: `/explorar`.
+- **D5**: siempre `/test` tras el onboarding, sin `next`.
+- **D12**: `full_name`.
+- **D14**: sin «Ver perfil».
+
+*Validación*
+- **D6 = B**: la app del workflow no recibe service_role.
+
+**Qué se hizo**
+- **3.1 Base de datos y seguridad**
+  - Migración `20261007120000_compatibility_responses_hardening.sql`:
+    - S1: versión sin DEFAULT y ≥ 1;
+    - S2: `completed_at` admite NULL y no tiene DEFAULT;
+    - `anon` sin privilegios; `authenticated` solo SELECT;
+    - la política FOR ALL se sustituye por
+      `compatibility_responses_select_own` (siguen 37);
+    - el trigger `trg_compatibility_responses_integrity` aplica S3, S4 y S6
+      y el bloqueo `account_deleted:` a todos los roles. SECURITY INVOKER,
+      `search_path` vacío, EXECUTE revocado.
+  - `lib/services/compatibility.ts` (`server-only`): lee con el cliente del
+    usuario y escribe con `createAdminClient()`; `profile_id` sale de
+    `getSessionUserId()`; Zod estricto; versión `CURRENT`; combina lo guardado
+    con lo nuevo; D7.1–D7.5.
+  - `tests/unit/admin-client-usage.test.ts`.
+  - `types/database.ts`: `completed_at` admite NULL. Insert/Update describen
+    la escritura del servidor, porque `authenticated` ya no escribe.
+- **3.2 Motor** (`lib/matching/`):
+  - `questionnaire.ts`: v1, 29 preguntas, `CURRENT_QUESTIONNAIRE_VERSION = 1`;
+  - `weights.ts`: pesos de §9, `version`, constantes y orden fijo;
+  - `score.ts`: `calculateCompatibility`, r6 y redondeo con la mitad hacia
+    arriba, simétrico, `not_comparable` sin excepciones;
+  - `explanations.ts`: plantillas por perspectiva, sin cifras;
+  - `types.ts`.
+- **3.3** `lib/matching/filters.ts`: `passesHardFilters` (ciudad, fechas,
+  presupuesto con hueco ≤ 150, compañeros con `máx = 0`) e
+  `isEligibleCandidate`. Sin índices nuevos.
+- **3.4** `lib/services/matching.ts` (`server-only`):
+  - datos propios con el cliente del usuario;
+  - **una** consulta cruzada con service_role (`profiles` con
+    `housing_preferences!inner` y `compatibility_responses!inner`), columnas
+    explícitas y filtros en SQL;
+  - después, defensa en profundidad, filtros duros y score en Node;
+  - `CandidateDTO` con lista blanca; 20 por página, por score y luego por id;
+  - nombres de universidad y barrios solo para la página.
+- **3.5** Estados y navegación:
+  - `lib/matching/questionnaire-status.ts`: `questionnaireStatus` (la única
+    función de estado) y la reutilización por id;
+  - guards `requireQuestionnaire` y `requireCompletedQuestionnaire`
+    (`lib/auth/session.ts`);
+  - Server Action `app/actions/compatibility.ts`; páginas
+    `app/(app)/test` y `app/(app)/explorar`;
+  - formulario `components/questionnaire/`, que funciona sin JavaScript;
+  - `PROTECTED_PREFIXES` con `/test` y `/explorar`; nav con «Explorar» y
+    «Test»; el onboarding redirige a `/test`.
+  - Se quitó el `.gitkeep` de `app/(app)/explorar`.
+- **3.6 Tests**
+  - Unitarios: +245, 862 en total.
+  - `tests/db/14_compatibility_responses.sql`: 40 aserciones; `test:db`
+    305/305.
+  - Preflight P3/P4/P6 con 8 mutaciones nuevas en su selftest.
+  - `sql-suite-selftest` cuenta los archivos en vez de fijar el número.
+  - Nuevo `migration-upgrade-selftest.sh`, en `test:infra` y en CI.
+  - api-suite: CRA1–CRA6, sin ejecutar.
+  - E1: mock con clave service_role ficticia, `compatibility_responses` y
+    consulta embebida; spec `compatibility-flow`; destino `/test` en
+    helpers y specs.
+  - E2: solo se adaptó el código (`/test`), sin ejecutarlo.
+- **3.7** Documentación: `ROOMLY_MASTER_SPEC.md`, `ARCHITECTURE.md`
+  (incluido el «todo indexado», corregido), `ROADMAP.md`,
+  `NEXT_PHASE_AUDIT.md`, `DATABASE.md`, `SECURITY.md`, `ENVIRONMENT.md`,
+  `SUPABASE_VALIDATION.md`, `TESTING.md` y `CLAUDE.md`.
+
+**Resultados (local)**
+- `typecheck`, `lint`, `format:check` y `build`: ✅.
+- `test`: 862/862.
+- `test:db`: 305/305.
+- `test:infra`: ✅ (guard, runner 75, preflight 43, actualización 6/6).
+- E1: 27/27 con el Chromium preinstalado 1194, resultado orientativo.
+- Mutaciones detectadas:
+  - migración: 5/5 (sin S4, UPDATE devuelto a `authenticated`, sin bloqueo
+    de cuentas eliminadas, SELECT para `anon`, bajar de versión permitido);
+  - motor: 7/7.
+
+**Problemas encontrados y cómo se resolvieron (sin cambiar decisiones de
+producto)**
+- **Clave service_role en E1.** Un test estático prohibía el texto
+  `SERVICE_ROLE_KEY` en `playwright.config.ts`, pero la especificación
+  prevé «E1 con mock en modo service_role».
+  - Se afinó el test: E1 solo puede pasar la clave **ficticia**
+    `MOCK_SERVICE_ROLE_KEY`, y E2 conserva la prohibición estricta.
+- **Consulta de candidatos.** Se eligió una sola consulta con recursos
+  embebidos en vez de varias con `.in(ids)`, para no tener listas de ids que
+  crezcan con el número de candidatos. Es una decisión técnica, no de
+  producto.
+- **Registro común del mock.** El registro de peticiones del mock es común a
+  todos los specs; los dos que lo inspeccionan solo miran lo de su propio
+  test.
+- **Tres errores de mis propios tests**, corregidos (no del código):
+  - un seed con 5 en escalas 1–3: no comparable, así que se omite bien;
+  - un umbral probado en una categoría que el tope de 3 dejaba fuera;
+  - el id de candidato tratado como dato oculto, aunque forma parte del DTO.
+
+**Qué queda (Fase 3 NO cerrada)**
+1. Push y CI en verde en un PR, con autorización.
+2. Validación real en un proyecto Supabase **nuevo**: crearlo, con su marca,
+   Environment y secrets, y adaptar guard, preflight, selftests y workflow.
+   `uwxb…` no se toca y ya no encaja con el código de la Fase 3.
+3. E2 con destino `/test`, en ese proyecto.
+4. Textos y etiquetas finales del cuestionario.
+5. `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción.
+6. Pendiente operativo de `uwxb…` (rotar claves, pausar), sin tocar.
+
+---
+
 ## 2026-10-06 — Sesión 30: E2 real en verde y cierre de la 2.8 y de la Fase 2 (solo documentación)
 
 **Qué se hizo**

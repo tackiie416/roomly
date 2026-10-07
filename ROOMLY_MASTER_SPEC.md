@@ -130,6 +130,28 @@ Riesgo identificado: cuestionario largo → abandono a mitad. Mitigación:
 guardar progreso parcial (Fase 3), y la propia analítica distingue
 `test_started` de `test_completed`.
 
+**Implementado en la Fase 3** (especificación cerrada del 2026-10-07,
+decisiones D1–D18):
+- **Versión 1, 29 preguntas**, en `lib/matching/questionnaire.ts`.
+- **Todas obligatorias** para completar el test; no hay «prefiero no
+  responder» y no se pregunta nada de salud (alergias incluidas).
+- **Escalas**: 1–5, salvo fumar y mascotas, que van de 1 a 3. Hay tres tipos
+  de pregunta: similitud, conducta y tolerancia; cada tolerancia tiene la
+  misma escala que su conducta.
+- **Temas sin peso propio en §9**: van dentro de una categoría existente.
+  Cocina, qué se comparte y turnos de limpieza, en Limpieza. Horas de
+  silencio, en Ruido. Teletrabajo y videollamadas en las zonas comunes, en
+  Estudio. Privacidad, comunicación, conflictos y normas, en Personalidad.
+- **Ubicación y presupuesto** no se preguntan: salen de
+  `housing_preferences`.
+- **Guardado parcial**: `completed_at` es NULL mientras el test es un
+  borrador.
+- **Ids estables (D15a)**: un id nunca cambia de significado, escala, tipo,
+  categoría ni pareja. Al subir de versión se reutilizan las respuestas
+  cuyos ids siguen existiendo (D15b).
+- **Pendiente** (no bloquea la implementación): la redacción final de los
+  textos y las etiquetas.
+
 ## 9. Algoritmo de matching
 
 **Determinista y explicable — nunca IA generativa.** Score 0-100.
@@ -156,11 +178,53 @@ duplicar el algoritmo en dos lenguajes. Pesos en `lib/matching/weights.ts`,
 versionados en git; mover a una tabla configurable solo si en V2/V3 alguien
 no técnico necesita ajustarlos sin depender de un despliegue.
 
+**Implementado en la Fase 3** (los pesos de la tabla, sin cambios; D16):
+- **Unidades de una categoría del test**:
+  - similitud: `1 − |a − b| / (máx − mín)`;
+  - parejas conducta–tolerancia: `min(d(A→B), d(B→A))` (D1), donde
+    `d(X→Y) = 1` si la conducta de X cabe en la tolerancia de Y y, si no,
+    `1 − exceso / (máx − mín)`.
+
+  La categoría vale la media de sus unidades.
+- **Ubicación**: coeficiente de solapamiento entre barrios,
+  `|∩| / min(|A|, |B|)`.
+- **Presupuesto**: 1 si los rangos se solapan; si no,
+  `max(0, 1 − hueco / 150)` (D8).
+- **Dato ausente** (sin barrios o sin ningún extremo de presupuesto en
+  cualquiera de los dos): la categoría se excluye y los pesos se renormalizan
+  (D3).
+- **Total**: categorías redondeadas a 6 decimales (r6) y total
+  `round_half_up(r6(100·Σ peso·cat / Σ pesos presentes))`, entre 0 y 100.
+  Es simétrico, determinista y nunca lanza: una entrada inválida o de otra
+  versión del cuestionario devuelve `not_comparable`.
+- **Filtros duros** (antes del score), no puntúan:
+  - misma ciudad;
+  - fechas que se solapan (NULL = abierto);
+  - hueco de presupuesto ≤ 150 €;
+  - rangos de número de compañeros que se solapan, `[max(1, mín ?? 1), máx ?? ∞]`;
+    con `máx = 0` («sin compañeros», D2) la persona no es candidata.
+- **Se excluye** a la propia persona, las cuentas eliminadas, el onboarding o
+  el test sin completar, el test de otra versión y los admins (D10).
+- **No filtran**: `seeking_status`, fumar ni mascotas.
+
 ## 10. Explicación del match
 
 Nunca solo "92% compatible". Siempre con razones: "Por qué encajáis"
 (✓ presupuesto similar, ✓ mismos horarios...) y "Posibles diferencias"
 (⚠ tú prefieres más tranquilidad...). Transparencia obligatoria.
+
+**Implementado en la Fase 3**:
+- **Umbrales**: fortaleza si la categoría vale ≥ 0,80; diferencia si vale
+  ≤ 0,50. Como mucho 3 de cada tipo, ordenadas por peso y luego por el orden
+  fijo de las categorías.
+- **Sin datos de las respuestas**: las explicaciones son por categoría, sin
+  cifras ni puntuaciones.
+- **Dirección** («tú prefieres más tranquilidad», «X tiene un horario más
+  tardío»): solo en las diferencias de Horarios y Ruido, y solo si los dos
+  componentes van en el mismo sentido; si no, frase neutra. El resto de
+  categorías va siempre en neutro.
+- **Riesgo residual aceptado (D11)**: una explicación neutra puede dejar
+  intuir algo de las respuestas del otro.
 
 ## 11. Habitaciones
 
@@ -199,6 +263,23 @@ compatibilidad, precio, distancia, fecha.
 presupuesto, compatibilidad, 3 razones de compatibilidad, posibles
 conflictos, botón "Ver perfil", botón "Me interesa". **Explícitamente NO
 un swipe tipo Tinder** — UX orientada a decisiones racionales.
+
+**Implementado en la Fase 3** (D12–D14): la lista de candidatos («Mis
+matches» en este texto) está en **`/explorar`**; `/matches` queda para los
+matches mutuos de la Fase 5.
+- **Tarjeta**:
+  - nombre completo (`full_name`);
+  - edad en años;
+  - universidad;
+  - hasta 3 barrios y cuántos más tiene;
+  - presupuesto en escalones de 50 €;
+  - compatibilidad;
+  - hasta 3 razones y 3 diferencias;
+  - inicial en lugar de foto (M3 sigue fuera de alcance).
+- **Sin «Ver perfil» ni «Me interesa»** en la Fase 3: llegan en la Fase 5.
+  Esto contradice a sabiendas esta sección; lo decidió el propietario.
+- **Lista**: 20 por página (`?pagina=N`), por score descendente y, si hay
+  empate, por id ascendente. Sin tope total.
 
 ## 15. Interés mutuo
 
@@ -466,6 +547,12 @@ vive en `docs/ARCHITECTURE.md`, `docs/DATABASE.md` o `docs/SECURITY.md`.
     descubierto durante Foundation (no una decisión de producto, una
     realidad del framework). Migrado el 2026-09-29; el proxy corre en
     Node.js.
+17. Fase 3: el servidor es el único que escribe en `compatibility_responses`
+    (D18). `authenticated` solo lee su fila, y un trigger aplica las reglas
+    S1–S6 a todos los roles.
+18. Fase 3: service_role solo en dos servicios `server-only` (D17):
+    candidatos (`lib/services/matching.ts`) y escritura del test
+    (`lib/services/compatibility.ts`).
 
 ## Lo que sigue explícitamente pendiente de decisión humana
 
@@ -477,3 +564,7 @@ vive en `docs/ARCHITECTURE.md`, `docs/DATABASE.md` o `docs/SECURITY.md`.
 - Todo lo marcado **REQUIERE REVISIÓN LEGAL** en `docs/DATABASE.md` y
   `docs/SECURITY.md` (edad mínima, plazos de borrado RGPD,
   transferencias internacionales de datos).
+- Fase 3, decisiones posteriores (no bloquean la implementación local):
+  - textos y etiquetas finales del cuestionario;
+  - el proyecto Supabase nuevo para validar desde cero;
+  - `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción.

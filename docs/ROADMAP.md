@@ -250,7 +250,7 @@ verde en local, en CI y en Supabase real. Siguen fuera de alcance por
 decisión del usuario: Google y Apple OAuth (diferidos), foto de perfil y
 Storage (M3) y borrado de cuenta (H6).
 
-## Fase 3 — Compatibility
+## Fase 3 — Compatibility — 🟡 IMPLEMENTACIÓN LOCAL HECHA (2026-10-07), NO CERRADA
 
 Cuestionario de 25-30 preguntas (con guardado de progreso parcial —
 mitiga el abandono a mitad, ver riesgos), almacenamiento en
@@ -262,6 +262,45 @@ diferencias").
 tests casi total (es el diferencial del producto), es determinista
 (mismos inputs → mismo score siempre), y los pesos son modificables
 editando un único archivo.
+
+**Especificación cerrada (2026-10-07)**: el propietario eligió las 18
+decisiones bloqueantes (D1–D18, todas con la opción recomendada) y D6 = B.
+El resumen está en `ROOMLY_MASTER_SPEC.md` §8–10 y §14, y el detalle en
+`PROGRESS.md` (sesión 31).
+
+Subfases implementadas en local, sin tocar Supabase remoto:
+- **3.1 Base de datos y seguridad**:
+  - migración `20261007120000_compatibility_responses_hardening.sql`: S1–S6,
+    solo el servidor escribe, `authenticated` solo SELECT de su fila, `anon`
+    sin acceso, trigger de cuentas eliminadas para todos los roles;
+  - `lib/services/compatibility.ts`;
+  - test estático de `createAdminClient`.
+- **3.2 Cuestionario v1 (29 preguntas) y motor**: `lib/matching/*`.
+- **3.3 Filtros duros**: `passesHardFilters`, sin índices nuevos.
+- **3.4 Candidatos**: `lib/services/matching.ts`, una sola consulta cruzada
+  con service_role, `CandidateDTO` con lista blanca, 20 por página.
+- **3.5 Estados y navegación**: `questionnaireStatus`; onboarding → `/test`;
+  `/explorar` sin test completado → 307 `/test`.
+- **3.6 Tests**: unitarios, `tests/db/14`, preflight P3/P4/P6 y selftests,
+  actualización incremental local, E1 (mock con service_role ficticio) y E2
+  adaptado sin ejecutar.
+- **3.7 Documentación.**
+
+Cumplimiento de los criterios de aceptación:
+- el motor tiene tests de casos, de propiedades (simetría, determinismo) y de
+  mutaciones;
+- los pesos y las constantes están en `lib/matching/weights.ts`.
+
+Qué falta para **cerrar** la Fase 3 (cada punto con su autorización):
+- Validación real desde cero en un **proyecto Supabase nuevo**. `uwxb…` no se
+  toca y su esquema es de la Fase 2. La suite SQL 14 y la api-suite CRA1–CRA6
+  necesitan la migración nueva. También hay que adaptar la marca en la guarda,
+  el preflight, los selftests y el workflow.
+- E2 real con el destino `/test`, en el proyecto nuevo.
+- CI en verde en un PR.
+- Textos y etiquetas finales del cuestionario.
+- `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción, antes de
+  desplegar.
 
 ## Fase 4 — Rooms
 
@@ -275,6 +314,12 @@ tests, `room_addresses` nunca se serializa en ninguna respuesta pública.
 
 Favoritos, "me interesa", detección de interés mutuo → creación de match
 desde el servidor (nunca desde el cliente).
+
+Desde la Fase 3 (D14 y la especificación cerrada): «Ver perfil» de terceros y el botón
+«Me interesa» de la tarjeta de `/explorar` llegan aquí; `/matches` queda para
+los matches mutuos. Cuando exista «Ver perfil», el acceso solo debe permitirse
+si quien mira pasa los filtros duros con esa persona o ya hay match, para
+impedir enumerar perfiles por id.
 
 **Criterios de aceptación**: test que verifica que un intento de INSERT
 directo a `matches` desde un cliente autenticado (sin pasar por el

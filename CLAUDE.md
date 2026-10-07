@@ -86,7 +86,27 @@ Alcance: punto
 A de 2.3 (`onboarding_completed_at` de una sola escritura, para todos los
 roles) y H4 (eliminar `profiles_select_authenticated`). Decisiones en
 `docs/ROADMAP.md`. Claude no toca Supabase remoto, ni hace commit, push o
-PR, sin autorización explícita. La Fase 3 no ha empezado.
+PR, sin autorización explícita.
+
+**Fase 3 (Compatibility): implementación LOCAL hecha (2026-10-07), NO
+CERRADA.**
+- Especificación cerrada por el propietario: D1–D18, todas con la opción
+  recomendada, y D6 = B. Resumen en `ROOMLY_MASTER_SPEC.md` §8–10 y §14;
+  detalle en `PROGRESS.md`, sesión 31.
+- Lo implementado:
+  - migración `20261007120000`: el servidor es el único que escribe en
+    `compatibility_responses` y el trigger aplica S1–S6;
+  - cuestionario v1 (29 preguntas) y motor en `lib/matching/*`;
+  - servicios `lib/services/{compatibility,matching}.ts`, los únicos que
+    usan service_role;
+  - páginas `/test` y `/explorar`; el onboarding termina en `/test`.
+- Tests: `test` 862/862, `test:db` 305/305, `test:infra` en verde y E1
+  27/27 en local.
+- **Falta para cerrarla**, cada punto con su autorización: CI en un PR;
+  validación real en un proyecto Supabase **nuevo** (`uwxb…` no se toca y
+  su esquema es de la Fase 2); E2 con destino `/test`; textos finales del
+  cuestionario; la clave service_role en el servidor de producción.
+- No se avanza a la Fase 4.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -251,6 +271,21 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   legible por el propietario.
 - `matches`/`conversations`/`conversation_participants` no aceptan INSERT
   de cliente — se crean solo desde el servidor.
+- `compatibility_responses` (Fase 3.1): `authenticated` solo **lee** su
+  fila; no tiene INSERT, UPDATE ni DELETE, y `anon` no tiene nada.
+  - Solo escribe el servidor (`lib/services/compatibility.ts`, service_role),
+    tras validar con Zod contra el cuestionario en código.
+  - El trigger `trg_compatibility_responses_integrity` aplica S1–S6 y el
+    bloqueo de cuentas eliminadas **también a service_role**: el bloqueo
+    RLS de cuentas eliminadas no le afecta, por BYPASSRLS.
+  - No reabras la escritura de `authenticated`.
+- **service_role solo en dos servicios** (Fase 3, D17):
+  `lib/services/matching.ts` (lectura cruzada de candidatos, columnas
+  explícitas, `CandidateDTO` con lista blanca) y
+  `lib/services/compatibility.ts` (escritura del test).
+  - `tests/unit/admin-client-usage.test.ts` falla si otro archivo lo usa.
+  - El estado propio se lee siempre con el cliente del usuario.
+  - Las respuestas y `categoryScores` nunca salen del servidor.
 - `profiles.role` y `conversation_participants.conversation_id` están
   fuera del privilegio `UPDATE` del rol `authenticated` a nivel de
   `GRANT`/`REVOKE` (no solo RLS) — corrección de un escalado de
@@ -278,7 +313,8 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
 
 Ver `docs/TESTING.md` para resultados reales de la última sesión.
 Prioridad: algoritmo de matching (casi cobertura total cuando exista, es
-el diferencial del producto), RLS por rol, y los 3 flujos E2E
+el diferencial del producto; desde la Fase 3, `tests/unit/matching-*` con
+casos, propiedades y mutaciones), RLS por rol, y los 3 flujos E2E
 obligatorios (estudiante, room provider, admin). La conexión con
 Supabase real se verificó en la Fase 1 (`roomly-validation`, histórico) y
 la de Fase 2 en `roomly-validation-2b` (`uwxb…`), runs 13 y 15
@@ -305,12 +341,18 @@ e inicio de sesión por magic link, onboarding, perfil propio, preferencias
 de vivienda, ajustes, logout, cuenta desactivada e integridad y privacidad
 de la 2.9. En Supabase real se validaron la RLS y los triggers (suite SQL
 01–13) y el alta completa (E2); la cuenta desactivada, en E1 y en
-`tests/db/08`. Todavía no hay matching,
-habitaciones, intereses, chat ni admin real (Fase 3 en adelante).
+`tests/db/08`.
+
+Fase 3, implementada en local y **no cerrada**: test de convivencia
+(`/test`, con guardado parcial) y candidatos compatibles con explicación
+(`/explorar`), sin validar todavía en Supabase real. Todavía no hay
+habitaciones, intereses («Me interesa», Fase 5), «Ver perfil» de terceros,
+chat ni admin real.
 
 ## Funcionalidades pendientes
 
-Fases 3 a 9 — ver `docs/ROADMAP.md`. Siguen fuera de alcance, por decisión
+El cierre de la Fase 3 (ver «Estado actual») y las Fases 4 a 9 — ver
+`docs/ROADMAP.md`. Siguen fuera de alcance, por decisión
 del usuario: Google y Apple OAuth (diferidos), foto de perfil (M3) y
 borrado de cuenta (H6).
 
