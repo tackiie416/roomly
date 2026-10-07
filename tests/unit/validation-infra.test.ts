@@ -129,11 +129,18 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
     ]);
   });
 
-  it("12 triggers, los mismos que crean las migraciones", () => {
+  it("compatibility_responses: solo la política SELECT de 20261007120000, sin la antigua FOR ALL", () => {
+    const cr = [...derived.policies].filter((p) =>
+      p.startsWith("compatibility_responses.")
+    );
+    expect(cr).toEqual(["compatibility_responses.compatibility_responses_select_own"]);
+  });
+
+  it("13 triggers, los mismos que crean las migraciones", () => {
     const expected = preflightValues(
       /-- P6[\s\S]*?with expected\(tablename, tgname, fn\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.triggers.size).toBe(12);
+    expect(derived.triggers.size).toBe(13);
     expect([...expected].sort()).toEqual([...derived.triggers].sort());
   });
 

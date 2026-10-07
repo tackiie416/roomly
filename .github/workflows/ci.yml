@@ -60,10 +60,13 @@ jobs:
       - run: bash tests/db/run.sh
       # Infraestructura de la validación remota (Fase 2.8), siempre en local:
       # guarda F1 (marca roomly-validation-2), runner SQL aislado por archivo
-      # y preflight exacto con sus mutaciones. Ninguno toca Supabase.
+      # y preflight exacto con sus mutaciones; desde la Fase 3.1, también la
+      # actualización incremental (datos de la Fase 2 + migraciones nuevas).
+      # Ninguno toca Supabase.
       - run: bash tests/supabase/guard-selftest.sh
       - run: bash tests/supabase/sql-suite-selftest.sh
       - run: bash tests/supabase/preflight-selftest.sh
+      - run: bash tests/supabase/migration-upgrade-selftest.sh
 
   # E1 — E2E local (Fase 2.8): la app real contra el Supabase simulado de
   # tests/e2e/support. Sin secrets ni Supabase real. El E2E real (E2) solo se

@@ -5,7 +5,7 @@
 #   - el esquema actual pasa P0–P6;
 #   - cada mutación (política que falta, sobra, cambia de comando o de nombre;
 #     tabla sin RLS; GRANT de más en housing_preferences; trigger que falta,
-#     sobra o está desactivado; función con otra seguridad o search_path;
+#     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); función con otra seguridad o search_path;
 #     función de más; EXECUTE concedido; marca antigua) hace fallar la
 #     comprobación que corresponde. Cada mutación va en su propia
 #     transacción y se deshace.
@@ -84,6 +84,11 @@ P4|authenticated con INSERT de tabla completa|grant insert on public.housing_pre
 P4|authenticated sin DELETE|revoke delete on public.housing_preferences from authenticated;
 P4|authenticated sin INSERT de city_id|revoke insert (city_id) on public.housing_preferences from authenticated;
 P4|authenticated con UPDATE de profiles.role|grant update (role) on public.profiles to authenticated;
+P3|vuelve la política antigua compatibility_responses_own|create policy compatibility_responses_own on public.compatibility_responses for all using (auth.uid() = profile_id);
+P4|anon con SELECT en compatibility_responses|grant select on public.compatibility_responses to anon;
+P4|authenticated con INSERT en compatibility_responses|grant insert on public.compatibility_responses to authenticated;
+P4|authenticated con UPDATE de compatibility_responses.completed_at|grant update (completed_at) on public.compatibility_responses to authenticated;
+P4|authenticated sin SELECT en compatibility_responses|revoke select on public.compatibility_responses from authenticated;
 P6|falta trg_housing_preferences_university|drop trigger trg_housing_preferences_university on public.housing_preferences;
 P6|falta trg_profiles_onboarding_completion|drop trigger trg_profiles_onboarding_completion on public.profiles;
 P6|trigger desactivado|alter table public.housing_preferences disable trigger trg_housing_preferences_city_required;
@@ -95,6 +100,9 @@ P6|función propia de más en public|create function public.zz_extra() returns i
 P6|authenticated puede ejecutar enforce_housing_city_after_onboarding|grant execute on function public.enforce_housing_city_after_onboarding() to authenticated;
 P6|anon puede ejecutar enforce_housing_preferences_neighborhoods|grant execute on function public.enforce_housing_preferences_neighborhoods() to anon;
 P6|PUBLIC puede ejecutar enforce_onboarding_completion|grant execute on function public.enforce_onboarding_completion() to public;
+P6|falta trg_compatibility_responses_integrity|drop trigger trg_compatibility_responses_integrity on public.compatibility_responses;
+P6|enforce_compatibility_responses_integrity pasa a SECURITY DEFINER|alter function public.enforce_compatibility_responses_integrity() security definer;
+P6|authenticated puede ejecutar enforce_compatibility_responses_integrity|grant execute on function public.enforce_compatibility_responses_integrity() to authenticated;
 CASES
 
 echo "== el preflight no deja nada creado"

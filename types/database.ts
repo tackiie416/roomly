@@ -188,18 +188,28 @@ export interface Database {
           profile_id: string;
           questionnaire_version: number;
           answers: Json;
-          completed_at: string;
+          // NULL = borrador (Fase 3.1, 20261007120000).
+          completed_at: string | null;
           updated_at: string;
         };
+        // Excepción a la regla de este archivo: `authenticated` no tiene
+        // INSERT ni UPDATE en esta tabla (20261007120000, decisión D18), así
+        // que Insert/Update describen la escritura del servidor con
+        // service_role (lib/services/compatibility.ts). `questionnaire_version`
+        // no tiene DEFAULT y se envía siempre; `completed_at` tampoco tiene
+        // DEFAULT. `updated_at` la pone la base de datos.
         Insert: {
           profile_id: string;
-          questionnaire_version?: number;
+          questionnaire_version: number;
           answers: Json;
-          completed_at?: string;
-          updated_at?: string;
+          completed_at: string | null;
         };
+        // `profile_id` no cambia nunca (trigger, S6).
         Update: Partial<
-          Database["public"]["Tables"]["compatibility_responses"]["Insert"]
+          Omit<
+            Database["public"]["Tables"]["compatibility_responses"]["Insert"],
+            "profile_id"
+          >
         >;
         Relationships: [];
       };
