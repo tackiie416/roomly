@@ -91,7 +91,13 @@ test("alta real por magic link, onboarding, perfil, preferencias, ajustes y logo
     await page.locator("#city_id").selectOption({ label: "Barcelona" });
     await page.locator("#budget_max").fill("650");
     await page.getByRole("button", { name: "Terminar" }).click();
-    await page.waitForURL((url) => url.pathname === "/");
+    // Fase 3 (D5): al terminar el onboarding se va al test. La página lee el
+    // estado con el cliente del usuario: no necesita service_role, que la
+    // app del E2 nunca recibe.
+    await page.waitForURL((url) => url.pathname === "/test");
+    await expect(
+      page.getByRole("heading", { name: "Test de convivencia" })
+    ).toBeVisible();
   });
 
   await step("/perfil: guardar y releer", async () => {

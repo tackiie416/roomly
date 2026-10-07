@@ -1,6 +1,6 @@
 /**
  * Validación contra un proyecto Supabase REAL (roomly-validation-2, Fase 2.8).
- * Matriz: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, AU2 — ver
+ * Matriz: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, CRA1–CRA6 (Fase 3.1), AU2 — ver
  * docs/SUPABASE_VALIDATION.md.
  *
  * Reglas de esta suite:
@@ -865,6 +865,119 @@ describe("Reports (RE)", () => {
 // ===========================================================================
 // AUTH — AU2: lista de redirects permitidos de Supabase Auth
 // ===========================================================================
+// ===========================================================================
+// COMPATIBILITY RESPONSES (Fase 3.1, D6 = B: la escritura del test se valida
+// aquí y en la suite SQL, sin dar service_role a la app del workflow)
+// ===========================================================================
+describe("Compatibility responses (CRA)", () => {
+  const TABLE = "compatibility_responses";
+
+  beforeAll(async () => {
+    // El servidor (service_role) es el único escritor: B tiene un borrador.
+    const { error } = await service.from(TABLE).insert({
+      profile_id: B().id,
+      questionnaire_version: 1,
+      answers: {},
+      completed_at: null,
+    });
+    expectOk(error);
+  });
+
+  it("CRA1: B lee su fila con su JWT; C no la ve", async () => {
+    const own = await B()
+      .client.from(TABLE)
+      .select("profile_id")
+      .eq("profile_id", B().id);
+    expectOk(own.error);
+    expect(own.data).toHaveLength(1);
+    const other = await C()
+      .client.from(TABLE)
+      .select("profile_id")
+      .eq("profile_id", B().id);
+    expectOk(other.error);
+    expect(other.data).toHaveLength(0);
+  });
+
+  it("CRA2: B no escribe por PostgREST: ni INSERT, ni UPDATE de completed_at/versión, ni DELETE", async () => {
+    const insert = await C().client.from(TABLE).insert({
+      profile_id: C().id,
+      questionnaire_version: 1,
+      answers: {},
+      completed_at: null,
+    });
+    expectPgError(insert.error, "42501");
+    const complete = await B()
+      .client.from(TABLE)
+      .update({ completed_at: new Date().toISOString() })
+      .eq("profile_id", B().id);
+    expectPgError(complete.error, "42501");
+    const version = await B()
+      .client.from(TABLE)
+      .update({ questionnaire_version: 99 })
+      .eq("profile_id", B().id);
+    expectPgError(version.error, "42501");
+    const remove = await B().client.from(TABLE).delete().eq("profile_id", B().id);
+    expectPgError(remove.error, "42501");
+  });
+
+  it("CRA3: anon no lee respuestas", async () => {
+    const { error } = await anon.from(TABLE).select("profile_id");
+    expectPgError(error, "42501");
+  });
+
+  it("CRA4: service_role completa una vez; después la fecha no cambia en la misma versión (S4)", async () => {
+    const first = await service
+      .from(TABLE)
+      .update({ completed_at: "2026-10-02T10:00:00Z" })
+      .eq("profile_id", B().id);
+    expectOk(first.error);
+    const again = await service
+      .from(TABLE)
+      .update({ completed_at: "2026-10-03T10:00:00Z" })
+      .eq("profile_id", B().id);
+    expectPgError(again.error, "23514");
+    expect(again.error?.message).toMatch(/^questionnaire_completed_locked:/);
+  });
+
+  it("CRA5: no se baja de versión (S3) y se sube completando en la misma escritura (S5)", async () => {
+    const up = await service
+      .from(TABLE)
+      .update({ questionnaire_version: 2, completed_at: "2026-10-04T10:00:00Z" })
+      .eq("profile_id", B().id);
+    expectOk(up.error);
+    const down = await service
+      .from(TABLE)
+      .update({ questionnaire_version: 1 })
+      .eq("profile_id", B().id);
+    expectPgError(down.error, "23514");
+    expect(down.error?.message).toMatch(/^questionnaire_version_downgrade:/);
+  });
+
+  it("CRA6: con la cuenta eliminada, ni service_role escribe (trigger para todos los roles)", async () => {
+    const deactivate = await service
+      .from("profiles")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", C().id);
+    expectOk(deactivate.error);
+    try {
+      const { error } = await service.from(TABLE).insert({
+        profile_id: C().id,
+        questionnaire_version: 1,
+        answers: {},
+        completed_at: null,
+      });
+      expectPgError(error, "23514");
+      expect(error?.message).toMatch(/^account_deleted:/);
+    } finally {
+      const restore = await service
+        .from("profiles")
+        .update({ deleted_at: null })
+        .eq("id", C().id);
+      expectOk(restore.error);
+    }
+  });
+});
+
 describe("Auth redirects (AU2)", () => {
   const redirectHostOf = async (redirectTo: string) => {
     const { data, error } = await service.auth.admin.generateLink({

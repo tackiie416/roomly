@@ -83,16 +83,19 @@ describe("Página de inicio pública", () => {
 });
 
 describe("Shell autenticado (app)", () => {
-  it("enlaza exactamente a /perfil, /preferencias y /ajustes (ninguna ruta futura)", () => {
+  it("enlaza exactamente a /explorar, /test, /perfil, /preferencias y /ajustes (ninguna ruta futura)", () => {
     expect(APP_NAV_LINKS.map((link) => link.href)).toEqual([
+      "/explorar",
+      "/test",
       "/perfil",
       "/preferencias",
       "/ajustes",
     ]);
     const html = renderToStaticMarkup(<AppNav />);
     const hrefs = [...html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
-    expect(hrefs).toEqual(["/perfil", "/preferencias", "/ajustes"]);
-    expect(html).not.toMatch(/explorar|matches|mensajes|habitaciones|admin/);
+    expect(hrefs).toEqual(["/explorar", "/test", "/perfil", "/preferencias", "/ajustes"]);
+    // Fase 3: sin /matches (Fase 5), mensajes, habitaciones ni admin.
+    expect(html).not.toMatch(/matches|mensajes|habitaciones|admin/);
   });
 
   it("el logout es el SignOutButton existente", () => {
@@ -102,7 +105,7 @@ describe("Shell autenticado (app)", () => {
     expect(renderToStaticMarkup(<AppNav />)).toContain("Cerrar sesión");
   });
 
-  it.each(["/perfil", "/preferencias", "/ajustes"])(
+  it.each(["/explorar", "/test", "/perfil", "/preferencias", "/ajustes"])(
     "marca %s como página actual (aria-current) y solo esa",
     (pathname) => {
       navMock.pathname = pathname;

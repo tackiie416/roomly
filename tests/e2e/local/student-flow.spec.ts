@@ -19,6 +19,8 @@ test("estudiante nuevo: alta por magic link, onboarding, app y logout", async ({
   context,
 }) => {
   const email = uniqueEmail("estudiante");
+  // El registro del mock es común a todos los specs: solo cuenta lo de este test.
+  const logStart = (await requestLog()).length;
 
   // 1–3. Alta: el mock crea el usuario (signup), el enlace pasa por
   // /auth/v1/verify y vuelve a /callback?code=; el callback canjea el código
@@ -32,16 +34,22 @@ test("estudiante nuevo: alta por magic link, onboarding, app y logout", async ({
     )
   ).toBe(true);
 
-  // 4. Onboarding completo → home.
+  // 4. Onboarding completo → /test (Fase 3, D5).
   await completeOnboarding(page, "Estudiante E1");
   let state = await userState(email);
   expect(state.profile?.onboarding_completed_at).not.toBeNull();
   expect(state.preferences?.city_id).toBe("11111111-1111-4111-8111-111111111111");
 
-  // Shell (2.7): los tres enlaces de la cuenta y el logout.
+  // Shell (2.7, Fase 3.5): los enlaces de la cuenta y el logout.
   await page.goto("/perfil");
   const nav = appNav(page);
-  await expect(nav.getByRole("link")).toHaveText(["Perfil", "Preferencias", "Ajustes"]);
+  await expect(nav.getByRole("link")).toHaveText([
+    "Explorar",
+    "Test",
+    "Perfil",
+    "Preferencias",
+    "Ajustes",
+  ]);
   await expect(nav.getByRole("link", { name: "Perfil" })).toHaveAttribute(
     "aria-current",
     "page"
@@ -106,8 +114,9 @@ test("estudiante nuevo: alta por magic link, onboarding, app y logout", async ({
   expect(pathOf(replayPage)).toBe("/login?next=%2Fperfil");
   await replay.close();
 
-  // Nada de lo anterior usó otra clave que la anon ni un JWT de service_role.
-  const log = await requestLog();
+  // Nada de lo anterior usó otra clave que la anon ni un JWT de service_role:
+  // este flujo no guarda el test ni lee candidatos (lo cubre compatibility-flow).
+  const log = (await requestLog()).slice(logStart);
   expect(log.length).toBeGreaterThan(0);
   expect(log.every((entry) => entry.bearerRole !== "service_role")).toBe(true);
   expect(

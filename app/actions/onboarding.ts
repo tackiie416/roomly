@@ -7,8 +7,8 @@ import {
   DEACTIVATED_PATH,
   ONBOARDING_PREFERENCES_PATH,
   ONBOARDING_PROFILE_PATH,
+  TEST_PATH,
   loginPath,
-  resolveDestination,
 } from "@/lib/auth/destination";
 import { completeOnboarding, createProfile } from "@/lib/services/profile";
 import { createHousingPreferences } from "@/lib/services/housing-preferences";
@@ -144,5 +144,7 @@ export async function submitOnboardingPreferences(
   const completed = await completeOnboarding(supabase);
   if (!completed.ok) return fromServiceError(completed, PREFERENCES_FIELDS, values);
 
-  redirect(resolveDestination({ status: "complete" }));
+  // D5 (Fase 3): al terminar el onboarding se va siempre al test de
+  // compatibilidad; `next` no se usa para saltárselo.
+  redirect(TEST_PATH);
 }
