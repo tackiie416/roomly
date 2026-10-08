@@ -15,10 +15,10 @@ begin
   if coalesce(
        (select shobj_description(d.oid, 'pg_database')
         from pg_database d where d.datname = current_database()),
-       '') <> 'roomly-validation-2' then
-    raise exception 'FALLO P0: el destino NO está reconocido como roomly-validation-2 (falta la marca de identidad o no coincide). Abortado.';
+       '') <> 'roomly-validation-3' then
+    raise exception 'FALLO P0: el destino NO está reconocido como roomly-validation-3 (falta la marca de identidad o no coincide). Abortado.';
   end if;
-  raise notice 'ok - P0: destino identificado como roomly-validation-2 por su propia marca';
+  raise notice 'ok - P0: destino identificado como roomly-validation-3 por su propia marca';
 end $$;
 
 -- ============================================================

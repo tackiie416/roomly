@@ -11,18 +11,20 @@
 #
 #   2. Identidad verificada DESDE EL PROPIO PROYECTO: la base de datos a la
 #      que realmente se conecta debe llevar la marca
-#         COMMENT ON DATABASE postgres IS 'roomly-validation-2';
+#         COMMENT ON DATABASE postgres IS 'roomly-validation-3';
 #      (legible por cualquier rol vía pg_shdescription; solo el dueño de la
 #      BD puede escribirla). Si la marca falta, no coincide exactamente, o no
 #      se puede comprobar, se aborta. Unos secrets coherentes que apunten a
-#      otro proyecto NO pasan: ese proyecto no tiene la marca.
+#      otro proyecto NO pasan: ese proyecto no tiene la marca. Tampoco los
+#      proyectos de validación anteriores (Fase 3: proyecto nuevo, con una
+#      marca distinta de la de la Fase 2.8).
 #
 # Nunca imprime valores de variables ni la salida de error de psql (podría
 # contener el host o el usuario de la conexión).
 #
 # Uso: source tests/supabase/guard.sh [VAR_EXTRA ...]
 
-ROOMLY_VALIDATION_MARKER="roomly-validation-2"
+ROOMLY_VALIDATION_MARKER="roomly-validation-3"
 
 roomly_guard() {
   local missing=()

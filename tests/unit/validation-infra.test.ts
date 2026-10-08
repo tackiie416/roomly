@@ -3,7 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 // Fase 2.8 — coherencia de la infraestructura de validación, sin red:
-//   - identidad roomly-validation-2 en todos los puntos de entrada;
+//   - identidad roomly-validation-3 en todos los puntos de entrada (Fase 3:
+//     proyecto nuevo; la marca de la Fase 2.8 ya no pasa);
 //   - preflight.sql con exactamente las políticas y triggers de las migraciones;
 //   - E1 (local, simulado) y E2 (real, manual) separados;
 //   - secrets del workflow: service_role nunca en la app ni en Playwright,
@@ -15,13 +16,15 @@ const code = (file: string) =>
   read(file)
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
-const MARKER = "roomly-validation-2";
+const MARKER = "roomly-validation-3";
 const OLD_MARKER = "roomly-validation";
+/** Marca de la Fase 2.8 (uwxb…): aislamiento, no debe pasar ninguna guarda. */
+const PREVIOUS_MARKER = "roomly-validation-2";
 
-describe("identidad del proyecto P1: roomly-validation-2, comparación exacta", () => {
+describe("identidad del proyecto P1: roomly-validation-3, comparación exacta", () => {
   it("guard.sh define la marca nueva", () => {
     expect(read("tests/supabase/guard.sh")).toMatch(
-      /^ROOMLY_VALIDATION_MARKER="roomly-validation-2"$/m
+      /^ROOMLY_VALIDATION_MARKER="roomly-validation-3"$/m
     );
   });
 
@@ -29,6 +32,7 @@ describe("identidad del proyecto P1: roomly-validation-2, comparación exacta", 
     const sql = read("tests/supabase/preflight.sql");
     expect(sql).toContain(`'') <> '${MARKER}' then`);
     expect(sql).not.toContain(`'${OLD_MARKER}'`);
+    expect(sql).not.toContain(PREVIOUS_MARKER);
   });
 
   it("el runner SQL usa la marca de guard.sh en cada sesión, sin literal propio", () => {
@@ -36,6 +40,7 @@ describe("identidad del proyecto P1: roomly-validation-2, comparación exacta", 
     expect(lib).toContain("${ROOMLY_VALIDATION_MARKER:?");
     expect(lib).toMatch(/<> '\$\{marker\}' then/);
     expect(lib).not.toContain(`'${OLD_MARKER}'`);
+    expect(lib).not.toContain(PREVIOUS_MARKER);
     const runner = read("tests/supabase/run-sql-suite.sh");
     const guardAt = runner.indexOf('source "$ROOT/tests/supabase/guard.sh"');
     const libAt = runner.indexOf('source "$ROOT/tests/supabase/sql-suite-lib.sh"');
@@ -59,7 +64,54 @@ describe("identidad del proyecto P1: roomly-validation-2, comparación exacta", 
     }
   });
 
-  it("el workflow confirma exactamente roomly-validation-2 y usa su Environment en todos los jobs", () => {
+  it("aislamiento: ningún punto de entrada ejecutable menciona la marca de la Fase 2.8", () => {
+    // Solo los auto-tests la usan, como caso negativo que debe abortar.
+    const negativeCases = new Set([
+      "guard-selftest.sh",
+      "preflight-selftest.sh",
+      "sql-suite-selftest.sh",
+    ]);
+    const files = [
+      ...readdirSync("tests/supabase")
+        .filter((file) => !negativeCases.has(file))
+        .map((file) => path.join("tests/supabase", file)),
+      ...readdirSync(".github/workflows").map((file) =>
+        path.join(".github/workflows", file)
+      ),
+      ...readdirSync("tests/e2e/real", { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => path.join(entry.parentPath, entry.name)),
+      "tests/integration/supabase-validation.test.ts",
+      "playwright.real.config.ts",
+    ];
+    expect(files.length).toBeGreaterThan(10);
+    for (const file of files) {
+      expect(read(file), file).not.toContain(PREVIOUS_MARKER);
+    }
+  });
+
+  it("aislamiento: los auto-tests prueban que la marca de la Fase 2.8 se rechaza", () => {
+    const guard = read("tests/supabase/guard-selftest.sh");
+    expect(guard).toContain(`comment on database \${VAL_DB} is '${MARKER}'`);
+    expect(guard).toContain(`comment on database \${OTHER_DB} is '${PREVIOUS_MARKER}'`);
+    expect(guard).toMatch(/expect fail "5: aislamiento: proyecto anterior/);
+    for (const entry of [
+      "apply-migrations",
+      "run-preflight",
+      "run-sql-suite",
+      "preflight.sql",
+    ]) {
+      expect(guard).toMatch(new RegExp(`expect fail "5: ${entry.replace(".", "\\.")}`));
+    }
+    expect(read("tests/supabase/preflight-selftest.sh")).toContain(
+      `P0|marca del proyecto anterior ${PREVIOUS_MARKER} (aislamiento)|`
+    );
+    expect(read("tests/supabase/sql-suite-selftest.sh")).toContain(
+      `comment on database \${DB} is '${PREVIOUS_MARKER}'`
+    );
+  });
+
+  it("el workflow confirma exactamente roomly-validation-3 y usa su Environment en todos los jobs", () => {
     const workflow = read(".github/workflows/supabase-validation.yml");
     expect(workflow).toContain(`if [ "$CONFIRM" != "${MARKER}" ]; then`);
     const jobs = workflow

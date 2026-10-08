@@ -6,6 +6,86 @@ próximos pasos.**
 
 ---
 
+## 2026-10-08 — Sesión 32: marca `roomly-validation-3` para la validación real de la Fase 3 (Fase 3 NO cerrada)
+
+**Contexto**
+- El PR #7 (Fase 3 local + corrección de E1) se fusionó en `master`
+  (`f34b2c8`), con los tres checks en verde.
+- El propietario autorizó `roomly-validation-3` como marca, GitHub
+  Environment y valor de `confirm_project` del proyecto nuevo.
+
+**Qué se hizo** (solo infraestructura de validación y documentación)
+- **Marca funcional `roomly-validation-3`:**
+  - `tests/supabase/guard.sh`;
+  - P0 de `tests/supabase/preflight.sql`;
+  - `supabase-validation.yml`: `environment:` de los 7 jobs,
+    `confirm_project` y comentarios. Los nombres del job y del paso de la
+    suite SQL dicen ahora 01–14.
+- **Aislamiento de `uwxb…` (marca `roomly-validation-2`), con tests:**
+  - `guard-selftest.sh` (22 → 28): la guarda rechaza unos secrets
+    coherentes de un proyecto con esa marca. Contra él abortan
+    `apply-migrations` (sin crear nada), `run-preflight`, `run-sql-suite` y
+    `preflight.sql` sin la guarda.
+  - `preflight-selftest.sh` (43 → 44): mutación de P0 con esa marca.
+  - `sql-suite-selftest.sh` (75 → 78): caso H con esa marca, en la suite y
+    en la P0 de cada sesión.
+  - `tests/unit/validation-infra.test.ts`: la marca nueva en guarda, P0 y
+    workflow; `roomly-validation-2` no aparece en ningún punto de entrada
+    ejecutable (workflows, `tests/supabase/` salvo los auto-tests,
+    `tests/e2e/real/`, api-suite, `playwright.real.config.ts`); los
+    auto-tests contienen los casos de aislamiento.
+- **Comentarios y mensajes:** api-suite, `cleanup.mjs`, `mailtrap.mjs`,
+  `student-real.spec.ts` y `ci.yml`.
+- **Documentación:**
+  - `docs/SUPABASE_VALIDATION.md`: proyecto P1, marca, Environment,
+    `confirm_project`, recuentos de los auto-tests y plan de la Fase 3;
+  - `docs/ENVIRONMENT.md`, `docs/SECURITY.md`, `docs/TESTING.md` y
+    `docs/ROADMAP.md`: las líneas que describen la marca o el Environment
+    actuales;
+  - `CLAUDE.md`: la descripción de `test:e2e:real`;
+  - textos desfasados: «7 migraciones» → 10 y la suite «01–13» → «01–14»
+    (305 aserciones), solo donde describen el estado actual.
+
+**Problemas encontrados**
+- `docs/SUPABASE_VALIDATION.md` y `docs/TESTING.md` decían que
+  `guard-selftest.sh` tenía 19 comprobaciones; en realidad eran 22 desde
+  las 3 de diagnóstico del PR #5. Corregido con el recuento nuevo (28).
+
+**Decisiones técnicas**
+- Las referencias históricas a `roomly-validation-2` / `roomly-validation-2b`
+  se mantienen, porque describen el proyecto anterior y los runs 13 y 15:
+  - los resultados de la 2.8 (9 migraciones, suite 01–13);
+  - este log;
+  - `CLAUDE.md`, `NEXT_PHASE_AUDIT.md`, `docs/ROADMAP.md`,
+    `docs/DATABASE.md` y `docs/TESTING.md`.
+  Ninguna participa en una guarda, un Environment ni un workflow.
+- El Environment `roomly-validation-2` y sus secrets no se tocan: el
+  workflow ya no los usa.
+
+**Resultados locales**
+- `test:infra` en verde: guarda 28, runner SQL 78, preflight 44,
+  actualización incremental 8.
+- `tests/unit/validation-infra.test.ts` 28/28; `test` 864/864 (862 + los
+  2 tests nuevos de aislamiento); `test:db` 305/305; lint, typecheck,
+  format y build en verde; los dos workflows se parsean como YAML válido y
+  los 7 jobs declaran `environment: roomly-validation-3`.
+- E1 no se ejecutó en local: este cambio no toca la app ni sus specs (lo
+  ejecuta la CI).
+- Sin red: nada contra Supabase real.
+
+**Qué queda (Fase 3 NO cerrada)**
+1. Merge de este cambio (`workflow_dispatch` solo existe en `master`).
+2. El propietario crea el proyecto `roomly-validation-3` (Free, Frankfurt),
+   su marca, Auth (Site URL y Redirect URLs de `localhost:3000`, registro
+   desactivado), el Environment `roomly-validation-3` y sus secrets.
+3. Run con `apply_migrations=true` y `run_e2e_real=false`; después, el E2
+   con destino `/test`. Cada uno con su autorización.
+4. Textos finales del cuestionario y `SUPABASE_SERVICE_ROLE_KEY` en
+   producción.
+5. Pendiente operativo de `uwxb…` (rotar claves y pausar), sin tocar.
+
+---
+
 ## 2026-10-07 — Sesión 31: Fase 3 — implementación local (NO cerrada)
 
 **Contexto**

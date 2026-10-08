@@ -3,7 +3,7 @@ import { assertMagicLink, loadMailbox, testEmail } from "./e2e-real-lib.mjs";
 
 /**
  * E2 — alta REAL de un estudiante contra el proyecto de validación
- * (roomly-validation-2). Formulario real → signInWithOtp → email real →
+ * (roomly-validation-3). Formulario real → signInWithOtp → email real →
  * magic link → /callback?code= (PKCE) → onboarding → app → logout.
  * Sin generateLink ni atajos de autenticación: el enlace sale del buzón.
  *

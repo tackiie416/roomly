@@ -1,11 +1,11 @@
 name: Supabase validation
 
 # Validación MANUAL contra el proyecto Supabase de validación P1
-# (roomly-validation-2, Fase 2.8). Nunca se ejecuta en push ni en
+# (roomly-validation-3, Fase 3). Nunca se ejecuta en push ni en
 # pull_request. Detalle, matriz de pruebas y configuración de secrets:
 # docs/SUPABASE_VALIDATION.md.
 #
-# Todos los jobs usan el GitHub Environment `roomly-validation-2`: los
+# Todos los jobs usan el GitHub Environment `roomly-validation-3`: los
 # secrets viven SOLO ahí (GitHub → Settings → Environments), no como secrets
 # del repositorio.
 #
@@ -24,15 +24,15 @@ name: Supabase validation
 #
 # Identidad (F1): antes de migrar, comprobar o crear usuarios, cada punto de
 # entrada verifica EN la propia base de datos la marca
-#   COMMENT ON DATABASE postgres IS 'roomly-validation-2';
-# Si falta o no coincide exactamente, todo aborta. Sin fallback. La marca
-# del proyecto antiguo ('roomly-validation') no pasa.
+#   COMMENT ON DATABASE postgres IS 'roomly-validation-3';
+# Si falta o no coincide exactamente, todo aborta. Sin fallback. Las marcas
+# de los proyectos de validación anteriores (Fases 1 y 2.8) no pasan.
 
 on:
   workflow_dispatch:
     inputs:
       confirm_project:
-        description: "Escribe roomly-validation-2 para confirmar el proyecto de destino"
+        description: "Escribe roomly-validation-3 para confirmar el proyecto de destino"
         required: true
         type: string
       apply_migrations:
@@ -57,18 +57,18 @@ jobs:
   guard:
     name: Guarda de destino
     runs-on: ubuntu-latest
-    environment: roomly-validation-2
+    environment: roomly-validation-3
     steps:
       - uses: actions/checkout@v4
       - name: Confirmación explícita del proyecto
         env:
           CONFIRM: ${{ inputs.confirm_project }}
         run: |
-          if [ "$CONFIRM" != "roomly-validation-2" ]; then
-            echo "ERROR: confirm_project debe ser exactamente roomly-validation-2" >&2
+          if [ "$CONFIRM" != "roomly-validation-3" ]; then
+            echo "ERROR: confirm_project debe ser exactamente roomly-validation-3" >&2
             exit 1
           fi
-      - name: Secrets del mismo proyecto y marca de identidad roomly-validation-2 (sin imprimirlos)
+      - name: Secrets del mismo proyecto y marca de identidad roomly-validation-3 (sin imprimirlos)
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
@@ -84,7 +84,7 @@ jobs:
     needs: guard
     if: ${{ inputs.apply_migrations }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-2
+    environment: roomly-validation-3
     steps:
       - uses: actions/checkout@v4
       - name: Migraciones existentes + seed (una transacción, se niega si el esquema ya existe)
@@ -98,7 +98,7 @@ jobs:
     needs: [guard, migrate]
     if: ${{ !cancelled() && needs.guard.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-2
+    environment: roomly-validation-3
     steps:
       - uses: actions/checkout@v4
       - name: P0–P6 — si falla, no se ejecuta ninguna suite
@@ -108,14 +108,14 @@ jobs:
         run: bash tests/supabase/run-preflight.sh
 
   sql-suite:
-    name: Suite SQL tests/db 01–13 (roles reales, una sesión y un ROLLBACK por archivo)
+    name: Suite SQL tests/db 01–14 (roles reales, una sesión y un ROLLBACK por archivo)
     needs: preflight
     if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-2
+    environment: roomly-validation-3
     steps:
       - uses: actions/checkout@v4
-      - name: tests/db 01–13 en Supabase real
+      - name: tests/db 01–14 en Supabase real
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
@@ -126,7 +126,7 @@ jobs:
     needs: sql-suite
     if: ${{ !cancelled() && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-2
+    environment: roomly-validation-3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -150,7 +150,7 @@ jobs:
     needs: sql-suite
     if: ${{ !cancelled() && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-2
+    environment: roomly-validation-3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -181,7 +181,7 @@ jobs:
     needs: sql-suite
     if: ${{ !cancelled() && inputs.run_e2e_real && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-2
+    environment: roomly-validation-3
     timeout-minutes: 30
     env:
       # Id único por ejecución: la dirección de prueba es E2E_EMAIL_TEMPLATE con {id}.

@@ -1,5 +1,5 @@
 /**
- * Validación contra un proyecto Supabase REAL (roomly-validation-2, Fase 2.8).
+ * Validación contra un proyecto Supabase REAL (roomly-validation-3, Fase 3).
  * Matriz: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, CRA1–CRA6 (Fase 3.1), AU2 — ver
  * docs/SUPABASE_VALIDATION.md.
  *
@@ -60,8 +60,9 @@ function readEnv() {
  * F1 — Identidad verificada DESDE EL PROPIO PROYECTO antes de crear o borrar
  * nada: ejecuta tests/supabase/guard.sh (la misma guarda que usan los
  * scripts SQL), que exige la marca `COMMENT ON DATABASE postgres IS
- * 'roomly-validation-2'` en la base de datos a la que apuntan los secrets
- * (la marca del proyecto antiguo, 'roomly-validation', no pasa).
+ * 'roomly-validation-3'` en la base de datos a la que apuntan los secrets
+ * (las marcas de los proyectos de validación anteriores, Fases 1 y 2.8, no
+ * pasan).
  * Sin fallback: cualquier fallo aborta la suite. El mensaje propagado es
  * solo el de la guarda, que nunca incluye valores de variables.
  */
@@ -81,7 +82,7 @@ function verifyValidationProjectIdentity() {
   } catch (err) {
     const stderr = (err as { stderr?: Buffer }).stderr?.toString().trim();
     throw new Error(
-      `Destino NO reconocido como roomly-validation-2; la suite no se ejecuta.\n${stderr ?? ""}`
+      `Destino NO reconocido como roomly-validation-3; la suite no se ejecuta.\n${stderr ?? ""}`
     );
   }
 }

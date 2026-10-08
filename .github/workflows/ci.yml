@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash tests/db/run.sh
       # Infraestructura de la validación remota (Fase 2.8), siempre en local:
-      # guarda F1 (marca roomly-validation-2), runner SQL aislado por archivo
+      # guarda F1 (marca roomly-validation-3), runner SQL aislado por archivo
       # y preflight exacto con sus mutaciones; desde la Fase 3.1, también la
       # actualización incremental (datos de la Fase 2 + migraciones nuevas).
       # Ninguno toca Supabase.
