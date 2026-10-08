@@ -39,6 +39,16 @@ export async function userState(email: string): Promise<MockUserState> {
   return (await response.json()) as MockUserState;
 }
 
+/**
+ * Vacía el estado del mock (usuarios, filas, buzón y registro). Solo es
+ * seguro porque E1 corre con un único worker; lo usa el spec que cuenta
+ * filas globales (candidatos), para que un reintento no vea las del intento
+ * anterior.
+ */
+export async function resetMock(): Promise<void> {
+  expect((await mock("/__test/reset")).status).toBe(200);
+}
+
 /** Borrado de cuenta hecho por el servidor (fuera del alcance del cliente). */
 export async function deactivateAccount(email: string): Promise<void> {
   expect(

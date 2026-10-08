@@ -7,6 +7,7 @@ import {
   loginWithMagicLink,
   pathOf,
   requestLog,
+  resetMock,
   seedCandidate,
   uniqueEmail,
   userState,
@@ -20,8 +21,17 @@ test.describe.configure({ mode: "serial" });
 
 const IDS = QUESTIONNAIRE_V1.questions.map((q) => q.id);
 
+// Un número oculto solo cuenta como filtrado si aparece suelto: los UUID
+// aleatorios (ids del DTO, payload RSC) y los hashes de los chunks pueden
+// contener «612» o «437» por azar.
+const standalone = (value: string) =>
+  new RegExp(`(?<![A-Za-z0-9_+/-])${value}(?![A-Za-z0-9_+/])`);
+
 test("test de convivencia y candidatos compatibles", async ({ page }) => {
-  // El registro del mock es común a todos los specs: solo cuenta lo de este test.
+  // Este test cuenta filas globales (candidatos): parte de un mock vacío
+  // para que un reintento no vea los candidatos ni el usuario del intento
+  // anterior (E1 corre con un único worker).
+  await resetMock();
   const logStart = (await requestLog()).length;
   // Otras personas que ya terminaron (la que mira tiene «hasta 650 €» y
   // ninguna preferencia de barrios ni compañeros).
@@ -103,12 +113,13 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
     "Eliminada Oculta",
     "Presupuesto Lejano",
     "2001-03-15",
-    "437",
-    "612",
     "clean_frequency",
     "categoryScores",
   ]) {
     expect(html).not.toContain(hidden);
+  }
+  for (const hidden of ["437", "612"]) {
+    expect(html).not.toMatch(standalone(hidden));
   }
   // Fase 3: sin «Ver perfil» ni «Me interesa».
   await expect(page.getByText("Ver perfil")).toHaveCount(0);
