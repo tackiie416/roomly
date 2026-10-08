@@ -294,8 +294,9 @@ Cumplimiento de los criterios de aceptación:
 Qué falta para **cerrar** la Fase 3 (cada punto con su autorización):
 - Validación real desde cero en un **proyecto Supabase nuevo**. `uwxb…` no se
   toca y su esquema es de la Fase 2. La suite SQL 14 y la api-suite CRA1–CRA6
-  necesitan la migración nueva. También hay que adaptar la marca en la guarda,
-  el preflight, los selftests y el workflow.
+  necesitan la migración nueva. La marca ya está adaptada a
+  `roomly-validation-3` en la guarda, el preflight, los selftests y el
+  workflow; `uwxb…` (`roomly-validation-2`) se rechaza.
 - E2 real con el destino `/test`, en el proyecto nuevo.
 - CI en verde en un PR.
 - Textos y etiquetas finales del cuestionario.

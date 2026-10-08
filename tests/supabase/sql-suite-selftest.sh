@@ -18,8 +18,9 @@
 #   E. WARNING → la suite falla.
 #   F. Un test que falla a mitad no deja nada.
 #   G. Mutación: el test 11 sin la reescritura a SAVEPOINT rompe la suite.
-#   H. Identidad: la marca antigua roomly-validation no pasa (guard.sh ni la
-#      P0 de cada sesión).
+#   H. Identidad: las marcas anteriores no pasan (guard.sh ni la P0 de cada
+#      sesión): roomly-validation (Fase 1) y, como aislamiento,
+#      roomly-validation-2 (Fase 2.8, uwxb…).
 #
 # Conexión: variables estándar de libpq con un usuario que pueda crear roles
 # y bases de datos (igual que tests/db/run.sh). Todo se borra al terminar.
@@ -303,6 +304,21 @@ else
     'grep -q "NO está reconocido como ${MARKER}" "$WORK/last.log"'
 fi
 check "H: sin restos" '[ "$(leftovers)" = "0" ]'
+
+echo "== H. aislamiento: la marca del proyecto anterior (roomly-validation-2) no pasa"
+"${ADMIN[@]}" -c "comment on database ${DB} is 'roomly-validation-2'" >/dev/null
+if bash "$ROOT/tests/supabase/run-sql-suite.sh" >"$WORK/h2.log" 2>&1; then
+  ko "H: la suite corrió contra la marca roomly-validation-2"
+else
+  ok "H: run-sql-suite.sh aborta con la marca roomly-validation-2"
+fi
+if suite "$ROOT/tests/db/01_profiles_role.sql"; then
+  ko "H: la P0 de sesión aceptó la marca roomly-validation-2"
+else
+  check "H: la P0 dentro de cada sesión aborta con la marca roomly-validation-2" \
+    'grep -q "NO está reconocido como ${MARKER}" "$WORK/last.log"'
+fi
+check "H: sin restos tras el aislamiento" '[ "$(leftovers)" = "0" ]'
 
 if [ "$failed" -ne 0 ]; then
   echo "RESULTADO: el runner SQL tiene fallos"

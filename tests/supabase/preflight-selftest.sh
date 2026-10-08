@@ -6,7 +6,7 @@
 #   - cada mutación (política que falta, sobra, cambia de comando o de nombre;
 #     tabla sin RLS; GRANT de más en housing_preferences; trigger que falta,
 #     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); función con otra seguridad o search_path;
-#     función de más; EXECUTE concedido; marca antigua) hace fallar la
+#     función de más; EXECUTE concedido; marcas anteriores) hace fallar la
 #     comprobación que corresponde. Cada mutación va en su propia
 #     transacción y se deshace.
 #
@@ -69,7 +69,8 @@ while IFS='|' read -r want label sql; do
   fi
 done <<'CASES'
 P0|marca antigua roomly-validation|do $$ begin execute format('comment on database %I is %L', current_database(), 'roomly-validation'); end $$;
-P0|marca con espacio final|do $$ begin execute format('comment on database %I is %L', current_database(), 'roomly-validation-2 '); end $$;
+P0|marca del proyecto anterior roomly-validation-2 (aislamiento)|do $$ begin execute format('comment on database %I is %L', current_database(), 'roomly-validation-2'); end $$;
+P0|marca con espacio final|do $$ begin execute format('comment on database %I is %L', current_database(), 'roomly-validation-3 '); end $$;
 P3|falta profiles_update_own|drop policy profiles_update_own on public.profiles;
 P3|falta housing_preferences_delete_own|drop policy housing_preferences_delete_own on public.housing_preferences;
 P3|sobra una política (aunque el total cambie)|create policy zz_extra on public.cities for select using (true);

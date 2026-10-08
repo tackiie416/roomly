@@ -332,8 +332,8 @@ estructural en el run 13 y E2 real en el run 15 (ver
 - **Sin atajos:** sin `generateLink` y sin aceptar `token_hash` en
   `/callback`.
 
-- **Identidad del proyecto.** El proyecto de validación nuevo debe llevar
-  `comment on database postgres is 'roomly-validation-2'`. Lo comprueban,
+- **Identidad del proyecto.** El proyecto de validación nuevo (Fase 3) debe
+  llevar `comment on database postgres is 'roomly-validation-3'`. Lo comprueban,
   con comparación exacta y sin fallback:
   - `tests/supabase/guard.sh`;
   - P0 de `preflight.sql`;
@@ -342,11 +342,14 @@ estructural en el run 13 y E2 real en el run 15 (ver
     `guard.sh`);
   - la confirmación del workflow.
 
-  La marca del proyecto antiguo (`roomly-validation`) no pasa, así que sus
+  Las marcas de los proyectos anteriores (`roomly-validation`, Fase 1, y
+  `roomly-validation-2`, Fase 2.8, `uwxb…`) no pasan, así que sus
   credenciales no sirven contra las guardas nuevas aunque queden secrets
-  antiguos en el repositorio. `guard-selftest.sh` lo prueba con esa marca y
-  con variantes.
-- **Secrets.** Viven solo en el GitHub Environment `roomly-validation-2`, y
+  antiguos en el repositorio o en el Environment anterior.
+  `guard-selftest.sh` lo prueba con esas marcas y con variantes, y
+  comprueba que migraciones, P0 y suite SQL abortan contra
+  `roomly-validation-2`.
+- **Secrets.** Viven solo en el GitHub Environment `roomly-validation-3`, y
   todos los jobs del workflow manual lo declaran. Cada paso recibe solo los
   que necesita.
   - `SUPABASE_VALIDATION_SERVICE_ROLE_KEY` llega únicamente a la guarda, a

@@ -3,13 +3,16 @@
 #
 # Simula dos "proyectos" con el usuario de pooler postgres.<ref> y comprueba
 # que la guarda y cada punto de entrada abortan salvo en el proyecto que lleva
-# la marca exacta 'roomly-validation-2' (Fase 2.8: proyecto P1 nuevo):
+# la marca exacta 'roomly-validation-3' (Fase 3: proyecto P1 nuevo):
 #   1. proyecto ficticio (inexistente / ref inválido)
 #   2. URL de otro proyecto
 #   3. secrets coherentes pero de otro proyecto (sin marca)
 #   4. proyecto con una marca incorrecta o ausente
+#   5. aislamiento: secrets coherentes del proyecto de validación ANTERIOR,
+#      con la marca 'roomly-validation-2' (Fase 2.8, uwxb…)
 # y el caso positivo. También verifica que P0, la suite SQL y la aplicación
-# de migraciones abortan ANTES de hacer nada sin la marca.
+# de migraciones abortan ANTES de hacer nada sin la marca y con la marca del
+# proyecto anterior.
 #
 # Conexión: variables estándar de libpq con un usuario que pueda crear roles
 # y bases de datos (igual que tests/db/run.sh). Todo se borra al terminar.
@@ -26,7 +29,7 @@ case "$HOST" in /*) HOST=127.0.0.1 ;; esac
 SELFTEST_PW="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 PORT="${PGPORT:-5432}"
 
-VAL_REF="aaaaaaaaaaaaaaaaaaaa"   # "roomly-validation-2" simulado
+VAL_REF="aaaaaaaaaaaaaaaaaaaa"   # "roomly-validation-3" simulado
 OTHER_REF="bbbbbbbbbbbbbbbbbbbb" # otro proyecto (p. ej. producción)
 SUFFIX="$$"
 VAL_DB="guard_val_${SUFFIX}"
@@ -45,7 +48,7 @@ cleanup
   -c "create role \"postgres.${OTHER_REF}\" login superuser password '${SELFTEST_PW}'" \
   -c "create database ${VAL_DB} owner \"postgres.${VAL_REF}\"" \
   -c "create database ${OTHER_DB} owner \"postgres.${OTHER_REF}\"" \
-  -c "comment on database ${VAL_DB} is 'roomly-validation-2'" >/dev/null
+  -c "comment on database ${VAL_DB} is 'roomly-validation-3'" >/dev/null
 
 db_url() { echo "postgresql://postgres.$1:${SELFTEST_PW}@${HOST}:${PORT}/$2"; }
 
@@ -84,15 +87,21 @@ expect fail "2: URL de otro proyecto" run_guard
 set_target "$OTHER_REF" "https://${OTHER_REF}.supabase.co" "$(db_url "$OTHER_REF" "$OTHER_DB")"
 expect fail "3: secrets coherentes de otro proyecto (sin marca)" run_guard
 
-# "roomly-validation" es la marca del proyecto ANTIGUO: sus credenciales
+# "roomly-validation" es la marca del proyecto de la Fase 1: sus credenciales
 # nunca pasan la guarda del proyecto nuevo.
-for bad in "roomly-validation" "roomly-validation-2 " " roomly-validation-2" "Roomly-Validation-2" \
-  "roomly-validation-20" "roomly-validation-old" "produccion"; do
+for bad in "roomly-validation" "roomly-validation-3 " " roomly-validation-3" "Roomly-Validation-3" \
+  "roomly-validation-30" "roomly-validation-old" "produccion"; do
   "${ADMIN[@]}" -c "comment on database ${OTHER_DB} is '${bad}'" >/dev/null
   expect fail "4: marca incorrecta '${bad}'" run_guard
 done
 "${ADMIN[@]}" -c "comment on database ${OTHER_DB} is null" >/dev/null
 expect fail "4: marca ausente" run_guard
+
+# Aislamiento (Fase 3): 'roomly-validation-2' es la marca del proyecto de la
+# Fase 2.8 (uwxb…). Unos secrets coherentes que apunten a él no pasan.
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is 'roomly-validation-2'" >/dev/null
+expect fail "5: aislamiento: proyecto anterior con la marca 'roomly-validation-2'" run_guard
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is null" >/dev/null
 
 echo "== diagnóstico de la marca que no coincide (sin datos sensibles)"
 # diag <descripción> <patrón que debe aparecer>: la salida de la guarda
@@ -135,8 +144,24 @@ expect fail "run-sql-suite aborta" bash "$ROOT/tests/supabase/run-sql-suite.sh"
 expect fail "preflight.sql (P0) aborta aunque se ejecute sin la guarda" \
   psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc -d "$(db_url "$OTHER_REF" "$OTHER_DB")" -f "$ROOT/tests/supabase/preflight.sql"
 
+echo "== aislamiento: puntos de entrada contra el proyecto ANTERIOR (marca roomly-validation-2)"
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is 'roomly-validation-2'" >/dev/null
+set_target "$OTHER_REF" "https://${OTHER_REF}.supabase.co" "$(db_url "$OTHER_REF" "$OTHER_DB")"
+expect fail "5: apply-migrations aborta" bash "$ROOT/tests/supabase/apply-migrations.sh"
+if [ "$(psql -X -At --no-psqlrc -d "$(db_url "$OTHER_REF" "$OTHER_DB")" -c "select to_regclass('public.profiles') is null")" = "t" ]; then
+  echo "   ok - 5: apply-migrations no creó nada en el proyecto anterior"
+else
+  echo "   FALLO: apply-migrations llegó a crear el esquema en el proyecto anterior"
+  failed=1
+fi
+expect fail "5: run-preflight aborta" bash "$ROOT/tests/supabase/run-preflight.sh"
+expect fail "5: run-sql-suite aborta" bash "$ROOT/tests/supabase/run-sql-suite.sh"
+expect fail "5: preflight.sql (P0) aborta aunque se ejecute sin la guarda" \
+  psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc -d "$(db_url "$OTHER_REF" "$OTHER_DB")" -f "$ROOT/tests/supabase/preflight.sql"
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is null" >/dev/null
+
 if [ "$failed" -ne 0 ]; then
   echo "RESULTADO: la guarda F1 tiene fallos"
   exit 1
 fi
-echo "RESULTADO: la guarda F1 rechaza todo destino que no sea roomly-validation-2"
+echo "RESULTADO: la guarda F1 rechaza todo destino que no sea roomly-validation-3"

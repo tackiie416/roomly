@@ -2,7 +2,7 @@
 // Implementa la interfaz de tests/e2e/real/e2e-real-lib.mjs (loadMailbox):
 //   createMailbox(env) → { waitForMagicLink({ to, since, timeoutMs }), deleteMessages(to) }
 //
-// Configuración: E2E_MAILBOX_CONFIG (secret del Environment roomly-validation-2),
+// Configuración: E2E_MAILBOX_CONFIG (secret del Environment roomly-validation-3),
 // un JSON de una línea:
 //   {"accountId":"<id de cuenta>","inboxId":"<id del sandbox>","apiToken":"<token>"}
 // `accountId` es opcional: si falta, se busca entre las cuentas del token la

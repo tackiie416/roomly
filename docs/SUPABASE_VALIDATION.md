@@ -13,6 +13,12 @@ Detalle y diagnóstico de los runs anteriores en «Resultado de la Fase 2.8».
 El checkpoint anterior contra `roomly-validation` (Fase 1) es histórico y
 está al final.
 
+**Desde la Fase 3 el destino es un proyecto nuevo, `roomly-validation-3`**
+(todavía sin crear; ver «Fase 3: la próxima validación real»). Su marca,
+su Environment y `confirm_project` son `roomly-validation-3`. `uwxb…` (marca
+`roomly-validation-2`) es el **proyecto anterior**: no se toca y la guarda
+lo rechaza.
+
 ## Resultado de la Fase 2.8 (2026-10-06)
 
 **Resultado final**
@@ -54,18 +60,20 @@ retirado `qhwu…` (marca `roomly-retirado`).
 | 12 | «faltan variables de entorno»: los cinco secrets vacíos | Borrados los de repositorio, los nuevos estaban en un Environment llamado `SUPABASE_VALIDATION_PROJECT_REF` y no en `roomly-validation-2` |
 | 14 | Estructural en verde; el E2 falló antes de enviar nada: «E2E_MAILBOX_CONFIG no es un JSON válido» | Valor mal formado del secret; se creó de nuevo con un token nuevo de Mailtrap |
 
-## Proyecto de validación P1: `roomly-validation-2`
+## Proyecto de validación P1: `roomly-validation-3`
 
-Decisión de la Fase 2.8: un proyecto **nuevo y vacío**. No se repara ni se
-migra de forma incremental `roomly-validation`, cuyo historial está
-incompleto (le faltan todas las migraciones de Fase 2).
+Decisión de la Fase 3 (la misma que en la 2.8): un proyecto **nuevo y
+vacío**. No se migra de forma incremental el proyecto anterior, `uwxb…`
+(marca `roomly-validation-2`), que tiene el esquema de la Fase 2 y no se
+toca. En la 2.8 tampoco se reparó `roomly-validation`, al que le faltaban
+todas las migraciones de Fase 2.
 
 | Parámetro | Valor |
 |---|---|
-| Nombre | `roomly-validation-2`: exclusivo para validación, **nunca** producción |
-| Plan / región | Free / Frankfurt (`eu-central-1`), como el anterior |
+| Nombre | `roomly-validation-3`: exclusivo para validación, **nunca** producción |
+| Plan / región | Free / Frankfurt (`eu-central-1`), como los anteriores |
 | Datos | Ninguno real. Solo usuarios de prueba, creados y borrados por las suites |
-| Marca de identidad | `comment on database postgres is 'roomly-validation-2';` |
+| Marca de identidad | `comment on database postgres is 'roomly-validation-3';` |
 | Auth → Email | Activo, con **SMTP propio** (ver «E2 — requisitos del magic link») |
 | Auth → registro público | **Desactivado** salvo durante la ventana del E2 real |
 | Site URL | `http://localhost:3000` |
@@ -82,11 +90,11 @@ no se comparten por chat.
 Primer paso tras crear el proyecto, en su SQL Editor:
 
 ```sql
-comment on database postgres is 'roomly-validation-2';
+comment on database postgres is 'roomly-validation-3';
 select shobj_description(d.oid, 'pg_database') from pg_database d where d.datname = 'postgres';
 ```
 
-La segunda consulta debe devolver exactamente `roomly-validation-2`. Todo
+La segunda consulta debe devolver exactamente `roomly-validation-3`. Todo
 punto de entrada comprueba esa marca **en la propia base de datos** antes de
 hacer nada, y si falta o no coincide exactamente, aborta sin fallback:
 - la guarda del workflow;
@@ -96,13 +104,24 @@ hacer nada, y si falta o no coincide exactamente, aborta sin fallback:
 - la suite supabase-js;
 - la preparación y la limpieza del E2.
 
-Por qué una marca nueva y no se reutiliza `roomly-validation`: la
-comparación es exacta, así que unas credenciales del proyecto antiguo, que
-lleva `roomly-validation`, no pasan las guardas del nuevo. A la inversa, el
-código anterior a la Fase 2.8 exige `roomly-validation` y no aceptaría el
-proyecto nuevo. La seguridad no depende de quitar la marca del proyecto
-antiguo. El auto-test de la guarda lo comprueba con la marca antigua y con
-variantes (espacios, mayúsculas, `roomly-validation-20`).
+Por qué una marca nueva en cada proyecto: la comparación es exacta, así que
+unas credenciales de un proyecto anterior no pasan las guardas del nuevo:
+- `roomly-validation` (Fase 1);
+- `roomly-validation-2` (Fase 2.8, `uwxb…`). **Aislamiento de la Fase 3:**
+  unos secrets coherentes que apunten a `uwxb…` no pasan la guarda, y la
+  aplicación de migraciones, el preflight y la suite SQL abortan antes de
+  hacer nada.
+
+A la inversa, el código anterior exige su propia marca y no aceptaría el
+proyecto nuevo. La seguridad no depende de quitar la marca de los proyectos
+anteriores. Lo comprueban:
+- `guard-selftest.sh`, con las dos marcas anteriores y con variantes
+  (espacios, mayúsculas, `roomly-validation-30`);
+- `preflight-selftest.sh` y `sql-suite-selftest.sh`, con
+  `roomly-validation-2` en P0 y en cada sesión;
+- `tests/unit/validation-infra.test.ts`, que además falla si
+  `roomly-validation-2` aparece en el workflow, en `tests/supabase/` (salvo
+  los auto-tests), en `tests/e2e/real/` o en la api-suite.
 
 **Diagnóstico cuando la marca no coincide.** La guarda imprime una línea
 con los 4 primeros caracteres del ref, el nombre de la base de datos
@@ -112,12 +131,15 @@ proyecto apuntan unos secrets que GitHub no deja leer. Nunca imprime el ref
 completo, la URL, la cadena de conexión, contraseñas ni claves (lo
 comprueba `guard-selftest.sh`).
 
-## Secrets: solo en el GitHub Environment `roomly-validation-2`
+## Secrets: solo en el GitHub Environment `roomly-validation-3`
 
-Todos los jobs del workflow declaran `environment: roomly-validation-2`. Los
+Todos los jobs del workflow declaran `environment: roomly-validation-3`. Los
 secrets se crean en GitHub → Settings → Environments →
-`roomly-validation-2`, **no** como secrets del repositorio. Se recomienda
+`roomly-validation-3`, **no** como secrets del repositorio. Se recomienda
 exigir aprobación manual (*required reviewers*) en el Environment.
+
+El Environment anterior, `roomly-validation-2`, conserva los secrets de
+`uwxb…`. El workflow ya no lo usa y no se toca.
 
 | Nombre | Tipo | De dónde sale | Clase |
 |---|---|---|---|
@@ -149,7 +171,7 @@ El workflow `.github/workflows/supabase-validation.yml` es **manual**
 lanzarlo cuando el archivo existe en la rama por defecto (`master`).
 
 Entradas:
-- `confirm_project`: hay que escribir `roomly-validation-2`.
+- `confirm_project`: hay que escribir `roomly-validation-3`.
 - `apply_migrations`: `true` solo la primera vez, sobre el proyecto vacío.
 - `run_e2e_real`: `true` solo cuando el registro está abierto y el buzón
   configurado (ver E2).
@@ -162,7 +184,7 @@ Orden de jobs (cada uno solo corre si el anterior pasa):
    - URL y conexión de BD del mismo `PROJECT_REF`;
    - **marca de identidad leída del propio proyecto** (F1).
 2. **migrate** (solo si `apply_migrations`): `tests/supabase/apply-migrations.sh`.
-   - Aplica las 7 migraciones de `supabase/migrations/` en orden y después
+   - Aplica las 10 migraciones de `supabase/migrations/` en orden y después
      `supabase/seed.sql`, todo en **una transacción**.
    - Se niega si `public.profiles` ya existe.
    - No usa `supabase db push`: el historial de migraciones de la CLI no se
@@ -170,8 +192,8 @@ Orden de jobs (cada uno solo corre si el anterior pasa):
    - Cada migración nueva obliga a recrear un proyecto vacío (P1).
 3. **preflight**: `tests/supabase/preflight.sql` (P0–P6, solo lectura de
    catálogo, sin tablas temporales). **Si falla, no se ejecuta ninguna suite.**
-4. **sql-suite**: `tests/supabase/run-sql-suite.sh` ejecuta los 13 archivos
-   `tests/db/01`–`13` (265 aserciones) con los roles, dueños y `auth.uid()`
+4. **sql-suite**: `tests/supabase/run-sql-suite.sh` ejecuta los 14 archivos
+   `tests/db/01`–`14` (305 aserciones) con los roles, dueños y `auth.uid()`
    reales, sin shim. El aislamiento se explica abajo.
 5. **api-suite**: `npm run test:supabase`
    (`tests/integration/supabase-validation.test.ts`).
@@ -229,13 +251,14 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
     reproduce exactamente ese caso.
 - **Los `WARNING` se muestran y hacen fallar la suite.** Las salidas de
   error de conexión no se imprimen, porque podrían contener el host.
-- **Auto-test local:** `tests/supabase/sql-suite-selftest.sh` (75
+- **Auto-test local:** `tests/supabase/sql-suite-selftest.sh` (78
   comprobaciones, en CI).
   - Ejecuta el `run-sql-suite.sh` real, con la guarda, contra un PostgreSQL
     local con la marca, y obtiene las mismas aserciones que `run.sh` (265).
   - Comprueba el rollback de un bloque, la ausencia de fugas de rol o GUC
     entre archivos, 31 formas de control de transacción rechazadas, un
-    WARNING, un fallo a mitad de test y la marca antigua.
+    WARNING, un fallo a mitad de test y las marcas anteriores
+    (`roomly-validation` y `roomly-validation-2`).
   - Caso D2: 16 combinaciones de identificadores `"..."` y cadenas `E'...'`
     que intentan ocultar un control, entre ellas el caso exacto de la
     auditoría; todas se rechazan antes de conectar. Además, comprueba que
@@ -248,7 +271,7 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 
 | Check | Qué exige |
 |---|---|
-| P0 | Marca `roomly-validation-2` exacta |
+| P0 | Marca `roomly-validation-3` exacta |
 | P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y el seed (Barcelona activa) |
 | P2 | Mismo dueño para `is_conversation_participant` y `conversation_participants`, sin FORCE RLS, SECURITY DEFINER y `search_path` vacío |
 | P3 | RLS en las 18 tablas y **exactamente estas 37 políticas**, comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo) |
@@ -298,9 +321,10 @@ comprobaba nada de la Fase 2.
 - `tests/unit/validation-infra.test.ts` deriva de las migraciones el
   conjunto final de políticas y triggers y lo compara con las listas del
   preflight.
-- `tests/supabase/preflight-selftest.sh` (43 comprobaciones, en CI):
+- `tests/supabase/preflight-selftest.sh` (44 comprobaciones, en CI):
   - con el esquema actual pasan P0–P6;
-  - cada una de 35 mutaciones falla en su check, y cada una se deshace;
+  - cada una de 36 mutaciones falla en su check, y cada una se deshace
+    (desde la Fase 3, también la marca `roomly-validation-2` en P0);
   - las mutaciones incluyen, entre otras, «misma cantidad, otra política
     (37 = 37)» y «vuelve `housing_preferences_own`»;
   - desde la Fase 3.1, otras 8 de `compatibility_responses`: vuelve la
@@ -312,7 +336,7 @@ comprobaba nada de la Fase 2.
 
 | | E1 — local | E2 — real |
 |---|---|---|
-| Qué | La app real (`next build` + `next start`) contra el Supabase **simulado** `tests/e2e/support/mock-supabase.mjs` | La app real contra `roomly-validation-2`, con **email real** |
+| Qué | La app real (`next build` + `next start`) contra el Supabase **simulado** `tests/e2e/support/mock-supabase.mjs` | La app real contra `roomly-validation-3`, con **email real** |
 | Specs | `tests/e2e/local/*.spec.ts` | `tests/e2e/real/student-real.spec.ts` |
 | Configuración | `playwright.config.ts` | `playwright.real.config.ts` |
 | Comando | `npm run test:e2e` | `npm run test:e2e:real`, **solo** desde el job `e2e-real` |
@@ -350,7 +374,7 @@ No usa `generateLink`, `verifyOtp`, `token_hash` ni contraseñas, y
 `code_challenge` (lo comprueba `node_modules/@supabase/auth-js`), así que
 su enlace no puede pasar por `/callback`.
 
-| Requisito | Qué hay que configurar en `roomly-validation-2` |
+| Requisito | Qué hay que configurar en `roomly-validation-3` |
 |---|---|
 | Signup | «Allow new users to sign up» **activado solo durante la ventana del E2**. La preparación falla si está desactivado. La limpieza avisa (`::warning::` y resumen del job) si sigue abierto al terminar; cerrarlo es un paso manual (ver «Pendiente de decisión»). |
 | Proveedor de correo | **SMTP propio** (Authentication → Emails → SMTP Settings). No se asume que el SMTP por defecto de Supabase baste: tiene límites de envío muy bajos y, según la documentación de Supabase, solo entrega a direcciones del equipo. Esto no se ha podido verificar sin red. |
@@ -471,11 +495,14 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
 **Auto-tests locales** (PostgreSQL local, nunca Supabase, también en CI,
 `db-security`). Se ejecutan todos con
 `PGHOST=... PGUSER=postgres npm run test:infra`.
-- **`guard-selftest.sh` (19):** rechaza un proyecto ficticio, la URL de
-  otro proyecto, secrets coherentes de otro proyecto, la marca antigua,
+- **`guard-selftest.sh` (28):** rechaza un proyecto ficticio, la URL de
+  otro proyecto, secrets coherentes de otro proyecto, las marcas anteriores,
   marcas parecidas o una marca ausente, y comprueba que migraciones, P0 y
-  suite SQL abortan antes de hacer nada.
-- **`sql-suite-selftest.sh` (75) y `preflight-selftest.sh` (43):** ver
+  suite SQL abortan antes de hacer nada. Desde la Fase 3 añade el
+  aislamiento: unos secrets coherentes de un proyecto con la marca
+  `roomly-validation-2` no pasan la guarda, y migraciones, P0 y suite SQL
+  abortan sin crear nada.
+- **`sql-suite-selftest.sh` (78) y `preflight-selftest.sh` (44):** ver
   arriba. Desde la Fase 3.1, el primero cuenta los archivos de `tests/db` en
   vez de fijar el número.
 - **`migration-upgrade-selftest.sh` (Fase 3.1):** aplica las migraciones de
@@ -504,9 +531,9 @@ Pendiente operativo, aparte del cierre de la 2.8:
    propietario lo tratará en una acción específica de seguridad y
    limpieza.
 
-Si se vuelve a lanzar el workflow contra este proyecto, siempre con
-`apply_migrations=false`: el esquema ya existe y apply-migrations se
-negaría.
+Desde la Fase 3 el workflow ya no puede ejecutarse contra este proyecto:
+usa el Environment `roomly-validation-3` y la guarda exige esa marca, así
+que `uwxb…` (`roomly-validation-2`) se rechaza antes de hacer nada.
 
 ### Fase 3: la próxima validación real (pendiente, con autorización)
 
@@ -516,13 +543,17 @@ Fase 3 ya no encaja con ese esquema:
   `20261007120000_compatibility_responses_hardening.sql`;
 - el preflight espera 13 triggers y 11 funciones.
 
-Un run del workflow actual contra `uwxb…` fallaría. La estrategia aprobada
-es un **proyecto Supabase nuevo y vacío**:
-1. Crear el proyecto, su marca, el GitHub Environment y los secrets
-   (autorización aparte; lo hace el propietario).
-2. Adaptar la marca, que hoy está fijada a `roomly-validation-2`, en
-   `tests/supabase/guard.sh`, `preflight.sql` P0, los selftests y
-   `supabase-validation.yml`. Es un cambio de infraestructura revisable.
+Un run del workflow contra `uwxb…` no llega a ejecutarse: la guarda lo
+rechaza por su marca. La estrategia aprobada es un **proyecto Supabase
+nuevo y vacío**:
+1. Crear el proyecto `roomly-validation-3`, su marca, el GitHub Environment
+   `roomly-validation-3` y sus secrets (autorización aparte; lo hace el
+   propietario, después del merge de este cambio).
+2. ✅ Marca adaptada a `roomly-validation-3` (antes fijada a
+   `roomly-validation-2`) en `tests/supabase/guard.sh`, `preflight.sql` P0,
+   los selftests (con los casos de aislamiento de `roomly-validation-2`) y
+   `supabase-validation.yml` (Environment de los 7 jobs y
+   `confirm_project`).
 3. Run con `apply_migrations=true` desde cero: guarda, migraciones, P0–P6,
    SQL 01–14, api-suite y AU.
 4. E2 en el proyecto nuevo (SMTP de Mailtrap y una ventana de registro), con

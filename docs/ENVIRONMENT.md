@@ -83,9 +83,11 @@ usa).
   - `db-security`: `test:db` y los auto-tests contra `postgres:16`;
   - `e2e-local`: E1, sin ningún secret de Supabase de validación.
 - **Validación remota (`.github/workflows/supabase-validation.yml`)**:
-  - solo manual, contra `roomly-validation-2`;
+  - solo manual, contra `roomly-validation-3` (Fase 3; el proyecto
+    anterior, `uwxb…` con la marca `roomly-validation-2`, lo rechaza la
+    guarda);
   - los secrets viven **solo** en el GitHub Environment
-    `roomly-validation-2`;
+    `roomly-validation-3`;
   - no se ponen en `.env.local` ni en el repo;
   - detalle en `docs/SUPABASE_VALIDATION.md`.
 

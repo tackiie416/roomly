@@ -10,7 +10,7 @@
 //       avisa si el registro sigue abierto (withSignupCheck).
 //
 // Antes de tocar nada ejecuta tests/supabase/guard.sh (marca
-// roomly-validation-2). Nunca imprime emails, ids, claves ni enlaces: solo
+// roomly-validation-3). Nunca imprime emails, ids, claves ni enlaces: solo
 // recuentos.
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";

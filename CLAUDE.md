@@ -189,7 +189,7 @@ npm run test:watch          # Vitest, modo watch
 npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (ver docs/TESTING.md)
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
-npm run test:e2e:real         # E2: alta real contra roomly-validation-2 (solo desde el workflow manual)
+npm run test:e2e:real         # E2: alta real contra roomly-validation-3 (solo desde el workflow manual)
 npm run test:infra            # auto-tests de guarda, runner SQL y preflight contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
