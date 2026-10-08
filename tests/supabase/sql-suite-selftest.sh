@@ -2,7 +2,8 @@
 # Auto-test del runner SQL remoto (Fase 2.8) contra un PostgreSQL LOCAL
 # (nunca contra Supabase). Simula el proyecto de validación con el usuario de
 # pooler postgres.<ref> y la marca exacta, y comprueba:
-#   A. run-sql-suite.sh completo (con guard.sh) pasa los 13 archivos, con las
+#   A. run-sql-suite.sh completo (con guard.sh) pasa todos los archivos de
+#      tests/db (01–14 desde la Fase 3.1; el número se cuenta, no se fija), con las
 #      mismas aserciones que tests/db/run.sh, y no deja restos.
 #   B. El ROLLBACK propio de un test deshace solo su bloque: lo anterior del
 #      mismo archivo y roomly_test siguen vivos, y los demás archivos no se
@@ -76,7 +77,8 @@ leftovers() {
     + (select count(*) from pg_policies where policyname like 'zz_test%')"
 }
 
-echo "== A. run-sql-suite.sh completo (guard.sh + 01–13)"
+N_FILES="$(find "$ROOT/tests/db" -maxdepth 1 -name '[0-9]*.sql' | wc -l | tr -d ' ')"
+echo "== A. run-sql-suite.sh completo (guard.sh + los ${N_FILES} archivos de tests/db)"
 export SUPABASE_VALIDATION_PROJECT_REF="$REF" SUPABASE_VALIDATION_URL="https://${REF}.supabase.co" \
   SUPABASE_VALIDATION_DB_URL="$DB_URL"
 if bash "$ROOT/tests/supabase/run-sql-suite.sh" >"$WORK/full.log" 2>&1; then
@@ -85,14 +87,15 @@ else
   ko "la suite completa falla"
   sed -n '1,400p' "$WORK/full.log"
 fi
-check "se ejecutan los 13 archivos, cada uno en su sesión" \
-  '[ "$(grep -c "^== [0-9][0-9]_" "$WORK/full.log")" -eq 13 ]'
-check "13 comprobaciones de aislamiento tras ROLLBACK" \
-  '[ "$(grep -c "ok - aislamiento: ROLLBACK completo" "$WORK/full.log")" -eq 13 ]'
+check "se ejecutan los ${N_FILES} archivos, cada uno en su sesión" \
+  '[ "$N_FILES" -ge 14 ] && [ "$(grep -c "^== [0-9][0-9]_" "$WORK/full.log")" -eq "$N_FILES" ]'
+check "${N_FILES} comprobaciones de aislamiento tras ROLLBACK" \
+  '[ "$(grep -c "ok - aislamiento: ROLLBACK completo" "$WORK/full.log")" -eq "$N_FILES" ]'
 check "comprobación final de restos superada" 'grep -q "ok - tras la suite" "$WORK/full.log"'
 check "ningún WARNING" '! grep -q "WARNING" "$WORK/full.log"'
 remote_asserts="$(grep -c "^   ok - " "$WORK/full.log" || true)"
-remote_asserts=$((remote_asserts - 14))
+# Una comprobación de aislamiento por archivo, más la final de restos.
+remote_asserts=$((remote_asserts - N_FILES - 1))
 local_asserts="$(bash "$ROOT/tests/db/run.sh" 2>&1 | grep -c "^   ok - " || true)"
 check "mismas aserciones que tests/db/run.sh (${remote_asserts} = ${local_asserts})" \
   '[ "$remote_asserts" -eq "$local_asserts" ] && [ "$remote_asserts" -gt 0 ]'

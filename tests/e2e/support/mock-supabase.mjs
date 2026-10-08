@@ -10,13 +10,23 @@
 //           neighborhoods, con la RLS, los GRANT de columnas y los triggers
 //           de las migraciones emulados (ver comentarios). No es Supabase:
 //           tests/db y la validación real (E2) cubren la base de datos real.
+//           Fase 3: compatibility_responses (authenticated solo lee su fila;
+//           solo service_role escribe, con las reglas del trigger S1–S6) y,
+//           con la clave service_role ficticia, la lectura cruzada de
+//           candidatos: GET /profiles con housing_preferences!inner y
+//           compatibility_responses!inner embebidos.
 //   Test  — /__test/*: el "buzón" (último enlace enviado a un email), reset,
 //           desactivar una cuenta (operación de servidor) y leer el estado.
 //
 // Uso: node tests/e2e/support/mock-supabase.mjs   (puerto y origen en mock-config.mjs)
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { APP_ORIGIN, MOCK_ANON_KEY, MOCK_SUPABASE_PORT as PORT } from "./mock-config.mjs";
+import {
+  APP_ORIGIN,
+  MOCK_ANON_KEY,
+  MOCK_SERVICE_ROLE_KEY,
+  MOCK_SUPABASE_PORT as PORT,
+} from "./mock-config.mjs";
 
 const ALLOWED_REDIRECT = `${APP_ORIGIN}/callback`;
 // Secreto de firma aleatorio por arranque: solo lo conoce este proceso.
@@ -103,6 +113,7 @@ function reset() {
     outbox: [], // { to, link }
     profiles: new Map(),
     preferences: new Map(),
+    responses: new Map(), // profile_id → compatibility_responses
     log: [],
   };
 }
@@ -299,24 +310,33 @@ function parseSelect(url) {
     });
   return columns;
 }
+/** ¿Cumple `value` el filtro PostgREST `raw` (eq., neq., is.null, not.is.null, in.())? */
+function matches(value, raw, column) {
+  if (raw.startsWith("eq."))
+    return value !== null && value !== undefined && String(value) === raw.slice(3);
+  if (raw.startsWith("neq."))
+    return value !== null && value !== undefined && String(value) !== raw.slice(4);
+  if (raw === "is.null") return value === null || value === undefined;
+  if (raw === "not.is.null") return value !== null && value !== undefined;
+  if (raw.startsWith("in.(")) {
+    const values = raw
+      .slice(4, -1)
+      .split(",")
+      .map((v) => v.replace(/"/g, ""));
+    return values.includes(String(value));
+  }
+  throw Object.assign(new Error(`filtro no soportado: ${column}=${raw}`), {
+    status: 400,
+    code: "E1FLT",
+  });
+}
 function applyFilters(rows, url) {
   let out = rows;
   for (const [column, raw] of url.searchParams) {
     if (["select", "order", "limit", "columns"].includes(column)) continue;
-    if (raw.startsWith("eq."))
-      out = out.filter((row) => String(row[column]) === raw.slice(3));
-    else if (raw === "is.null") out = out.filter((row) => row[column] === null);
-    else if (raw.startsWith("in.(")) {
-      const values = raw
-        .slice(4, -1)
-        .split(",")
-        .map((v) => v.replace(/"/g, ""));
-      out = out.filter((row) => values.includes(String(row[column])));
-    } else
-      throw Object.assign(new Error(`filtro no soportado: ${column}=${raw}`), {
-        status: 400,
-        code: "E1FLT",
-      });
+    // Filtros sobre recursos embebidos: los aplica quien hace el embed.
+    if (column.includes(".")) continue;
+    out = out.filter((row) => matches(row[column], raw, column));
   }
   const order = url.searchParams.get("order");
   if (order) {
@@ -431,6 +451,127 @@ function preferencesTriggers(next) {
   }
 }
 
+// trg_compatibility_responses_integrity (20261007120000), para todos los
+// roles (también service_role), y las restricciones S1/S2 de la tabla.
+function compatibilityTrigger(old, next) {
+  if (!Number.isInteger(next.questionnaire_version))
+    throw new DbError(
+      400,
+      "23502",
+      'null value in column "questionnaire_version" of relation "compatibility_responses" violates not-null constraint'
+    );
+  if (next.questionnaire_version < 1)
+    throw new DbError(
+      400,
+      "23514",
+      'violates check constraint "chk_compatibility_responses_version"'
+    );
+  if (
+    typeof next.answers !== "object" ||
+    next.answers === null ||
+    Array.isArray(next.answers)
+  )
+    throw new DbError(400, "23514", 'violates check constraint "chk_answers_is_object"');
+  if (old && next.profile_id !== old.profile_id)
+    throw new DbError(
+      400,
+      "23514",
+      "compatibility_profile_locked: el perfil no se puede cambiar"
+    );
+  const profile = state.profiles.get(next.profile_id);
+  if (!profile || profile.deleted_at !== null)
+    throw new DbError(
+      400,
+      "23514",
+      "account_deleted: la cuenta no existe o está desactivada"
+    );
+  if (old) {
+    if (next.questionnaire_version < old.questionnaire_version)
+      throw new DbError(
+        400,
+        "23514",
+        "questionnaire_version_downgrade: la versión no puede bajar"
+      );
+    if (
+      next.questionnaire_version === old.questionnaire_version &&
+      old.completed_at !== null &&
+      next.completed_at !== old.completed_at
+    )
+      throw new DbError(
+        400,
+        "23514",
+        "questionnaire_completed_locked: ya completado en esta versión"
+      );
+  }
+}
+
+/** `select` con recursos embebidos: separa por comas de primer nivel. */
+function parseEmbeddedSelect(select) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const char of select) {
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (char === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+    } else current += char;
+  }
+  if (current.trim()) parts.push(current.trim());
+  const columns = [];
+  const embeds = [];
+  for (const part of parts) {
+    const match = /^([a-z_]+)(!inner)?\((.*)\)$/.exec(part);
+    if (match)
+      embeds.push({
+        table: match[1],
+        inner: Boolean(match[2]),
+        columns: match[3].split(",").map((c) => c.trim()),
+      });
+    else columns.push(part);
+  }
+  if ([...columns, ...embeds.flatMap((e) => e.columns)].includes("*"))
+    throw Object.assign(new Error("select=* no permitido en ROOMLY"), {
+      status: 400,
+      code: "E1SEL",
+    });
+  return { columns, embeds };
+}
+
+// Lectura cruzada de candidatos (solo service_role): profiles con
+// housing_preferences y compatibility_responses embebidos (uno a uno, como
+// objeto). `!inner` + filtro sobre el embebido = la fila solo sale si cumple.
+const EMBED_SOURCES = {
+  housing_preferences: (id) => state.preferences.get(id) ?? null,
+  compatibility_responses: (id) => state.responses.get(id) ?? null,
+};
+function candidateRows(url) {
+  const { columns, embeds } = parseEmbeddedSelect(url.searchParams.get("select") ?? "");
+  const embeddedFilters = [...url.searchParams].filter(([key]) => key.includes("."));
+  const rows = [];
+  for (const profile of applyFilters([...state.profiles.values()], url)) {
+    const row = project(profile, columns);
+    let keep = true;
+    for (const embed of embeds) {
+      if (!(embed.table in EMBED_SOURCES))
+        throw new DbError(400, "PGRST200", `no hay relación con ${embed.table}`);
+      const source = EMBED_SOURCES[embed.table](profile.id);
+      const passes =
+        source !== null &&
+        embeddedFilters
+          .filter(([key]) => key.startsWith(`${embed.table}.`))
+          .every(([key, raw]) =>
+            matches(source[key.slice(embed.table.length + 1)], raw, key)
+          );
+      if (!passes && embed.inner) keep = false;
+      row[embed.table] = passes ? project(source, embed.columns) : null;
+    }
+    if (keep) rows.push(row);
+  }
+  return rows;
+}
+
 const EMPTY_PREFS = {
   city_id: null,
   university_id: null,
@@ -444,8 +585,50 @@ const EMPTY_PREFS = {
   roommates_wanted_max: null,
 };
 
-function handleRest(req, res, url, body, uid) {
+function handleService(req, res, url, body, table) {
+  // service_role (BYPASSRLS): solo lo que usa la app en el servidor.
+  if (table === "profiles" && req.method === "GET") {
+    return respondRows(req, res, candidateRows(url), null);
+  }
+  if (table === "compatibility_responses") {
+    const columns = parseSelect(url);
+    if (req.method === "GET")
+      return respondRows(
+        req,
+        res,
+        applyFilters([...state.responses.values()], url),
+        columns
+      );
+    if (req.method === "POST") {
+      if (state.responses.has(body.profile_id))
+        throw new DbError(
+          409,
+          "23505",
+          'duplicate key value violates unique constraint "compatibility_responses_pkey"'
+        );
+      const row = { completed_at: null, ...body, updated_at: new Date().toISOString() };
+      compatibilityTrigger(null, row);
+      state.responses.set(row.profile_id, row);
+      return respondRows(req, res, [row], columns);
+    }
+    if (req.method === "PATCH") {
+      const targets = applyFilters([...state.responses.values()], url);
+      const updated = targets.map((old) => {
+        const next = { ...old, ...body, updated_at: new Date().toISOString() };
+        compatibilityTrigger(old, next);
+        return next;
+      });
+      updated.forEach((row) => state.responses.set(row.profile_id, row));
+      return respondRows(req, res, updated, columns);
+    }
+  }
+  throw new DbError(400, "E1SRV", `service_role no emulado para ${req.method} ${table}`);
+}
+
+function handleRest(req, res, url, body, uid, isService) {
   const table = url.pathname.replace("/rest/v1/", "");
+  if (isService && !(table in REFERENCE))
+    return handleService(req, res, url, body, table);
   const columns = parseSelect(url);
 
   if (table in REFERENCE) {
@@ -453,6 +636,14 @@ function handleRest(req, res, url, body, uid) {
     return respondRows(req, res, applyFilters(REFERENCE[table], url), columns);
   }
   if (!uid) throw denied(table); // anon: sin privilegios útiles en estas tablas
+
+  if (table === "compatibility_responses") {
+    // compatibility_responses_select_own; sin INSERT/UPDATE/DELETE (GRANT,
+    // 20261007120000): authenticated nunca escribe aquí.
+    if (req.method !== "GET") throw denied(table);
+    const own = [...state.responses.values()].filter((r) => r.profile_id === uid);
+    return respondRows(req, res, applyFilters(own, url), columns);
+  }
 
   if (table === "profiles") {
     // profiles_select_own_even_if_deleted: solo la fila propia, también
@@ -599,10 +790,61 @@ function handleTest(req, res, url) {
         id: user.id,
         profile: state.profiles.get(user.id) ?? null,
         preferences: state.preferences.get(user.id) ?? null,
+        compatibility: state.responses.get(user.id) ?? null,
       });
     }
     case "/__test/log":
       return send(res, 200, state.log);
+    case "/__test/seed-candidate": {
+      // Otra persona que ya terminó onboarding y test (datos de servidor).
+      // Parámetros: email, name, birth, role, deleted, budget_min, budget_max,
+      // neighborhoods (ids separados por comas), answer (valor para todas).
+      const q = url.searchParams;
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      state.users.set(id, { id, email: String(email).toLowerCase(), created_at: now });
+      state.profiles.set(id, {
+        id,
+        full_name: q.get("name") ?? "Candidata",
+        date_of_birth: q.get("birth") ?? "2001-03-15",
+        avatar_url: null,
+        bio: null,
+        seeking_status: "looking_for_room",
+        role: q.get("role") ?? "user",
+        email_notifications_enabled: true,
+        onboarding_completed_at: now,
+        created_at: now,
+        updated_at: now,
+        deleted_at: q.get("deleted") === "1" ? now : null,
+      });
+      const number = (key) => (q.get(key) === null ? null : Number(q.get(key)));
+      state.preferences.set(id, {
+        profile_id: id,
+        ...EMPTY_PREFS,
+        city_id: q.get("city") ?? BCN,
+        budget_min: number("budget_min"),
+        budget_max: number("budget_max"),
+        preferred_neighborhood_ids: q.get("neighborhoods")
+          ? q.get("neighborhoods").split(",")
+          : [],
+        university_id: q.get("university"),
+        updated_at: now,
+      });
+      const answer = Number(q.get("answer") ?? "1");
+      state.responses.set(id, {
+        profile_id: id,
+        questionnaire_version: Number(q.get("version") ?? "1"),
+        answers: Object.fromEntries(
+          (q.get("ids") ?? "")
+            .split(",")
+            .filter(Boolean)
+            .map((k) => [k, answer])
+        ),
+        completed_at: now,
+        updated_at: now,
+      });
+      return send(res, 200, { id });
+    }
     default:
       return send(res, 404, {});
   }
@@ -628,12 +870,23 @@ const server = createServer((req, res) => {
       method: req.method,
       path: url.pathname,
       apikeyIsAnon: apikey === MOCK_ANON_KEY,
-      bearerRole: bearer === MOCK_ANON_KEY ? "anon" : (verifyJwt(bearer)?.role ?? "none"),
+      apikeyIsService: apikey === MOCK_SERVICE_ROLE_KEY,
+      bearerRole:
+        bearer === MOCK_ANON_KEY
+          ? "anon"
+          : bearer === MOCK_SERVICE_ROLE_KEY
+            ? "service_role"
+            : (verifyJwt(bearer)?.role ?? "none"),
     });
     // El enlace del email lo abre el navegador sin apikey, como en Supabase.
     const isVerifyLink = url.pathname === "/auth/v1/verify";
-    if (!isVerifyLink && apikey !== MOCK_ANON_KEY)
+    const isService =
+      apikey === MOCK_SERVICE_ROLE_KEY && bearer === MOCK_SERVICE_ROLE_KEY;
+    if (!isVerifyLink && apikey !== MOCK_ANON_KEY && !isService)
       return authError(res, 401, "no_api_key", "Invalid API key");
+    // La clave service_role solo vale para REST (lo que usa la app).
+    if (isService && !url.pathname.startsWith("/rest/v1/"))
+      return authError(res, 401, "no_api_key", "service_role solo en REST");
 
     let body = {};
     try {
@@ -644,15 +897,17 @@ const server = createServer((req, res) => {
     try {
       if (url.pathname.startsWith("/auth/v1/")) return handleAuth(req, res, url, body);
       if (url.pathname.startsWith("/rest/v1/")) {
-        const claims = bearer && bearer !== MOCK_ANON_KEY ? verifyJwt(bearer) : null;
-        if (bearer && bearer !== MOCK_ANON_KEY && !claims)
+        const claims =
+          bearer && bearer !== MOCK_ANON_KEY && !isService ? verifyJwt(bearer) : null;
+        if (bearer && bearer !== MOCK_ANON_KEY && !isService && !claims)
           return pgError(res, 401, "PGRST301", "JWT expired");
         return handleRest(
           req,
           res,
           url,
           Array.isArray(body) ? body[0] : body,
-          claims?.sub ?? null
+          claims?.sub ?? null,
+          isService
         );
       }
       return send(res, 404, {});

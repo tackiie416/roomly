@@ -12,7 +12,7 @@
 - **E2E (Playwright)**: los 3 flujos completos que pide el brief
   (sección 39).
 
-## Estado actual (2026-10-06)
+## Estado actual (2026-10-07, implementación local de la Fase 3)
 
 **Qué demuestra cada capa** (no confundirlas):
 - `npm run test` (Vitest): lógica de la aplicación con un cliente Supabase
@@ -25,8 +25,10 @@
 - **E1** (`npm run test:e2e`, Fase 2.8): Playwright con la app real
   (`next build` + `next start`) contra el Supabase **simulado** del repo
   (`tests/e2e/support/mock-supabase.mjs`, que emula Auth con PKCE, RLS,
-  GRANT y triggers de las 5 tablas del flujo). Sin red ni secrets; en CI
-  (`e2e-local`). Prueba el flujo y el routing de la app, no la base de datos.
+  GRANT y triggers de las tablas del flujo; desde la Fase 3 también
+  `compatibility_responses` y, con una clave service_role ficticia, la
+  lectura cruzada de candidatos). Sin red ni secrets; en CI (`e2e-local`).
+  Prueba el flujo y el routing de la app, no la base de datos.
 - **E2** (`npm run test:e2e:real`, Fase 2.8): el mismo flujo contra el
   proyecto real `roomly-validation-2b` (`uwxb…`) con email real, solo desde
   el workflow manual. **En verde en el run 15** (2026-10-06).
@@ -42,23 +44,26 @@
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 617/617 (20 del adaptador de Mailtrap del E2 real, Fase 2.8; 65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local; en CI (`lint-typecheck-test-build`) en verde en el PR #6: CI #11 (`f9f08ad`, 597) y CI #12 (`ec7c3fc`, 617) |
+| `npm run test` | ✅ 862/862 (Fase 3, 245 nuevos: motor 86 (`matching-score`: cuestionario exacto, pesos, similitud, conducta/tolerancia con `min`, presupuesto 0/75/150/151, barrios, renormalización, r6, umbrales, dirección, 500 pares de simetría, determinismo, entradas inválidas sin excepción, textos sin cifras), filtros 33, estado del test y Zod 22, servicio del test 36 + 5 de cambio de versión, servicio de candidatos 25 (consulta única, filtros SQL, defensa en profundidad, orden, paginación, lista blanca del DTO), guards y Server Action 25, test estático de service_role 6, proxy +3, infraestructura +2, shell +2; antes 617: 20 del adaptador de Mailtrap del E2 real, Fase 2.8; 65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local (Fase 3, sin CI todavía); en CI (`lint-typecheck-test-build`) en verde en el PR #6: CI #11 (`f9f08ad`, 597) y CI #12 (`ec7c3fc`, 617) |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
 | Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
 | Shell de Fase 2.7 en Chromium | ✅ 35/35 (20 con JavaScript y 15 sin él; sin JavaScript no aplican `aria-current` ni «Reintentar»): `/` con su contenido y «Entrar», sin sesión/sin perfil/eliminada en las tres rutas, nav con los tres enlaces y navegación entre ellas, perfil incompleto, error de servidor sin texto técnico, logout desde el nav; y regresión con el shell: `/perfil` 24/24, `/preferencias` 43/43, `/ajustes` 24/24, onboarding 2/2 | local con `next start` y Supabase simulado; scripts en el scratchpad de la sesión (no en el repositorio) |
 | Flujo de `/ajustes` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript: sin sesión, sin perfil, eliminada, estado actual, desactivar/activar y recargar, mismo valor en `/perfil`, `full_name` inyectado, `?profile_id=` en la URL, eliminada con la página abierta, logout) + `/perfil` otra vez 24/24 | local con `next start` y Supabase simulado con estado (Fase 2.6); no es la suite E2E |
 | Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E |
-| `npm run test:db` (PostgreSQL local con shim) | ✅ 265/265 (incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3 y del punto A de la 2.9, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5, `11` de ownership aislado, `12` de Fase 2.6 y `13` de H4, Fase 2.9) | local; en CI (`db-security`) en verde sobre `f9f08ad` (PR #6, run `37231766834`) |
-| `npm run test:e2e` (E1, Playwright) | ✅ 25/25 (también tras H4 de la 2.9, con el mock devolviendo solo la fila propia de `profiles`): rutas protegidas sin sesión (con y sin JavaScript, y 307 sin contenido), alta de estudiante por magic link → `/callback` PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout (sesión anterior inservible), enlace en otro navegador o reutilizado, `/callback` con código inventado o error, `next` tras el login, cuenta eliminada (rutas, formulario abierto, nuevo login), `profile_id`/`id` ajenos en URL y formularios, formularios sin JavaScript, smoke | local con el Chromium preinstalado **1194** vía `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (Playwright 1.63 espera 1243: combinación no soportada oficialmente); en CI (`e2e-local`) 25/25 sobre `f9f08ad` con el Chromium oficial v1243 (PR #6, run `37231766834`) |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 305/305 (Fase 3.1: `14_compatibility_responses`, 40 aserciones CR1–CR20; antes 265, incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3 y del punto A de la 2.9, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5, `11` de ownership aislado, `12` de Fase 2.6 y `13` de H4, Fase 2.9) | local; en CI (`db-security`) en verde sobre `f9f08ad` (PR #6, run `37231766834`) |
+| `npm run test:e2e` (E1, Playwright) | ✅ 27/27 en local (Fase 3: `compatibility-flow`: onboarding → `/test`, guardar a medias y retomar, `/explorar` → `/test` sin test, completar → `/explorar` con candidatos solo del DTO (sin admin, eliminada ni presupuesto lejano, sin fecha de nacimiento ni presupuesto exacto), paginación, editar sin cambiar la fecha, service_role solo para candidatos y escritura del test; y el test sin JavaScript; los demás specs, con el destino `/test`). Antes: ✅ 25/25 (también tras H4 de la 2.9, con el mock devolviendo solo la fila propia de `profiles`): rutas protegidas sin sesión (con y sin JavaScript, y 307 sin contenido), alta de estudiante por magic link → `/callback` PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout (sesión anterior inservible), enlace en otro navegador o reutilizado, `/callback` con código inventado o error, `next` tras el login, cuenta eliminada (rutas, formulario abierto, nuevo login), `profile_id`/`id` ajenos en URL y formularios, formularios sin JavaScript, smoke | local con el Chromium preinstalado **1194** vía `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (Playwright 1.63 espera 1243: combinación no soportada oficialmente); en CI (`e2e-local`) 25/25 sobre `f9f08ad` con el Chromium oficial v1243 (PR #6, run `37231766834`) |
 | Mutaciones de la app contra E1 | ✅ 4/4 detectadas (cuenta eliminada → home, ajustes sin esquema estricto, logout sin `signOut`, `/preferencias` sin ciudad obligatoria) | local, restauradas por hash |
 | `tests/supabase/guard-selftest.sh` | ✅ 19/19 (marca `roomly-validation-2`; la antigua y variantes no pasan) | local; en CI (`db-security`) desde 2.8 |
-| `tests/supabase/sql-suite-selftest.sh` | ✅ 75/75: `run-sql-suite.sh` real 01–13 con las mismas aserciones que `run.sh` (265 tras H4 de la 2.9; 240 tras el punto A; eran 218), 13 sesiones aisladas, sin restos, rollback de bloque, sin fugas de rol/GUC, 31 formas de control de transacción rechazadas antes de conectar, 16 identificadores `"..."`/cadenas `E'...'` que intentan ocultar un control (incluido el caso de la auditoría final) rechazados y los legítimos aceptados, WARNING → fallo, fallo a mitad sin restos, 11 sin reescribir falla, marca antigua rechazada | local; en CI (`db-security`) desde 2.8 |
+| `tests/supabase/sql-suite-selftest.sh` | ✅ 75/75: `run-sql-suite.sh` real 01–14 con las mismas aserciones que `run.sh` (305 desde la Fase 3.1; 265 tras H4 de la 2.9; 240 tras el punto A; eran 218), una sesión aislada por archivo (14; el número se cuenta), sin restos, rollback de bloque, sin fugas de rol/GUC, 31 formas de control de transacción rechazadas antes de conectar, 16 identificadores `"..."`/cadenas `E'...'` que intentan ocultar un control (incluido el caso de la auditoría final) rechazados y los legítimos aceptados, WARNING → fallo, fallo a mitad sin restos, 11 sin reescribir falla, marca antigua rechazada | local; en CI (`db-security`) desde 2.8 |
 | Mutaciones del runner | ✅ 4/4 detectadas (sin reescritura a SAVEPOINT, WARNING no falla, COMMIT permitido, COMMIT en vez de ROLLBACK) + validador tras la auditoría final: 2/2 con efecto detectadas (sin estado de identificador `"..."`, sin rechazo de `E'...'`); 2 sin efecto observable (quitar la `""` escapada es equivalente; quitar el error de identificador sin cerrar lo cubre «sentencia final sin `;`») | local, restaurado por hash |
 | Mutaciones de la limpieza del E2 | ✅ 2/2 detectadas (aviso de registro abierto sin captura del fallo del buzón; error de los ajustes que tapa el original) | local, restaurado por hash |
 | Mutaciones del punto A de la 2.9 contra `test:db` | ✅ 3/3 detectadas (sin la migración, bloqueo solo del paso a `NULL`, función `SECURITY DEFINER`) | local, migración restaurada y comprobada con `cmp` |
 | Mutaciones de H4 (2.9) contra `test:db` | ✅ 5/5 detectadas: sin la migración; `profiles_select_authenticated` recreada; otra política SELECT `using (true)`; la política propia, con su nombre, pero `using (auth.uid() is not null)`; `public_profile_previews` con `date_of_birth` | local, con migraciones temporales borradas y la de H4 comprobada por hash |
-| `tests/supabase/preflight-selftest.sh` | ✅ 35/35: P0–P6 pasan con el esquema actual y 27 mutaciones fallan cada una en su check | local; en CI (`db-security`) desde 2.8 |
+| `tests/supabase/preflight-selftest.sh` | ✅ 43/43: P0–P6 pasan con el esquema actual y 35 mutaciones (8 nuevas de `compatibility_responses`, Fase 3.1) fallan cada una en su check | local; en CI (`db-security`) desde 2.8 |
+| `tests/supabase/migration-upgrade-selftest.sh` (Fase 3.1) | ✅ 6/6: migraciones de la Fase 2 con datos y después las nuevas; filas conservadas y sujetas a S4/S5 y al bloqueo de cuentas eliminadas | local; en CI (`db-security`) cuando se suba |
+| Mutaciones de la Fase 3.1 contra `test:db` | ✅ 5/5 detectadas (sin S4, UPDATE devuelto a `authenticated`, sin bloqueo de cuentas eliminadas, SELECT para `anon`, bajar de versión permitido) | local, sobre una copia de la migración en el scratchpad |
+| Mutaciones del motor (Fase 3.2) | ✅ 7/7 detectadas (media en vez de `min`, Jaccard, dato ausente como neutro, sin r6, dirección por suma en vez de signos concordantes, sin tope de diferencias, umbral de fortaleza exclusivo) | local, `score.ts` restaurado y comprobado con `diff` |
 | Migraciones + seed en Supabase real | ✅ las 9 migraciones y el seed, en una transacción (run 13) | `roomly-validation-2b` (`uwxb…`) |
 | Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) | `roomly-validation-2b` |
 | Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) | `roomly-validation` (Fase 1) · `roomly-validation-2b` |
@@ -70,8 +75,38 @@
 | Ensayo del spec de E2 contra el mock | ✅ 1/1, y 5 fallos esperados (sin adaptador, buzón simulado en Actions, adaptador fuera de `tests/e2e`, id de ejecución inválido, enlace de otro origen) sin email ni enlace en la salida | local, adaptador `tests/e2e/support/mock-mailbox.mjs`; no es la validación real |
 | CI `ci.yml` en GitHub Actions | ✅ `lint-typecheck-test-build`, `db-security` y `e2e-local` (25/25, con el Chromium oficial de Playwright) en verde en los PR #4, #5 y #6; los últimos son CI #11 (`f9f08ad`) y CI #12 (`ec7c3fc`) | GitHub |
 
+**Fase 3 sin validar todavía en Supabase real ni en CI**: la suite SQL 14,
+la api-suite CRA1–CRA6 y el E2 con destino `/test` necesitan el proyecto
+nuevo (ver `docs/SUPABASE_VALIDATION.md`, «Fase 3: la próxima validación
+real»). Las filas de Supabase real de esta tabla son de la Fase 2.
+
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
+
+## Fase 3 — compatibilidad (2026-10-07, implementación local)
+
+- **Motor** (`tests/unit/matching-score.test.ts`):
+  - la lista exacta de las 29 preguntas (id, tipo, escala, categoría y
+    pareja) es la de la especificación cerrada;
+  - casos de la especificación: tabla de conducta/tolerancia, presupuesto
+    0/75/150/151, barrios, renormalización, umbrales, dirección;
+  - propiedades con un generador determinista: simetría en 500 pares,
+    determinismo con claves reordenadas, 100 consigo mismo si la persona es
+    coherente;
+  - 7 mutaciones detectadas.
+- **Servicios** con clientes simulados:
+  - el cliente del usuario solo lee y el admin solo escribe (test) o solo
+    hace la lectura cruzada (candidatos);
+  - el cambio de versión se prueba con una v2 simulada (`vi.mock`).
+- **Base de datos**: `tests/db/14` y la actualización incremental
+  (`migration-upgrade-selftest.sh`).
+- **E1**: el mock emula `compatibility_responses` (lectura propia; escritura
+  solo con la clave service_role ficticia, con S1–S6 y cuentas eliminadas) y
+  la consulta embebida de candidatos.
+  - El registro de peticiones del mock es común a todos los specs: los specs
+    que lo inspeccionan solo miran lo de su propio test.
+- **E2**: solo se adaptó el código (onboarding → `/test`); no se ha
+  ejecutado.
 
 ## Fase 2.8 — infraestructura de validación (2026-09-30)
 

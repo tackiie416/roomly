@@ -8,10 +8,11 @@ corregidas están en `docs/DATABASE.md`.
 
 | Requisito pedido | Políticas que lo cumplen |
 |---|---|
-| Usuarios solo modifican sus propios datos | `profiles_update_own`, `housing_preferences_{insert,update,delete}_own` (las dos, solo con la cuenta activa desde `20260930130000`), `compatibility_responses_own`, `favorites_own`, `interests_insert_own`/`interests_delete_own`, `participants_update_own` |
+| Usuarios solo modifican sus propios datos | `profiles_update_own`, `housing_preferences_{insert,update,delete}_own` (las dos, solo con la cuenta activa desde `20260930130000`), `favorites_own`, `interests_insert_own`/`interests_delete_own`, `participants_update_own` |
 | Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations`, todas vía `is_conversation_participant()` — un tercero no puede leer ni escribir aunque conozca el UUID de la conversación. **Hasta la migración `20260926120000_security_fixes.sql` esto NO era cierto** (ver "Correcciones de la auditoría inicial" abajo) |
 | Habitaciones editables solo por su propietario | `rooms_owner_write`. La dirección exacta va un paso más allá: `room_addresses_owner_only`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
+| Respuestas del test (Fase 3.1) | `compatibility_responses_select_own`: `authenticated` solo **lee** su fila; no tiene INSERT, UPDATE ni DELETE (GRANT). `anon`, ningún privilegio. Solo escribe el servidor (service_role, `lib/services/compatibility.ts`), y el trigger `trg_compatibility_responses_integrity` aplica S1–S6 y el bloqueo de cuentas eliminadas a todos los roles |
 | Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); los datos públicos de otros, en la vista `public_profile_previews`; `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
 
 Las políticas (38 desde `20260930130000`, 37 desde `20261004120100`) están en
@@ -219,6 +220,70 @@ históricas). H4 es la otra parte de la 2.9 (sección siguiente).
   (la aplicación nunca reinicia un onboarding).
 - Tests: `tests/db/07_onboarding_integrity.sql` (OB5b, OB11–OB14), en verde
   también en Supabase real (`roomly-validation-2b`, runs 13 y 15).
+
+## Fase 3 — compatibilidad: escritura solo en el servidor y service_role acotado (2026-10-07)
+
+Implementación local de la especificación cerrada de la Fase 3 (D17, D18 y
+D6 = B). Todavía **sin validar en Supabase real**: hace falta un proyecto
+nuevo (ver `docs/SUPABASE_VALIDATION.md`).
+
+**Principio** (decisión 25 de la especificación):
+> Las respuestas del test y su estado solo los escribe el servidor, después
+> de validarlos contra la definición que vive en el código. Cada usuario solo
+> puede leer su propia fila. Toda lectura de datos ajenos pasa por
+> `lib/services/matching.ts`, con columnas explícitas y un DTO con lista
+> blanca. Ninguna respuesta cruda ni puntuación por categoría sale del
+> servidor. service_role solo se usa en los servicios autorizados.
+
+- **`compatibility_responses`** (`20261007120000`):
+  - `anon`: sin acceso;
+  - `authenticated`: solo SELECT de su fila;
+  - el trigger aplica S1–S6 y bloquea cuentas eliminadas para todos los
+    roles, también service_role. El bloqueo RLS de cuentas eliminadas
+    (`20260930130000`) no sirve aquí, porque service_role tiene BYPASSRLS.
+
+  `completed_at` y `questionnaire_version` no se pueden falsificar desde el
+  cliente: no hay privilegio de escritura y el esquema Zod estricto rechaza
+  `profile_id`, `questionnaire_version` y `completed_at`. `profile_id` sale
+  siempre de `getSessionUserId()` (`auth.getUser()`). Ver
+  `docs/DATABASE.md` §"Fase 3.1".
+- **service_role en el servidor de la app (D17)**, solo en dos servicios
+  `server-only`:
+  - `lib/services/matching.ts`: lectura cruzada de candidatos;
+  - `lib/services/compatibility.ts`: escritura del test.
+
+  `tests/unit/admin-client-usage.test.ts` lo comprueba: ningún otro archivo
+  importa `lib/supabase/admin` ni usa `createAdminClient()`; la clave solo la
+  leen `lib/env.ts` y `lib/supabase/admin.ts`; ningún componente de cliente
+  importa servicios; ninguna variable `NEXT_PUBLIC_*` lleva service_role. El
+  estado propio se lee siempre con el cliente del usuario.
+- **Fallo cerrado**: si falta `SUPABASE_SERVICE_ROLE_KEY`, `getServiceRoleKey()`
+  lanza y `/explorar` o el guardado del test muestran el error genérico de
+  la 2.7 (`app/error.tsx`), sin datos ni mensaje técnico. `/test` se abre
+  igual, porque solo lee con el cliente del usuario.
+- **DTO de `/explorar`** (`CandidateDTO`, construido campo a campo):
+  - incluye id, `full_name`, edad, universidad, hasta 3 barrios y el total,
+    presupuesto en escalones de 50 €, score y textos;
+  - **nunca** incluye respuestas, `categoryScores`, `date_of_birth`,
+    presupuestos exactos, fechas, `seeking_status`, `bio`, email, `role`,
+    `deleted_at`, avatar ni ids de preferencias.
+
+  La consulta cruzada proyecta columnas explícitas, sin `bio`, email, avatar
+  ni `seeking_status`.
+- **Explicaciones**: por categoría, sin cifras. La dirección solo aparece en
+  Horarios y Ruido, con signos concordantes. Riesgo residual aceptado (D11).
+- **Navegación**: `/test` y `/explorar` están en `PROTECTED_PREFIXES`, con su
+  guard en cada página. `/test` nunca redirige según el estado del test, así
+  que no hay bucle con `/explorar`. El onboarding termina siempre en `/test`
+  y no usa `next` para saltárselo (D5).
+- **Validación real (D6 = B)**: la app del workflow de validación sigue sin
+  service_role (`docs/ENVIRONMENT.md`). La escritura del test se valida con
+  la suite SQL (`tests/db/14`), la api-suite (CRA1–CRA6, service_role desde
+  el runner, nunca desde la app ni Playwright) y E1.
+  - En E1 la app recibe la clave service_role **ficticia** del mock
+    (`MOCK_SERVICE_ROLE_KEY`); el test estático lo limita a ese valor.
+  - **Riesgo aceptado**: la combinación «Next en ejecución + cliente admin»
+    contra un Supabase real se verá por primera vez al desplegar.
 
 ## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
 
@@ -501,7 +566,9 @@ Ninguna capa se usa sola:
   en código server-only, para las pocas operaciones que necesitan
   saltarse RLS de forma controlada (p. ej. el propio servidor creando un
   `match` tras verificar interés mutuo) — nunca expuesto a un endpoint
-  público sin más comprobaciones.
+  público sin más comprobaciones. Desde la Fase 3, solo
+  `lib/services/matching.ts` y `lib/services/compatibility.ts` lo usan (test
+  estático en `tests/unit/admin-client-usage.test.ts`).
 - Variables de entorno de producción gestionadas en Vercel, no en
   archivos.
 

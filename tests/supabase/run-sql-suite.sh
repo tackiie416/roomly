@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ejecuta la suite SQL de tests/db (01–13) contra el Supabase de VALIDACIÓN,
+# Ejecuta la suite SQL de tests/db (01–14) contra el Supabase de VALIDACIÓN,
 # con los roles, auth.uid() y dueños REALES de Supabase (sin shim).
 #
 # Aislamiento (Fase 2.8, ver tests/supabase/sql-suite-lib.sh): una sesión de

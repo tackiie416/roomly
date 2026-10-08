@@ -4,8 +4,9 @@ PostgreSQL (Supabase). UUID como PK en todas las tablas. `created_at`/`updated_a
 donde aplica. Soft delete (`deleted_at`) en `profiles` y `rooms` — el resto se
 borra en duro o se conserva sin restricción (ver "Soft delete vs. GDPR" abajo).
 
-El SQL real vive en `supabase/migrations/` (tres archivos: esquema, políticas RLS
-y correcciones de seguridad de la auditoría inicial) y `supabase/seed.sql`. Este documento explica las decisiones; el código fuente
+El SQL real vive en `supabase/migrations/` (el esquema, las políticas RLS, las
+correcciones de la auditoría inicial y las migraciones incrementales de las
+Fases 2 y 3) y `supabase/seed.sql`. Este documento explica las decisiones; el código fuente
 de la verdad es el SQL.
 
 ## Revisión crítica (lo que se encontró y se corrigió)
@@ -361,6 +362,68 @@ columnas ni políticas. Pasan de **38 a 37 políticas** en `public`
 - Validado también en Supabase real (`roomly-validation-2b`) en los runs 13
   y 15 de la 2.8: P3 con 37 políticas y `tests/db/13` en verde.
 
+## Fase 3.1 — `compatibility_responses`: solo escribe el servidor (2026-10-07)
+
+Migración incremental
+`supabase/migrations/20261007120000_compatibility_responses_hardening.sql`
+(decisiones D7, D17 y D18 de la especificación cerrada de la Fase 3). No
+modifica migraciones históricas ni añade tablas.
+
+**Columnas**
+- **S1:** `questionnaire_version` pierde su `DEFAULT 1` y gana
+  `chk_compatibility_responses_version` (`>= 1`). El servidor la envía
+  siempre; un INSERT sin versión falla (`23502`).
+- **S2:** `completed_at` admite NULL (borrador) y pierde su `DEFAULT now()`.
+
+**Privilegios y RLS**
+
+| Quién | Antes | Ahora |
+|---|---|---|
+| anon | ALL por los privilegios por defecto de Supabase, frenado solo porque `auth.uid()` es NULL en la política | ningún privilegio (`revoke all`) |
+| authenticated | ALL, política `compatibility_responses_own` FOR ALL sin `to` | solo `SELECT`, política `compatibility_responses_select_own` (`for select to authenticated`, fila propia) |
+| service_role | sin RLS | igual: es el único escritor (`lib/services/compatibility.ts`) |
+
+Siguen siendo 37 políticas: una sustituye a otra.
+
+**Trigger `trg_compatibility_responses_integrity`** (`BEFORE INSERT OR
+UPDATE`)
+- Función `enforce_compatibility_responses_integrity()`: SECURITY INVOKER,
+  `search_path` vacío, EXECUTE revocado a PUBLIC, `anon` y `authenticated`.
+- **Se aplica a todos los roles, también service_role.** Las políticas RLS
+  no sirven aquí: service_role tiene BYPASSRLS, y el bloqueo de cuentas
+  eliminadas de `20260930130000` es RLS y no cubría esta tabla. El
+  precedente es el trigger del punto A (`20261004120000`).
+
+| Regla | Rechazo (`23514`) |
+|---|---|
+| El perfil no existe o tiene `deleted_at` | `account_deleted:` |
+| S6: cambiar `profile_id` | `compatibility_profile_locked:` |
+| S3: bajar de versión | `questionnaire_version_downgrade:` |
+| S4: con la misma versión, cambiar un `completed_at` ya fijado (a NULL o a otra fecha) | `questionnaire_completed_locked:`. Reescribir el mismo valor sí está permitido |
+| S5: al subir de versión, `completed_at` puede ser NULL o un valor nuevo | — (permitido) |
+
+**Lo que el servidor añade**
+- La versión es siempre `CURRENT_QUESTIONNAIRE_VERSION`, que nunca baja.
+- `completed_at` solo se fija cuando las 29 respuestas válidas están
+  completas (D7.1); rehacer un test completado exige las 29 y no envía la
+  fecha (D7.2).
+- Las respuestas de una versión anterior se reutilizan por id (D7.3 y D7.4,
+  D15b).
+- La completitud no se comprueba en SQL: duplicaría la definición del
+  cuestionario, que vive en el código (regla 6).
+
+**Validación**
+- Las filas existentes se conservan. `tests/supabase/migration-upgrade-selftest.sh`
+  aplica la migración sobre datos de la Fase 2: filas con versión 1 y
+  `completed_at` con valor, que desde entonces quedan sujetas a S4.
+- Pasan a ser 18 tablas, 37 políticas, **13 triggers y 11 funciones**.
+- Tests: `tests/db/14_compatibility_responses.sql` y P3/P4/P6 del preflight.
+  Todavía **sin validar en Supabase real**: requiere un proyecto nuevo (ver
+  `docs/SUPABASE_VALIDATION.md`).
+- **Sin índices nuevos** (Fase 3.3): la consulta de candidatos filtra por
+  ciudad con `idx_housing_preferences_city` y por las PK; fechas,
+  presupuesto y compañeros se evalúan en TypeScript.
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid
@@ -389,7 +452,7 @@ erDiagram
 
 **Referencia** — `cities`, `neighborhoods`, `universities`. Lectura pública total, escritura solo admin. `cities.is_active` controla qué ciudades están "live" (solo Barcelona al lanzar).
 
-**Identidad** — `profiles` (extiende `auth.users`; identidad/bio, nunca credenciales — esas las gestiona Supabase Auth), `housing_preferences` (criterios de búsqueda: presupuesto, fechas, zonas, ciudad, universidad), `compatibility_responses` (respuestas del test, JSONB versionado).
+**Identidad** — `profiles` (extiende `auth.users`; identidad/bio, nunca credenciales — esas las gestiona Supabase Auth), `housing_preferences` (criterios de búsqueda: presupuesto, fechas, zonas, ciudad, universidad), `compatibility_responses` (respuestas del test, JSONB versionado; desde la Fase 3.1 solo la escribe el servidor y `completed_at` NULL = borrador).
 
 **Dónde viven ciudad y universidad** (decisión del usuario, Fase 2): `city_id`
 y `university_id` son columnas de `housing_preferences`, no de `profiles`, y

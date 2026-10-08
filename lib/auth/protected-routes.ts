@@ -10,6 +10,9 @@ export const PROTECTED_PREFIXES = [
   "/ajustes",
   "/bienvenida",
   "/cuenta-desactivada",
+  // Fase 3.5: test de compatibilidad y candidatos.
+  "/test",
+  "/explorar",
 ] as const;
 
 /** Coincide con el prefijo exacto o con una subruta (no con "/administracion"). */

@@ -8,7 +8,7 @@ variables de entorno de Vercel para producción/preview.
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Sí | Supabase → Project Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Sí | Supabase → Project Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | **No — server-only** | Supabase → Project Settings → API. Nunca en un componente cliente. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **No — server-only** | Supabase → Project Settings → API. Nunca en un componente cliente. Desde la Fase 3 la necesita el servidor de la app en ejecución (`/explorar` y guardar el test); solo la leen `lib/env.ts` y `lib/supabase/admin.ts`. |
 | `NEXT_PUBLIC_SITE_URL` | Sí | URL de producción/preview; afecta redirects OAuth y canonical SEO |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Sí | Cuenta Mapbox → tokens (pendiente de confirmar Mapbox vs. Google Maps) |
 | `RESEND_API_KEY` | No | Dashboard de Resend |
@@ -28,11 +28,17 @@ usa).
    se desarrolló; no verificado con otras versiones de Node).
 2. Copiar `.env.example` a `.env.local` y rellenar, como mínimo,
    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y
-   `NEXT_PUBLIC_SITE_URL`, con un proyecto Supabase real (región EU). La
-   app no necesita `SUPABASE_SERVICE_ROLE_KEY` para login, onboarding ni
-   `/admin`. Hoy no hay ningún proyecto real en uso: `roomly-validation`
-   ya no se usa y `roomly-validation-2` todavía no existe (ver
-   `docs/SUPABASE_VALIDATION.md`). Ninguno de los dos es producción.
+   `NEXT_PUBLIC_SITE_URL`, con un proyecto Supabase real (región EU).
+   - La app no necesita `SUPABASE_SERVICE_ROLE_KEY` para login, onboarding,
+     `/perfil`, `/preferencias`, `/ajustes`, `/admin` ni para **abrir** `/test`.
+   - **Desde la Fase 3 sí la necesita (server-only)** para `/explorar` (lectura
+     cruzada de candidatos) y para **guardar** el test, porque
+     `authenticated` ya no escribe en `compatibility_responses`. Sin ella, esas
+     dos acciones muestran el error genérico (fallo cerrado).
+   - En producción irá en las variables de servidor de Vercel, nunca como
+     `NEXT_PUBLIC_*`. Es una decisión posterior, sin configurar todavía.
+   - No hay proyecto de producción. La validación de la Fase 2 se hizo en
+     `roomly-validation-2b` (`uwxb…`, ver `docs/SUPABASE_VALIDATION.md`).
 3. `npm run dev`: verificado en la Fase 1; levanta la app y sirve login,
    callback y `/admin`.
 4. Para los proveedores de Auth: `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY`
@@ -45,12 +51,14 @@ usa).
    - Instala el Chromium que corresponde a la versión instalada de
      `@playwright/test` (1.63, Chromium 1243).
    - E1 no usa `.env.local`: `playwright.config.ts` levanta el Supabase
-     simulado y hace `next build` + `next start` con su propia URL y una
-     clave anon ficticia.
+     simulado y hace `next build` + `next start` con su propia URL y claves
+     ficticias. Son la anon y, desde la Fase 3, la service_role
+     `MOCK_SERVICE_ROLE_KEY` de `tests/e2e/support/mock-config.mjs`, que solo
+     acepta el mock y solo lee el servidor de la app.
    - Esa build deja `.next` apuntando al mock: después hay que volver a
      hacer `npm run build` antes de `npm run start` contra otro Supabase.
-   - `npx playwright install` todavía no lo ha ejecutado nadie. El job
-     `e2e-local` de CI lo hará en el próximo push.
+   - En CI, el job `e2e-local` instala el Chromium oficial
+     (`npx playwright install --with-deps chromium`).
 6. Auto-tests de infraestructura contra PostgreSQL local (también en CI):
    `PGHOST=... PGUSER=postgres npm run test:infra`. Necesita un usuario
    que pueda crear bases de datos y roles, igual que `npm run test:db`.
@@ -86,7 +94,7 @@ usa).
 | `SUPABASE_VALIDATION_PROJECT_REF` | secret | guard, migraciones, preflight, suite SQL, api-suite, E2 | Ref del proyecto (actúa de guarda) |
 | `SUPABASE_VALIDATION_URL` | secret | guard, api-suite, app (como `NEXT_PUBLIC_SUPABASE_URL`), E2 | `https://<ref>.supabase.co` |
 | `SUPABASE_VALIDATION_ANON_KEY` | secret | api-suite, app (como `NEXT_PUBLIC_SUPABASE_ANON_KEY`), limpieza del E2 | Pública |
-| `SUPABASE_VALIDATION_SERVICE_ROLE_KEY` | secret | guard, api-suite, preparación y limpieza del E2 | **Privilegiada**: nunca llega a la app ni a Playwright |
+| `SUPABASE_VALIDATION_SERVICE_ROLE_KEY` | secret | guard, api-suite, preparación y limpieza del E2 | **Privilegiada**: nunca llega a la app ni a Playwright. Se mantiene en la Fase 3 (D6 = B): la escritura del test se valida en la suite SQL y la api-suite, no con la app del workflow |
 | `SUPABASE_VALIDATION_DB_URL` | secret | guard, migraciones, preflight, suite SQL, api-suite, preparación y limpieza del E2 | **Privilegiada**: Session pooler con contraseña |
 | `E2E_EMAIL_TEMPLATE` | secret | E2 (spec, preparación, limpieza) | Dirección del buzón de prueba con `{id}` |
 | `E2E_MAILBOX_CONFIG` | secret | adaptador del buzón (`tests/e2e/real/mailboxes/mailtrap.mjs`) | **Privilegiada** (acceso al buzón). JSON `{"accountId":"…","inboxId":"…","apiToken":"…"}`, `accountId` opcional |

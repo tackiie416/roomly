@@ -48,20 +48,26 @@ describe("proxy — sin sesión", () => {
     ["/bienvenida/perfil", "/login"],
     ["/bienvenida/preferencias", "/login"],
     ["/cuenta-desactivada", "/login"],
+    ["/test", "/login?next=%2Ftest"],
+    ["/explorar?pagina=2", "/login?next=%2Fexplorar%3Fpagina%3D2"],
   ])("%s → %s", async (path, expected) => {
     const result = await hit(path);
     expect(result.status).toBe(307);
     expect(result.location).toBe(`${ORIGIN}${expected}`);
   });
 
-  it.each(["/", "/login", "/callback?code=x", "/registro", "/administracion"])(
-    "%s es pública (sin redirección)",
-    async (path) => {
-      const result = await hit(path);
-      expect(result.status).toBe(200);
-      expect(result.location).toBeNull();
-    }
-  );
+  it.each([
+    "/",
+    "/login",
+    "/callback?code=x",
+    "/registro",
+    "/administracion",
+    "/testimonios",
+  ])("%s es pública (sin redirección)", async (path) => {
+    const result = await hit(path);
+    expect(result.status).toBe(200);
+    expect(result.location).toBeNull();
+  });
 });
 
 describe("proxy — con sesión", () => {
@@ -72,6 +78,8 @@ describe("proxy — con sesión", () => {
       "/perfil",
       "/bienvenida/perfil",
       "/cuenta-desactivada",
+      "/test",
+      "/explorar",
     ]) {
       const result = await hit(path);
       expect(result.status).toBe(200);

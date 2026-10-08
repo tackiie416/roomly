@@ -129,11 +129,18 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
     ]);
   });
 
-  it("12 triggers, los mismos que crean las migraciones", () => {
+  it("compatibility_responses: solo la política SELECT de 20261007120000, sin la antigua FOR ALL", () => {
+    const cr = [...derived.policies].filter((p) =>
+      p.startsWith("compatibility_responses.")
+    );
+    expect(cr).toEqual(["compatibility_responses.compatibility_responses_select_own"]);
+  });
+
+  it("13 triggers, los mismos que crean las migraciones", () => {
     const expected = preflightValues(
       /-- P6[\s\S]*?with expected\(tablename, tgname, fn\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.triggers.size).toBe(12);
+    expect(derived.triggers.size).toBe(13);
     expect([...expected].sort()).toEqual([...derived.triggers].sort());
   });
 
@@ -165,12 +172,13 @@ describe("E1 (local, simulado) y E2 (real, manual) separados", () => {
     );
   });
 
-  it("E1: la app solo recibe la URL del mock y la clave anon ficticia; nunca reutiliza un servidor", () => {
+  it("E1: la app solo recibe la URL del mock y las claves ficticias (anon y, desde la Fase 3, service_role); nunca reutiliza un servidor", () => {
     const env = e1.match(/env: \{([\s\S]*?)\}/)?.[1] ?? "";
     expect([...env.matchAll(/([A-Z_]+):/g)].map((m) => m[1]).sort()).toEqual([
       "NEXT_PUBLIC_SITE_URL",
       "NEXT_PUBLIC_SUPABASE_ANON_KEY",
       "NEXT_PUBLIC_SUPABASE_URL",
+      "SUPABASE_SERVICE_ROLE_KEY",
     ]);
     expect(e1.match(/reuseExistingServer: false/g)).toHaveLength(2);
     expect(read("tests/e2e/support/mock-config.mjs")).toContain("http://127.0.0.1:");
@@ -193,7 +201,6 @@ describe("E1 (local, simulado) y E2 (real, manual) separados", () => {
 
   it("ningún archivo de Playwright ni del E2E usa la clave service_role ni la API admin", () => {
     const files = [
-      "playwright.config.ts",
       "playwright.real.config.ts",
       ...readdirSync("tests/e2e/local").map((f) => `tests/e2e/local/${f}`),
       "tests/e2e/real/student-real.spec.ts",
@@ -201,6 +208,25 @@ describe("E1 (local, simulado) y E2 (real, manual) separados", () => {
     ];
     for (const file of files)
       expect(code(file), file).not.toMatch(/SERVICE_ROLE_KEY|serviceKey|auth\.admin/);
+  });
+
+  it("E1 (playwright.config.ts) solo pasa a la app la clave service_role FICTICIA del mock", () => {
+    // Fase 3: la app usa service_role en el servidor (candidatos y escritura
+    // del test). En E1 es la clave ficticia de mock-config.mjs, que solo
+    // acepta el mock; nunca una real ni una variable del entorno.
+    const config = code("playwright.config.ts");
+    const uses = [...config.matchAll(/\b[A-Z_]*SERVICE_ROLE_KEY\b(?:: [A-Z_]+)?/g)].map(
+      (m) => m[0]
+    );
+    expect(uses.sort()).toEqual(
+      ["MOCK_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_ROLE_KEY: MOCK_SERVICE_ROLE_KEY"].sort()
+    );
+    expect(config).not.toMatch(
+      /process\.env\.[A-Z_]*SERVICE|SUPABASE_VALIDATION_SERVICE_ROLE_KEY|auth\.admin/
+    );
+    expect(read("tests/e2e/support/mock-config.mjs")).toMatch(
+      /export const MOCK_SERVICE_ROLE_KEY = "e1-mock-service-role-key-no-es-un-secreto";/
+    );
   });
 
   it("E2 recorre el flujo real: sin generateLink, verifyOtp, token_hash ni contraseña", () => {

@@ -71,15 +71,44 @@ relaciones — nunca un fetch dentro de un bucle. Esto es una convención de
 
 ## Motor de matching: función pura, no IA, no SQL
 
-`lib/matching/score.ts` — una función determinista en TypeScript:
+`lib/matching/score.ts` — una función determinista en TypeScript
+(implementada en la Fase 3.2; contrato exacto en la especificación cerrada de
+la Fase 3, resumido en `ROOMLY_MASTER_SPEC.md` §9–10):
 
 ```ts
 function calculateCompatibility(
-  a: CompatibilityProfile,
-  b: CompatibilityProfile,
-  weights: MatchWeights
-): MatchResult // { overallScore, categoryScores, strengths, differences }
+  a: CompatibilityInput, // { questionnaireVersion, answers, housing } — sin identidad
+  b: CompatibilityInput,
+  weights: MatchWeights  // lib/matching/weights.ts
+): CompatibilityResult
+// { status: "ok", overallScore, categoryScores, reasons, weightsVersion, questionnaireVersion }
+// | { status: "not_comparable", reason } — nunca lanza
 ```
+
+- Simétrica (`score(a,b) === score(b,a)`) y determinista; las parejas
+  conducta/tolerancia valen `min(d(A→B), d(B→A))`.
+- `categoryScores` es solo interno: nunca sale del servidor. Las
+  explicaciones (`reasons`) son claves (tipo, categoría, dirección) y el
+  texto lo genera `lib/matching/explanations.ts` para quien mira.
+- El cuestionario versionado vive en `lib/matching/questionnaire.ts` (v1, 29
+  preguntas); el estado del test propio lo decide una única función pura,
+  `questionnaireStatus` (`lib/matching/questionnaire-status.ts`), y los
+  filtros duros, `passesHardFilters` (`lib/matching/filters.ts`).
+
+**Acceso a datos del matching (Fase 3, D17/D18)**: la RLS solo deja leer la
+fila propia de `profiles`, `housing_preferences` y `compatibility_responses`.
+Por eso `createAdminClient()` (service_role) se usa en exactamente dos
+servicios `server-only`, y un test estático
+(`tests/unit/admin-client-usage.test.ts`) impide cualquier otro uso:
+
+- `lib/services/matching.ts`: lectura cruzada de candidatos, en una sola
+  consulta con recursos embebidos y columnas explícitas. Construye el
+  `CandidateDTO` campo a campo.
+- `lib/services/compatibility.ts`: escritura del test propio, porque
+  `authenticated` ya no tiene INSERT ni UPDATE en `compatibility_responses`.
+
+El estado propio se lee siempre con el cliente del usuario (RLS), nunca con
+service_role.
 
 Vive en TypeScript (no en un trigger de Postgres) por una razón concreta:
 la misma función se usa tanto para "explorar candidatos" (antes de que exista
@@ -218,14 +247,14 @@ roomly/
 ├── app/
 │   ├── (marketing)/[city]/{habitaciones,companeros-de-piso}/
 │   ├── (auth)/{login,registro,callback}/
-│   ├── (onboarding)/bienvenida/{perfil,preferencias,test}/  # URLs /bienvenida/...
-│   ├── (app)/{matches,explorar,habitaciones,mensajes,perfil,ajustes}/  # /perfil = perfil propio
+│   ├── (onboarding)/bienvenida/{perfil,preferencias,test}/  # URLs /bienvenida/... (test: vacía; el test está en /test)
+│   ├── (app)/{test,explorar,matches,habitaciones,mensajes,perfil,preferencias,ajustes}/  # /perfil = perfil propio; /test y /explorar desde la Fase 3
 │   ├── admin/{usuarios,habitaciones,reportes,metricas}/
 │   ├── api/webhooks/          # vacío en MVP; api/v1 se añade con Mobile
 │   └── actions/                # Server Actions, delgadas
 ├── lib/
 │   ├── supabase/{client,server,admin}.ts
-│   ├── matching/{score,weights,types}.ts
+│   ├── matching/{score,weights,types,questionnaire,questionnaire-status,filters,explanations}.ts
 │   ├── services/                # lógica de negocio real
 │   ├── validation/               # esquemas Zod
 │   ├── email/
@@ -242,16 +271,18 @@ Rutas del onboarding (decisión de Fase 2): el onboarding vive en
 Fase 2.3, `app/(onboarding)/bienvenida/{perfil,preferencias}` tienen sus
 páginas (formularios en `components/onboarding/*`, Server Actions en
 `app/actions/onboarding.ts`, datos de referencia en
-`lib/services/reference-data.ts`); `bienvenida/test` sigue vacía hasta la
-Fase 3. Las carpetas antiguas `app/(onboarding)/{perfil,preferencias,test}`
-ya no existen.
+`lib/services/reference-data.ts`). `bienvenida/test` sigue vacía: el test de
+la Fase 3 no forma parte del onboarding y vive en `/test` (decisión D5: al
+terminar el onboarding se va a `/test`). Las carpetas antiguas
+`app/(onboarding)/{perfil,preferencias,test}` ya no existen.
 
 Shell (Fase 2.7, decisión N3): la cabecera global (`components/nav.tsx`,
 en el layout raíz) es **estática** y no lee la sesión, para que las páginas
 públicas sigan siendo estáticas y no hagan consultas a Supabase; «Entrar»
 está en la página de inicio. La navegación de la cuenta vive en
-`app/(app)/layout.tsx` (`components/app-nav.tsx`): enlaces a `/perfil`,
-`/preferencias` y `/ajustes` y el `SignOutButton` de 2.2. El layout no
+`app/(app)/layout.tsx` (`components/app-nav.tsx`): enlaces a `/explorar`,
+`/test` (los dos desde la Fase 3.5), `/perfil`, `/preferencias` y `/ajustes`, y
+el `SignOutButton` de 2.2. El layout no
 consulta nada ni hace de guard: cada página conserva el suyo y sin sesión
 redirige `proxy.ts`. No hay `loading.tsx` en `(app)` (ver `docs/TESTING.md`).
 
@@ -275,6 +306,16 @@ guard, `requireOwnProfile("/preferencias")`), Server Action
 `components/onboarding/preferences-form.tsx`, con acción, texto del botón y
 ciudad obligatoria como props (por defecto, las del onboarding).
 
+Test y candidatos (Fase 3.5):
+- **`app/(app)/test/page.tsx`**: guard `requireQuestionnaire("/test")`, que
+  exige el onboarding completo y no redirige según el estado del test.
+  Formulario en `components/questionnaire/questionnaire-form.tsx`; Server
+  Action `app/actions/compatibility.ts` → `saveQuestionnaireAnswers`.
+- **`app/(app)/explorar/page.tsx`**: guard `requireCompletedQuestionnaire()`;
+  sin el test completado, 307 a `/test`. Llama a `getCandidates` y muestra
+  solo el `CandidateDTO`, 20 por página con `?pagina=N`.
+- `app/(app)/matches` queda reservada para los matches mutuos de la Fase 5.
+
 (Árbol completo generado en el sandbox — consultable con `find` en
 `/home/claude/roomly` o revisando el commit inicial en git.)
 
@@ -290,11 +331,19 @@ proyecto que la use.
   de filtro (`rooms.city_id`, `interests.to_user_id`...), paginación en
   todos los listados desde el día uno.
 - **10.000 → 100.000**: el matching sigue siendo viable porque el filtro
-  duro (ciudad + fechas + presupuesto, todo indexado) acota el candidato
-  antes de puntuar — nunca se puntúa "toda la base de usuarios". Si el
-  filtro deja de acotar lo suficiente (ciudad muy grande, fechas muy
-  amplias), el siguiente paso es precalcular/cachear matches en background,
-  sin tocar la interfaz pública de la capa de servicios.
+  duro acota el candidato antes de puntuar — nunca se puntúa "toda la base
+  de usuarios".
+  - **Desde la Fase 3** solo la ciudad está indexada
+    (`idx_housing_preferences_city`). Fechas, presupuesto y número de
+    compañeros se filtran en TypeScript (`passesHardFilters`), sobre los
+    candidatos de la ciudad. No se crearon índices nuevos a propósito (más
+    simple para el MVP): se añadirán cuando haya datos de carga que lo
+    justifiquen.
+  - `/explorar` puntúa a todos los candidatos de la ciudad en cada carga para
+    poder ordenar por score.
+  - Si el filtro deja de acotar lo suficiente (ciudad muy grande, fechas muy
+    amplias), el siguiente paso es precalcular o cachear los matches en
+    segundo plano, sin tocar la interfaz pública de la capa de servicios.
 - **Imágenes**: Storage externo desde el día uno (nunca en la base de
   datos ni en el repo), compresión en la subida.
 

@@ -14,7 +14,7 @@
     "test:supabase": "vitest run -c vitest.integration.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:real": "playwright test -c playwright.real.config.ts",
-    "test:infra": "bash tests/supabase/guard-selftest.sh && bash tests/supabase/sql-suite-selftest.sh && bash tests/supabase/preflight-selftest.sh",
+    "test:infra": "bash tests/supabase/guard-selftest.sh && bash tests/supabase/sql-suite-selftest.sh && bash tests/supabase/preflight-selftest.sh && bash tests/supabase/migration-upgrade-selftest.sh",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

@@ -3,12 +3,16 @@ import { AppNavLinks } from "@/components/app-nav-links";
 
 /**
  * Navegación del shell autenticado (Fase 2.7), en `app/(app)/layout.tsx`.
- * Solo enlaza a rutas que existen y que el usuario de la sesión puede abrir
- * (las tres admiten perfil incompleto y completo): nada de rutas futuras. No
- * muestra datos del perfil y no hace consultas: el layout ya ha resuelto el
- * estado. «Cerrar sesión» es el `SignOutButton` de 2.2 (`signOut`).
+ * Solo enlaza a rutas que existen: nada de rutas futuras. `/perfil`,
+ * `/preferencias` y `/ajustes` admiten perfil incompleto y completo; `/test`
+ * y `/explorar` (Fase 3.5) exigen el onboarding completo y su guard lleva a
+ * donde toque (y `/explorar`, sin test completado, a `/test`). No muestra
+ * datos del perfil y no hace consultas: cada página tiene su guard.
+ * «Cerrar sesión» es el `SignOutButton` de 2.2 (`signOut`).
  */
 export const APP_NAV_LINKS = [
+  { href: "/explorar", label: "Explorar" },
+  { href: "/test", label: "Test" },
   { href: "/perfil", label: "Perfil" },
   { href: "/preferencias", label: "Preferencias" },
   { href: "/ajustes", label: "Ajustes" },

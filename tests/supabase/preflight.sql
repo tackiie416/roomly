@@ -97,8 +97,9 @@ end $$;
 -- sustituciones sin cambio de número en 20260926120000, 20260929120000 y
 -- 20260930140000, en 20260930130000 `housing_preferences_own` pasa a ser
 -- cuatro políticas (select/insert/update/delete_own) y en 20261004120100
--- (Fase 2.9, H4) se elimina `profiles_select_authenticated`. Total: 37 en 18
--- tablas.
+-- (Fase 2.9, H4) se elimina `profiles_select_authenticated`. En 20261007120000
+-- (Fase 3.1) `compatibility_responses_own` (ALL) se sustituye por
+-- `compatibility_responses_select_own` (SELECT). Total: 37 en 18 tablas.
 -- Se compara (tabla, política, comando) en los dos sentidos: falta o sobra
 -- cualquiera → fallo, con el nombre.
 do $$
@@ -118,7 +119,7 @@ begin
     ('admin_action_logs', 'admin_action_logs_admin_only', 'ALL'),
     ('cities', 'cities_admin_write', 'ALL'),
     ('cities', 'cities_select_all', 'SELECT'),
-    ('compatibility_responses', 'compatibility_responses_own', 'ALL'),
+    ('compatibility_responses', 'compatibility_responses_select_own', 'SELECT'),
     ('conversation_participants', 'participants_select_own_conversations', 'SELECT'),
     ('conversation_participants', 'participants_update_own', 'UPDATE'),
     ('conversations', 'conversations_select_participant', 'SELECT'),
@@ -281,10 +282,36 @@ begin
     end if;
   end;
 
+  -- compatibility_responses (20261007120000, Fase 3.1): anon sin ningún
+  -- privilegio; authenticated solo SELECT (su fila, por RLS), sin ninguna
+  -- escritura ni de tabla ni de columna: el único escritor es el servidor.
+  foreach col in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] loop
+    if has_table_privilege('anon', 'public.compatibility_responses', col) then
+      failures := failures || format('anon tiene %s en compatibility_responses', col);
+    end if;
+  end loop;
+  if has_any_column_privilege('anon', 'public.compatibility_responses', 'SELECT')
+     or has_any_column_privilege('anon', 'public.compatibility_responses', 'INSERT')
+     or has_any_column_privilege('anon', 'public.compatibility_responses', 'UPDATE') then
+    failures := failures || 'anon tiene privilegios de columna en compatibility_responses'::text;
+  end if;
+  foreach col in array array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] loop
+    if has_table_privilege('authenticated', 'public.compatibility_responses', col) then
+      failures := failures || format('authenticated tiene %s en compatibility_responses', col);
+    end if;
+  end loop;
+  if has_any_column_privilege('authenticated', 'public.compatibility_responses', 'INSERT')
+     or has_any_column_privilege('authenticated', 'public.compatibility_responses', 'UPDATE') then
+    failures := failures || 'authenticated tiene escritura de columna en compatibility_responses'::text;
+  end if;
+  if not has_table_privilege('authenticated', 'public.compatibility_responses', 'SELECT') then
+    failures := failures || 'authenticated NO tiene SELECT en compatibility_responses (no podría leer su estado)'::text;
+  end if;
+
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluido housing_preferences)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences y compatibility_responses)';
 end $$;
 
 -- ============================================================
@@ -337,11 +364,12 @@ begin
 end $$;
 
 -- ============================================================
--- P6 — Fase 2: triggers y funciones propias (conjunto exacto)
+-- P6 — Fases 2 y 3: triggers y funciones propias (conjunto exacto)
 -- ============================================================
 -- Derivado de supabase/migrations: triggers de 20260925120000 (updated_at,
 -- rate limit), 20260926120000 (moderación), 20260929120000 (barrios),
--- 20260930120000 (onboarding) y 20260930140000 (ciudad y universidad).
+-- 20260930120000 (onboarding), 20260930140000 (ciudad y universidad) y
+-- 20261007120000 (integridad de compatibility_responses, Fase 3.1).
 -- Seguridad de funciones según cada migración: SECURITY DEFINER solo
 -- is_admin, is_conversation_participant y enforce_neighborhood_not_referenced;
 -- search_path fijo; EXECUTE revocado donde la migración lo revoca.
@@ -353,6 +381,7 @@ declare
   fn record;
 begin
   with expected(tablename, tgname, fn) as (values
+    ('compatibility_responses', 'trg_compatibility_responses_integrity', 'enforce_compatibility_responses_integrity()'),
     ('compatibility_responses', 'trg_compatibility_responses_updated_at', 'set_updated_at()'),
     ('housing_preferences', 'trg_housing_preferences_city_required', 'enforce_housing_city_after_onboarding()'),
     ('housing_preferences', 'trg_housing_preferences_neighborhoods', 'enforce_housing_preferences_neighborhoods()'),
@@ -396,6 +425,7 @@ begin
   -- Funciones propias de public (sin las de extensiones): firma, SECURITY
   -- DEFINER y search_path exactos.
   with expected(sig, secdef, search_path) as (values
+    ('enforce_compatibility_responses_integrity()', false, 'search_path=""'),
     ('enforce_housing_city_after_onboarding()', false, 'search_path=""'),
     ('enforce_housing_preferences_neighborhoods()', false, 'search_path=""'),
     ('enforce_housing_preferences_university()', false, 'search_path=""'),
@@ -430,6 +460,7 @@ begin
   -- EXECUTE revocado según las migraciones.
   for fn in
     select * from (values
+      ('public.enforce_compatibility_responses_integrity()', true),
       ('public.enforce_neighborhood_not_referenced()', true),
       ('public.enforce_onboarding_completion()', true),
       ('public.enforce_housing_city_after_onboarding()', true),
@@ -452,5 +483,5 @@ begin
     raise exception 'FALLO P6: %', array_to_string(failures, '; ');
   end if;
 
-  raise notice 'ok - P6: 12 triggers activos, 10 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
+  raise notice 'ok - P6: 13 triggers activos, 11 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
 end $$;

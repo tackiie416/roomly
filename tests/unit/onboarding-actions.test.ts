@@ -283,10 +283,10 @@ describe("submitOnboardingPreferences", () => {
     }
   );
 
-  it("flujo completo: guarda preferencias, completa el onboarding y va a /", async () => {
+  it("flujo completo: guarda preferencias, completa el onboarding y va al test (/test, D5)", async () => {
     const { calls, db } = fakeDb({ profile: profileRow() });
     await expect(submitOnboardingPreferences({}, form(withCity))).rejects.toEqual(
-      redirectsTo("/")
+      redirectsTo("/test")
     );
 
     const [insert, complete] = writes(calls);
@@ -318,7 +318,7 @@ describe("submitOnboardingPreferences", () => {
       preferences: { profile_id: TEST_USER, city_id: null, budget_max: 900 },
     });
     await expect(submitOnboardingPreferences({}, form(withCity))).rejects.toEqual(
-      redirectsTo("/")
+      redirectsTo("/test")
     );
     const ops = writes(calls).map((call) => `${call.table}:${call.operation}`);
     expect(ops).toEqual([

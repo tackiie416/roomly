@@ -29,12 +29,24 @@ export type MockUserState = {
   id: string;
   profile: Record<string, unknown> | null;
   preferences: Record<string, unknown> | null;
+  /** Fila de compatibility_responses (Fase 3). */
+  compatibility: Record<string, unknown> | null;
 };
 
 export async function userState(email: string): Promise<MockUserState> {
   const response = await mock(`/__test/user?email=${encodeURIComponent(email)}`);
   expect(response.status).toBe(200);
   return (await response.json()) as MockUserState;
+}
+
+/**
+ * Vacía el estado del mock (usuarios, filas, buzón y registro). Solo es
+ * seguro porque E1 corre con un único worker; lo usa el spec que cuenta
+ * filas globales (candidatos), para que un reintento no vea las del intento
+ * anterior.
+ */
+export async function resetMock(): Promise<void> {
+  expect((await mock("/__test/reset")).status).toBe(200);
 }
 
 /** Borrado de cuenta hecho por el servidor (fuera del alcance del cliente). */
@@ -45,9 +57,60 @@ export async function deactivateAccount(email: string): Promise<void> {
 }
 
 export async function requestLog(): Promise<
-  Array<{ method: string; path: string; apikeyIsAnon: boolean; bearerRole: string }>
+  Array<{
+    method: string;
+    path: string;
+    apikeyIsAnon: boolean;
+    apikeyIsService: boolean;
+    bearerRole: string;
+  }>
 > {
   return (await (await mock("/__test/log")).json()) as never;
+}
+
+/**
+ * Otra persona que ya terminó el onboarding y el test (operación de
+ * servidor del mock). `answer` es el valor de todas sus respuestas.
+ */
+export async function seedCandidate(options: {
+  name: string;
+  questionIds: readonly string[];
+  answer?: number;
+  birth?: string;
+  role?: "user" | "admin";
+  deleted?: boolean;
+  budgetMin?: number;
+  budgetMax?: number;
+  neighborhoods?: string[];
+}): Promise<string> {
+  const params = new URLSearchParams({
+    email: uniqueEmail("candidata"),
+    name: options.name,
+    ids: options.questionIds.join(","),
+    answer: String(options.answer ?? 1),
+  });
+  if (options.birth) params.set("birth", options.birth);
+  if (options.role) params.set("role", options.role);
+  if (options.deleted) params.set("deleted", "1");
+  if (options.budgetMin !== undefined)
+    params.set("budget_min", String(options.budgetMin));
+  if (options.budgetMax !== undefined)
+    params.set("budget_max", String(options.budgetMax));
+  if (options.neighborhoods) params.set("neighborhoods", options.neighborhoods.join(","));
+  const response = await mock(`/__test/seed-candidate?${params}`);
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { id: string }).id;
+}
+
+/** Marca en /test la opción `value` de cada pregunta indicada. */
+export async function answerQuestions(
+  page: Page,
+  questionIds: readonly string[],
+  value = 1
+): Promise<void> {
+  for (const id of questionIds) {
+    await page.locator(`input[name="${id}"][value="${value}"]`).check();
+  }
 }
 
 export const pathOf = (page: Page) => {
@@ -70,7 +133,7 @@ export async function loginWithMagicLink(page: Page, email: string, from = "/log
   await page.waitForURL((url) => !url.pathname.startsWith("/callback"));
 }
 
-/** Onboarding completo desde /bienvenida/perfil hasta la home. */
+/** Onboarding completo desde /bienvenida/perfil hasta /test (Fase 3, D5). */
 export async function completeOnboarding(page: Page, fullName: string) {
   await expect(page).toHaveURL(`${APP}/bienvenida/perfil`);
   await page.locator("#full_name").fill(fullName);
@@ -81,7 +144,7 @@ export async function completeOnboarding(page: Page, fullName: string) {
   await page.locator("#city_id").selectOption({ label: "Barcelona" });
   await page.locator("#budget_max").fill("650");
   await page.getByRole("button", { name: "Terminar" }).click();
-  await expect(page).toHaveURL(`${APP}/`);
+  await expect(page).toHaveURL(`${APP}/test`);
 }
 
 export const appNav = (page: Page) => page.getByRole("navigation", { name: "Tu cuenta" });

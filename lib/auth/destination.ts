@@ -14,6 +14,10 @@ export const LOGIN_PATH = "/login";
 export const ONBOARDING_PROFILE_PATH = "/bienvenida/perfil";
 export const ONBOARDING_PREFERENCES_PATH = "/bienvenida/preferencias";
 export const DEACTIVATED_PATH = "/cuenta-desactivada";
+/** Test de compatibilidad (Fase 3.5): destino al terminar el onboarding (D5). */
+export const TEST_PATH = "/test";
+/** Lista de candidatos (Fase 3.5, D13): exige el test completado. */
+export const EXPLORE_PATH = "/explorar";
 
 export type ProfileStatus = ProfileState["status"];
 

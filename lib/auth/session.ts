@@ -10,10 +10,13 @@ import {
   type ProfileState,
 } from "@/lib/services/profile";
 import type { ServiceResult } from "@/lib/services/result";
+import { getOwnQuestionnaire, type OwnQuestionnaire } from "@/lib/services/compatibility";
 import {
   DEACTIVATED_PATH,
+  EXPLORE_PATH,
   ONBOARDING_PREFERENCES_PATH,
   ONBOARDING_PROFILE_PATH,
+  TEST_PATH,
   loginPath,
   resolveDestination,
 } from "@/lib/auth/destination";
@@ -139,4 +142,53 @@ export async function requireAdmin(): Promise<void> {
     throw new ProfileStateUnavailableError();
   }
   if (!admin.data) redirect(resolveDestination(state));
+}
+
+/**
+ * Estado del test propio, una sola vez por petición (Fase 3.5). Lo calcula
+ * `getOwnQuestionnaire` con `questionnaireStatus`, la única función que decide
+ * el estado, y con el cliente del usuario: nunca service_role.
+ */
+export const getCurrentQuestionnaire = cache(
+  async (): Promise<ServiceResult<OwnQuestionnaire>> =>
+    getOwnQuestionnaire(await createClient())
+);
+
+/** Error genérico si el estado del test no se puede usar (fallo de base de datos o versión desconocida). */
+class QuestionnaireUnavailableError extends Error {
+  constructor() {
+    super("No hemos podido cargar tu test. Vuelve a intentarlo en un momento.");
+    this.name = "QuestionnaireUnavailableError";
+  }
+}
+
+/**
+ * `/test` y `/explorar`: onboarding completo (si no, a donde toque) y el
+ * estado del test. Una versión guardada posterior a la vigente
+ * (`unsupported`, no debería pasar nunca) es un error genérico: fallo cerrado.
+ * No redirige según el estado del test: `/test` se puede abrir en cualquier
+ * estado, también para editar uno completado.
+ */
+export async function requireQuestionnaire(
+  currentPath: typeof TEST_PATH | typeof EXPLORE_PATH
+): Promise<OwnQuestionnaire> {
+  await requireCompleteProfile(currentPath);
+  const result = await getCurrentQuestionnaire();
+  if (!result.ok) {
+    if (result.error === "unauthenticated") redirect(loginPath({ next: currentPath }));
+    throw new QuestionnaireUnavailableError();
+  }
+  if (result.data.status === "unsupported") throw new QuestionnaireUnavailableError();
+  return result.data;
+}
+
+/**
+ * `/explorar`: exige el test completado en la versión vigente. Sin test, en
+ * borrador o desactualizado → 307 a `/test` (que nunca redirige según el
+ * estado del test, así que no hay bucle).
+ */
+export async function requireCompletedQuestionnaire(): Promise<OwnQuestionnaire> {
+  const questionnaire = await requireQuestionnaire(EXPLORE_PATH);
+  if (questionnaire.status !== "completed") redirect(TEST_PATH);
+  return questionnaire;
 }
