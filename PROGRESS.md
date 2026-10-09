@@ -6,6 +6,87 @@ próximos pasos.**
 
 ---
 
+## 2026-10-09 — Sesión 35: textos del cuestionario, mejoras editoriales (Fase 3 NO cerrada)
+
+**Contexto**
+- Auditoría previa de solo lectura de los textos del cuestionario v1:
+  29 preguntas.
+  - IDs, orden, escalas, categorías, tipos y parejas coinciden con la
+    especificación.
+  - Los cambios propuestos se clasificaron en editoriales (E1–E19, G1–G4) y
+    semánticos (S1–S5); ninguno técnico.
+- El propietario aprobó E1–E19, G1–G4 y S5, y excluyó S1–S4.
+
+**Qué se hizo**
+- **`lib/matching/questionnaire.ts`:** solo textos y etiquetas visibles.
+  - Preguntas: E1 `clean_common_standard`, E2 `clean_frequency`,
+    E3 `kitchen_after_cooking`, E4 `share_basics`,
+    E5 `rules_cleaning_rota`, E6 `schedule_bedtime` (formato horario),
+    E7 `schedule_wakeup`, E8 `noise_own` (solo el texto),
+    E9 `noise_tolerance` (solo el texto), E10 `rules_quiet_hours`.
+  - Más preguntas: E11 «Cada semana o más» (etiqueta común a `party_own` y
+    `party_tolerance`), E12 `smoke_own`, E13 `smoke_tolerance`,
+    E14 `pets_tolerance`, E15 `study_at_home`,
+    E16 `remote_calls_common_tolerance` (alineada con su conducta),
+    E17 `communication_style`, E18 `conflict_approach`, E19 `rules_explicit`
+    (el orden del texto sigue al de la escala).
+  - **S5:** la misma ayuda bajo `guests_own` y `guests_tolerance`: «Sin
+    contar quien se queda a dormir: eso va en otra pregunta.».
+  - Sin cambios: `clean_dishes`, `guests_overnight_own`,
+    `guests_overnight_tolerance`, `pets_own`, `remote_calls_common_own`,
+    `social_with_flatmates` y `privacy_time_alone`.
+- **`lib/matching/types.ts` y `components/questionnaire/questionnaire-form.tsx`:**
+  - campo opcional `help` en `Question`, solo presentación (no se guarda,
+    valida ni puntúa);
+  - el formulario lo muestra bajo el enunciado y lo enlaza con
+    `aria-describedby`. Es el único cambio fuera de los textos, necesario
+    para S5.
+- **`app/(app)/test/page.tsx`:**
+  - G1: introducción. Compatibilidad orientativa, que no garantiza la
+    convivencia; las demás personas no ven las respuestas, solo un
+    porcentaje y frases generales.
+  - G2: instrucciones. Responder todo, guardado parcial, escalas 1–5 y
+    responder pensando en el piso si aún no se vive en él.
+  - G3: aviso de versión actualizada.
+- **`lib/validation/compatibility.ts`:** G4, «Elige una opción».
+- **Textos sin cambios:**
+  - los que comprueban E1 y E2: título «Test de convivencia», «Guardar
+    respuestas», «Guardar cambios», «Guardando…», «Llevas N de 29
+    preguntas…», «Progreso guardado…» y «Ya has completado el test…»;
+  - los errores generales.
+
+**Contrato técnico, comprobado**
+- Comparación programática del cuestionario antes y después: **idénticos**
+  la versión (1), las 29 preguntas, IDs, orden, categorías, tipos, escalas,
+  parejas y claves de etiqueta.
+- Sin cambios en `CURRENT_QUESTIONNAIRE_VERSION`, el motor, los pesos, las
+  migraciones, el esquema ni la reutilización de respuestas.
+- Ningún test se modificó.
+
+**Resultados locales**
+- `test` 864/864; lint, typecheck, `format:check` y build en verde.
+- E1 27/27 en local (Supabase simulado, sin servicios externos).
+- Una aserción temporal, no commiteada, confirmó que la ayuda S5 aparece
+  bajo las preguntas 14 y 15 con su `aria-describedby`. Confirmó también que
+  se ven la introducción y las instrucciones.
+
+**Pendiente (Fase 3 NO cerrada)**
+1. **S1–S4, sin aplicar**, y la decisión de versionado: si requieren id nuevo
+   y versión 2 del cuestionario, o se descartan.
+   - S1: extremo de la escala de ruido.
+   - S2: tolerancia a fiestas organizadas por un compañero.
+   - S3: quién invita a quien se queda a dormir.
+   - S4: tener o traer una mascota al piso.
+   - Con S4 sin aplicar, `pets_own` sigue con «Pequeña (pez, roedor…)»
+     mientras `pets_tolerance` (E14) ya cita «pez, roedor, pájaro…».
+2. Fuera de alcance, porque necesitan cambios funcionales: paginación,
+   marcar las preguntas sin responder y confirmación al terminar.
+3. `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción.
+4. Actualizar `CLAUDE.md` («Estado actual»).
+5. El pendiente operativo de `uwxb…`, sin tocar.
+
+---
+
 ## 2026-10-09 — Sesión 34: E2 real de la Fase 3 en `roomly-validation-3`, runs 17 y 18 (Fase 3 NO cerrada)
 
 **Contexto**

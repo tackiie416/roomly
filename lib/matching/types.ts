@@ -46,6 +46,8 @@ export type Question = {
   scale: { min: number; max: number };
   /** Etiquetas de los valores: solo extremos en las escalas 1–5 de valoración; todas en las de opciones. */
   labels: Readonly<Record<number, string>>;
+  /** Ayuda opcional bajo el enunciado. Solo presentación: no se guarda ni puntúa. */
+  help?: string;
   /** Solo en `behavior`: id de su tolerancia. */
   pairedWith?: string;
   /** Solo en `tolerance`: id de su conducta. */
