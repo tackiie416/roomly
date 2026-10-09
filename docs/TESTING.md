@@ -30,16 +30,19 @@
   lectura cruzada de candidatos). Sin red ni secrets; en CI (`e2e-local`).
   Prueba el flujo y el routing de la app, no la base de datos.
 - **E2** (`npm run test:e2e:real`, Fase 2.8): el mismo flujo contra el
-  proyecto real `roomly-validation-2b` (`uwxb…`) con email real, solo desde
-  el workflow manual. **En verde en el run 15** (2026-10-06).
+  proyecto real de validación con email real, solo desde el workflow manual.
+  - **En verde en el run 15** (2026-10-06), en `roomly-validation-2b`
+    (`uwxb…`).
+  - Desde la Fase 3, el recorrido pasa por `/test`. **En verde en el run
+    18** (2026-10-09), en `roomly-validation-3`.
 - Chromium con scripts del scratchpad (2.3–2.7): `next start` contra un
   Supabase simulado con estado; no están en el repositorio. E1 los sustituye
   como suite reproducible.
 - Supabase real: el checkpoint de Fase 1 en `roomly-validation` (histórico),
   la validación de la Fase 2 en `roomly-validation-2b`, con la parte
-  estructural en el run 13 y el E2 en el run 15, y la validación estructural
-  de la Fase 3 en `roomly-validation-3`, run 16 (2026-10-09). El E2 de la
-  Fase 3 sigue pendiente (ver `docs/SUPABASE_VALIDATION.md`).
+  estructural en el run 13 y el E2 en el run 15, y la validación de la Fase 3
+  en `roomly-validation-3`: estructural en el run 16 y E2 en el run 18
+  (2026-10-09; ver `docs/SUPABASE_VALIDATION.md`).
 
 
 | Comprobación | Resultado | Dónde |
@@ -66,23 +69,31 @@
 | Mutaciones de la Fase 3.1 contra `test:db` | ✅ 5/5 detectadas (sin S4, UPDATE devuelto a `authenticated`, sin bloqueo de cuentas eliminadas, SELECT para `anon`, bajar de versión permitido) | local, sobre una copia de la migración en el scratchpad |
 | Mutaciones del motor (Fase 3.2) | ✅ 7/7 detectadas (media en vez de `min`, Jaccard, dato ausente como neutro, sin r6, dirección por suma en vez de signos concordantes, sin tope de diferencias, umbral de fortaleza exclusivo) | local, `score.ts` restaurado y comprobado con `diff` |
 | Migraciones + seed en Supabase real | ✅ las 9 migraciones y el seed, en una transacción (run 13) · ✅ las 10 migraciones y el seed, en una transacción (run 16, Fase 3) | `roomly-validation-2b` (`uwxb…`) · `roomly-validation-3` |
-| Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) · ✅ marca `roomly-validation-3`, 18 tablas, 37 políticas, 13 triggers, 11 funciones (run 16) | `roomly-validation-2b` · `roomly-validation-3` |
-| Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) · ✅ 305/305 en `01`–`14` (los 14 archivos, cada uno revertido; las 15 comprobaciones del runner, sin restos; run 16) | `roomly-validation` (Fase 1) · `roomly-validation-2b` · `roomly-validation-3` |
-| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ✅ 46/46 (run 13; en verde en el 15) · ✅ 52/52, con CRA1–CRA6 (run 16) | `roomly-validation` · `roomly-validation-2b` · `roomly-validation-3` |
-| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ✅ 16/16 (run 13; en verde en el 15) · ✅ 16/16 (run 16) | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2b` · `roomly-validation-3` |
+| Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) · ✅ marca `roomly-validation-3`, 18 tablas, 37 políticas, 13 triggers, 11 funciones (run 16; en verde en los runs 17 y 18) | `roomly-validation-2b` · `roomly-validation-3` |
+| Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) · ✅ 305/305 en `01`–`14` (los 14 archivos, cada uno revertido; las 15 comprobaciones del runner, sin restos; runs 16 y 18) | `roomly-validation` (Fase 1) · `roomly-validation-2b` · `roomly-validation-3` |
+| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ✅ 46/46 (run 13; en verde en el 15) · ✅ 52/52, con CRA1–CRA6 (runs 16 y 18) | `roomly-validation` · `roomly-validation-2b` · `roomly-validation-3` |
+| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ✅ 16/16 (run 13; en verde en el 15) · ✅ 16/16 (runs 16 y 18) | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2b` · `roomly-validation-3` |
 | AU4 magic link / AU5 con sesión | ✅ manual (histórico; login de un usuario creado en el dashboard) | `roomly-validation`, PC del propietario |
-| E2 real (alta por magic link con email real) | ✅ 1/1, run 15 (`37543144825`, `ec7c3fc`): `signInWithOtp` → email en Mailtrap → `/auth/v1/verify` → `/callback?code=` con PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout; limpieza sin residuos (1 usuario borrado, buzón vacío). Run 14: falló antes de enviar nada por `E2E_MAILBOX_CONFIG` mal formado | workflow manual, job `e2e-real`, `roomly-validation-2b` |
+| E2 real (alta por magic link con email real) | ✅ 1/1, run 15 (`37543144825`, `ec7c3fc`): `signInWithOtp` → email en Mailtrap → `/auth/v1/verify` → `/callback?code=` con PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout; limpieza sin residuos (1 usuario borrado, buzón vacío). Run 14: falló antes de enviar nada por `E2E_MAILBOX_CONFIG` mal formado · ✅ 1/1, run 18 (`37999470912`, `6dae75f`, Fase 3): el mismo recorrido, con el onboarding terminando en `/test` («Test de convivencia»); limpieza: 1 usuario borrado, sin datos asociados, y mensajes del buzón borrados. Run 17 (`37998858090`): falló a los 267 ms, antes de abrir `/login`, por `E2E_MAILBOX_CONFIG` no válido; sin emails ni usuarios | workflow manual, job `e2e-real`, `roomly-validation-2b` · `roomly-validation-3` |
 | Adaptador de Mailtrap (`tests/unit/mailtrap-mailbox.test.ts`) | ✅ 20/20 sin red; mutaciones 3/3 detectadas (sin decodificar `&amp;`, sin filtrar el destinatario, otra cabecera de autenticación) | local y CI |
 | Ensayo del spec de E2 contra el mock | ✅ 1/1, y 5 fallos esperados (sin adaptador, buzón simulado en Actions, adaptador fuera de `tests/e2e`, id de ejecución inválido, enlace de otro origen) sin email ni enlace en la salida | local, adaptador `tests/e2e/support/mock-mailbox.mjs`; no es la validación real |
 | CI `ci.yml` en GitHub Actions | ✅ `lint-typecheck-test-build`, `db-security` y `e2e-local` (25/25, con el Chromium oficial de Playwright) en verde en los PR #4, #5 y #6; los últimos son CI #11 (`f9f08ad`) y CI #12 (`ec7c3fc`) | GitHub |
 
-**Fase 3 en Supabase real: validación estructural en verde en el run 16**
-(`37994799026`, `f619812`, `roomly-validation-3`, 2026-10-09). Incluye por
-primera vez en real la suite SQL 14 y la api-suite CRA1–CRA6, sin fallos ni
-reintentos. El E2 no se ejecutó (`run_e2e_real=false`). **Sigue pendiente
-el E2 con destino `/test`** (ver `docs/SUPABASE_VALIDATION.md`, «Fase 3: la
-próxima validación real»). En las filas de Supabase real de esta tabla, lo
-marcado «run 16» es de la Fase 3 y el resto, de las Fases 1 y 2.
+**Fase 3 en Supabase real: validación estructural y E2 en verde**, en
+`roomly-validation-3`, el 2026-10-09:
+- **run 16** (`37994799026`, `f619812`): estructural, con la suite SQL 14 y
+  la api-suite CRA1–CRA6 por primera vez en real;
+- **run 18** (`37999470912`, `6dae75f`): E2 1/1 con destino `/test`, y la
+  parte estructural otra vez en verde;
+- **run 17:** falló por configuración del buzón, sin efectos.
+
+Ninguno tuvo reintentos. La limpieza del run 18 avisó de que el registro
+público seguía abierto: su cierre manual es del propietario y el workflow no
+lo verifica.
+
+**La Fase 3 sigue abierta** por pendientes ajenos a la validación real (ver
+`docs/ROADMAP.md`). En las filas de Supabase real de esta tabla, lo marcado
+con los runs 16–18 es de la Fase 3 y el resto, de las Fases 1 y 2.
 
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.

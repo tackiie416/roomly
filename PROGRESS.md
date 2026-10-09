@@ -6,6 +6,100 @@ próximos pasos.**
 
 ---
 
+## 2026-10-09 — Sesión 34: E2 real de la Fase 3 en `roomly-validation-3`, runs 17 y 18 (Fase 3 NO cerrada)
+
+**Contexto**
+- El PR #9 (documentación del run 16) se fusionó en `master` (`6dae75f`).
+- Auditoría de solo lectura del E2: nombres exactos de los secrets y de la
+  variable, el recorrido, la preparación y la limpieza. Conclusión: el E2
+  no necesitaba cambios de código, solo configuración manual del
+  propietario.
+- El propietario configuró, sin compartir valores:
+  - el SMTP de Mailtrap en `roomly-validation-3`, reutilizando el sandbox de
+    la 2.8, porque su plan no permite otro;
+  - `E2E_EMAIL_TEMPLATE` y `E2E_MAILBOX_CONFIG` (secrets) y
+    `E2E_MAILBOX_ADAPTER` (variable) en el Environment
+    `roomly-validation-3`.
+  - Abrió el registro de Auth para cada ventana del E2 y autorizó cada run
+    de forma explícita.
+
+**Qué se hizo**
+- **Run 17** (`37998858090`, `master` @ `6dae75f`):
+  - `confirm_project=roomly-validation-3`, `apply_migrations=false`,
+    `run_e2e_real=true`;
+  - según la API de GitHub, del 2026-10-09 22:22:29 UTC al 22:25:49 UTC,
+    primer intento.
+  - Guard, P0–P6, la suite SQL, la api-suite y AU3/AU5 en verde; migrate,
+    omitido.
+  - **E2: falló a los 267 ms con «E2E_MAILBOX_CONFIG no es un JSON
+    válido»**, al cargar el adaptador del buzón y antes de abrir `/login`.
+    **No se pidió ningún magic link, no se envió ningún email y no se creó
+    ningún usuario.**
+  - Preparación: «Auth con email y registro activos» y «0 usuario(s) de
+    prueba borrado(s)».
+  - Limpieza: «0 usuario(s) de prueba borrado(s), sin datos asociados» y
+    aviso de registro abierto; después falló al vaciar el buzón por el mismo
+    motivo.
+  - Es el mismo fallo que el run 14 de la 2.8. El propietario corrigió el
+    secret y no se repitió el run sin autorización.
+- **Run 18** (`37999470912`, `master` @ `6dae75f`):
+  - los mismos parámetros que el 17;
+  - según la API de GitHub, del 2026-10-09 22:29:12 UTC al 22:33:02 UTC,
+    primer intento; **todo en verde**.
+  - **guard:** destino verificado como `roomly-validation-3`.
+  - **migrate:** omitido, como debía.
+  - **preflight:** P0–P6 superadas.
+  - **sql-suite:** 305/305 en 14 archivos, más las 15 comprobaciones del
+    runner, sin restos.
+  - **api-suite:** 52/52, con CRA1–CRA6.
+  - **auth-redirects:** AU3/AU5 16/16.
+  - **e2e-real:**
+    - preparación: «Auth con email y registro activos» y 0 restos;
+    - spec 1/1 (20,8 s): `/login` → `signInWithOtp` → email real en
+      Mailtrap → enlace a `/auth/v1/verify` validado → `/callback?code=` con
+      PKCE → onboarding → **`/test`** («Test de convivencia») → `/perfil` →
+      `/preferencias` → `/ajustes` → logout;
+    - sin service_role en la app ni en Playwright, sin guardar el test y sin
+      `/explorar`.
+  - **Limpieza:** «1 usuario(s) de prueba borrado(s), sin datos asociados» y
+    «mensajes del buzón de prueba borrados».
+  - Avisó de que **el registro público seguía abierto**. El cierre manual
+    posterior corresponde al propietario y **esta sesión no lo ha
+    verificado**.
+- **Documentación:**
+  - «Resultado de la Fase 3: E2 real» en `docs/SUPABASE_VALIDATION.md`, con
+    el plan de la Fase 3 al día;
+  - filas de Supabase real en `docs/TESTING.md`;
+  - esta entrada.
+
+**Qué no se tocó**
+- `uwxb…` (`roomly-validation-2`), su Environment y sus secrets.
+- Ningún secret, Environment, configuración de Supabase ni de Mailtrap: la
+  configuración y el secret corregido son del propietario.
+- Ni código, ni migraciones, ni tests, ni workflows.
+
+**Hallazgo, sin corregir porque necesitaría cambiar código**
+- La verificación de `cleanup.mjs` comprueba `profiles` y
+  `housing_preferences`, pero no `compatibility_responses`.
+- No afecta a este E2: no escribe en esa tabla y, además, cae en cascada
+  desde `profiles`.
+- Una consulta de solo lectura en el SQL Editor lo cubre (ver la auditoría
+  previa al run).
+
+**Estado de la Fase 3**
+- La validación real está completa: estructural en el run 16 y E2 en el
+  run 18.
+- **La Fase 3 NO está cerrada.** Queda:
+  1. confirmar que el registro de Auth de `roomly-validation-3` está
+     cerrado;
+  2. textos finales del cuestionario;
+  3. `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción;
+  4. actualizar `CLAUDE.md` («Estado actual») con los runs 16–18, que esta
+     tarea no tocaba;
+  5. el pendiente operativo de `uwxb…` (rotar claves y pausar), sin tocar.
+
+---
+
 ## 2026-10-09 — Sesión 33: primera validación real de la Fase 3 en `roomly-validation-3` (Fase 3 NO cerrada)
 
 **Contexto**
