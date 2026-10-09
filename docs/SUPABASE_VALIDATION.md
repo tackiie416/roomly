@@ -18,9 +18,14 @@ creado por el propietario. Su marca, su Environment y `confirm_project` son
 `roomly-validation-3`. `uwxb…` (marca `roomly-validation-2`) es el
 **proyecto anterior**: no se toca y la guarda lo rechaza.
 
-Estado (2026-10-09): **validación estructural real de la Fase 3 completada**
-en `roomly-validation-3`, run 16 (ver «Resultado de la Fase 3»). El E2 de la
-Fase 3 (destino `/test`) sigue pendiente y la Fase 3 no está cerrada.
+Estado (2026-10-09): **validación real de la Fase 3 completada** en
+`roomly-validation-3`:
+- **run 16:** validación estructural;
+- **run 18:** E2 real, con destino `/test`.
+
+Detalle en «Resultado de la Fase 3: validación estructural» y «Resultado de
+la Fase 3: E2 real». **La Fase 3 no está cerrada**: quedan pendientes fuera
+de la validación real (ver `docs/ROADMAP.md`).
 
 ## Resultado de la Fase 3: validación estructural (2026-10-09)
 
@@ -64,6 +69,68 @@ UTC.
 **Otros proyectos:** el workflow solo apunta al Environment
 `roomly-validation-3`. No se tocaron `uwxb…` (`roomly-validation-2`) ni su
 Environment, ni el histórico `roomly-validation`.
+
+## Resultado de la Fase 3: E2 real (2026-10-09)
+
+| Run | Id | Commit | Parámetros | Resultado |
+|---|---|---|---|---|
+| 17 | `37998858090` | `6dae75f` (`master`, merge del PR #9) | `confirm_project=roomly-validation-3`, `apply_migrations=false`, `run_e2e_real=true` | ❌ El E2 falló al cargar el adaptador del buzón, antes de abrir `/login`: «E2E_MAILBOX_CONFIG no es un JSON válido». **No se pidió ningún magic link, no se envió ningún email y no se creó ningún usuario.** El resto de jobs, en verde |
+| **18** | `37999470912` | `6dae75f` (`master`, merge del PR #9) | `confirm_project=roomly-validation-3`, `apply_migrations=false`, `run_e2e_real=true` | ✅ **E2 real 1/1** y todos los jobs en verde, en el primer intento |
+
+Ambos se lanzaron a mano (`workflow_dispatch`) sobre `master`, en el primer
+intento cada uno, con el registro de Auth abierto por el propietario para la
+ventana del E2. Según la API de GitHub:
+- **run 17:** de las 22:22:29 a las 22:25:49 UTC del 2026-10-09;
+- **run 18:** de las 22:29:12 a las 22:33:02 UTC del 2026-10-09.
+
+**Run 17: fallo de configuración, sin efectos.**
+- La preparación pasó: guarda F1, Auth con email y registro activos, sin
+  restos anteriores.
+- El spec falló a los 267 ms al leer `E2E_MAILBOX_CONFIG`, antes del
+  formulario de `/login`.
+- La limpieza informó «0 usuario(s) de prueba borrado(s), sin datos
+  asociados» y avisó de que el registro seguía abierto. Después falló al
+  vaciar el buzón por el mismo motivo; no había mensajes que vaciar.
+- El propietario corrigió el secret (es el mismo fallo que el run 14 de la
+  2.8) y autorizó el reintento.
+
+**Run 18: qué comprobó cada job.**
+- **guard:** destino verificado como `roomly-validation-3`.
+- **migrate:** omitido, como debía (`apply_migrations=false`).
+- **preflight:** P0–P6 superadas.
+- **sql-suite:** 305/305 en los 14 archivos `tests/db/01`–`14`, más las 15
+  comprobaciones del runner, sin restos.
+- **api-suite:** 52/52, con CRA1–CRA6.
+- **auth-redirects:** AU3/AU5 16/16.
+- **e2e-real:** preparación con «Auth con email y registro activos» y 0
+  restos de ejecuciones anteriores; spec **1/1** (20,8 s). Recorrido:
+  1. formulario real de `/login` → `signInWithOtp`;
+  2. email real en el sandbox de Mailtrap;
+  3. enlace a `/auth/v1/verify` validado (origen del proyecto y `redirect_to`
+     exactamente `http://localhost:3000/callback`), abierto en el mismo
+     navegador;
+  4. `/callback?code=` con PKCE;
+  5. onboarding (perfil y preferencias con ciudad) → **`/test`**, con el
+     título «Test de convivencia»;
+  6. `/perfil`, `/preferencias` y `/ajustes`, guardados y releídos;
+  7. logout, y `/perfil` sin sesión vuelve a `/login`.
+
+El E2 no responde ni guarda el test y no visita `/explorar`. La app corrió
+solo con la URL y la clave pública, sin service_role (D6 = B). Sin
+`generateLink` ni `token_hash`.
+
+**Limpieza del run 18:**
+- «1 usuario(s) de prueba borrado(s), sin datos asociados»: el usuario de
+  la ejecución, con su perfil y sus preferencias en cascada; comprobado que
+  quedan 0 usuarios de la plantilla y 0 filas suyas en `profiles` y
+  `housing_preferences`.
+- «mensajes del buzón de prueba borrados».
+- Avisó de que **el registro público seguía abierto** al terminar, como
+  está previsto: el workflow no lo cierra. **El cierre manual posterior
+  corresponde al propietario y no queda verificado por el workflow.**
+
+**Otros proyectos:** no se tocaron `uwxb…` (`roomly-validation-2`), su
+Environment ni sus secrets.
 
 ## Resultado de la Fase 2.8 (2026-10-06)
 
@@ -502,7 +569,7 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | CRA1–CRA6 | api-suite (Fase 3.1) | `compatibility_responses` por PostgREST: B lee su fila y C no; ningún JWT escribe (INSERT, UPDATE de `completed_at` o de versión, DELETE → `42501`); `anon` no lee; service_role completa una vez y después no cambia la fecha (S4), no baja de versión (S3) y sube completando (S5); con la cuenta eliminada ni service_role escribe. **Ejecutada en Supabase real en el run 16 (Fase 3): 6/6** |
 | AU2 | api-suite | La lista de redirects de Supabase Auth conserva `http://localhost:3000/callback` y no conserva destinos externos |
 | AU3, AU5 (sin sesión) | `auth-redirects.sh` | El callback con código inválido y `next` malicioso redirige siempre dentro del origen; `/admin` sin sesión → `/login?next=%2Fadmin` |
-| E2 (alta real) | job `e2e-real` | Registro por magic link con email real, `/callback` PKCE, onboarding (desde la Fase 3 termina en `/test`, que se abre sin service_role), `/perfil`, `/preferencias`, `/ajustes` y logout |
+| E2 (alta real) | job `e2e-real` | Registro por magic link con email real, `/callback` PKCE, onboarding (desde la Fase 3 termina en `/test`, que se abre sin service_role), `/perfil`, `/preferencias`, `/ajustes` y logout. **En verde en el run 18 (Fase 3), con el paso por `/test`** |
 | AU6 (Google) | Fuera de alcance (diferido) | — |
 
 Actores de la api-suite: A, B, C (chat), O (propietario), R (denunciante),
@@ -581,7 +648,7 @@ Desde la Fase 3 el workflow ya no puede ejecutarse contra este proyecto:
 usa el Environment `roomly-validation-3` y la guarda exige esa marca, así
 que `uwxb…` (`roomly-validation-2`) se rechaza antes de hacer nada.
 
-### Fase 3: la próxima validación real (estructural hecha en el run 16; E2 pendiente)
+### Fase 3: la próxima validación real (estructural en el run 16 y E2 en el run 18)
 
 `uwxb…` tiene el esquema de la Fase 2 y **no se toca**. El código de la
 Fase 3 ya no encaja con ese esquema:
@@ -603,10 +670,14 @@ nuevo y vacío**:
 3. ✅ Run 16 con `apply_migrations=true` desde cero: guarda, migraciones,
    P0–P6, SQL 01–14, api-suite y AU, todo en verde (ver «Resultado de la
    Fase 3»).
-4. **Pendiente:** E2 en el proyecto nuevo (SMTP de Mailtrap, los secrets del
-   E2 y una ventana de registro), con su propia autorización. Los próximos
-   runs contra `roomly-validation-3`, siempre con `apply_migrations=false`:
-   el esquema ya existe y apply-migrations se negaría.
+4. ✅ E2 en el proyecto nuevo: SMTP de Mailtrap, los secrets del E2 y una
+   ventana de registro, con su propia autorización.
+   - Run 17: fallo de configuración de `E2E_MAILBOX_CONFIG`, sin efectos.
+   - Run 18: en verde (ver «Resultado de la Fase 3: E2 real»).
+   - Los próximos runs contra `roomly-validation-3`, siempre con
+     `apply_migrations=false`: el esquema ya existe y apply-migrations se
+     negaría.
+   - Después de cada ventana del E2, el propietario cierra el registro a mano.
 
 Mientras tanto, en local: `test:db` (14 archivos), `test:infra` (incluida la
 actualización incremental), unitarios y E1.
