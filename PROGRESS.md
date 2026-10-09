@@ -6,6 +6,106 @@ próximos pasos.**
 
 ---
 
+## 2026-10-09 — Sesión 36: sincronización documental de la Fase 3 tras el PR #11 (Fase 3 NO cerrada)
+
+**Contexto**
+- El PR #11 (textos del cuestionario, sesión 35) se fusionó en `master`
+  (`83654eb`).
+- `CLAUDE.md`, `docs/ROADMAP.md`, `docs/TESTING.md` y §8 de
+  `ROOMLY_MASTER_SPEC.md` seguían describiendo la Fase 3 como
+  implementación local, sin CI ni validación real, o con los textos
+  pendientes.
+
+**Estado verificado de la Fase 3** (API de GitHub y git, 2026-10-09)
+- **Integración en `master`**, cada PR con su CI en el head y después del
+  merge, todas en verde y al primer intento:
+
+  | PR | Contenido | Head | CI del head | Merge | CI del merge |
+  |---|---|---|---|---|---|
+  | #7 | Implementación | `1c56f14` | CI #16 (`37841102492`) | `f34b2c8` | CI #17 (`37842633590`) |
+  | #8 | Marca `roomly-validation-3` | `5a3815b` | CI #18 (`37844991557`) | `f619812` | CI #19 (`37849765647`) |
+  | #9 | Documentación del run 16 | `234e171` | CI #20 (`37995842507`) | `6dae75f` | CI #21 (`37996437980`) |
+  | #10 | Documentación de los runs 17 y 18 | `ba9c041` | CI #22 (`38000510505`) | `de68ef1` | CI #23 (`38000936759`) |
+  | #11 | Textos editoriales (E1–E19, G1–G4, S5) | `92429b7` | CI #24 (`38002378653`) | `83654eb` | CI #25 (`38003093188`) |
+
+  - CI #25, en sus logs: 864/864 unitarios y E1 27/27. En `db-security`
+    pasaron `tests/db/run.sh` y los cuatro selftests (la API da el resultado
+    de cada paso; el recuento de aserciones no se extrajo).
+  - El primer run del PR #7 (`37677719363`, sobre `27beca6`) se quedó
+    colgado en su primer intento y falló en el segundo por dos defectos de
+    test, corregidos en `1c56f14`; no forma parte de la tabla.
+- **Validación real en `roomly-validation-3`** (workflow manual, `master`,
+  primer intento cada uno):
+  - **run 16** (`37994799026`, `f619812`, `apply_migrations=true`): los 6
+    jobs que se ejecutan en verde y el E2 omitido. Es la validación
+    estructural.
+  - **run 17** (`37998858090`, `6dae75f`): falló el job del E2 por
+    configuración (`E2E_MAILBOX_CONFIG`); los demás jobs, en verde, y
+    migrate omitido.
+  - **run 18** (`37999470912`, `6dae75f`, `run_e2e_real=true`): todos en
+    verde y migrate omitido. Es el E2 real, que llega hasta `/test`.
+  - No hay ningún run de validación real posterior al 18.
+- **Qué demuestra cada cosa:**
+  - la CI corre contra PostgreSQL local y el Supabase simulado;
+  - los runs 16 y 18 son los únicos contra Supabase real;
+  - el E2 real (run 18) no guarda el test ni abre `/explorar` (D6 = B);
+  - los textos del PR #11 no han pasado por un run real.
+- **En local, esta sesión:** `npm test` 864/864 sobre `83654eb`. No se
+  repitieron `test:db`, `test:infra` ni E1; sus últimos resultados locales
+  son de las sesiones 32 y 35.
+- **Registro de Auth de `roomly-validation-3`:** la sesión 34 lo dejó como
+  pendiente de confirmar. El propietario declaró el 2026-10-09, después de
+  esa sesión, que está cerrado. No está verificado de forma independiente.
+
+**Qué se hizo** (solo documentación, sin commit al escribir esta entrada)
+- `CLAUDE.md`: «Estado actual» de la Fase 3, separando lo integrado y
+  validado de las decisiones funcionales, el trabajo técnico y las tareas
+  operativas pendientes; también «Testing», «Funcionalidades terminadas» y
+  «Pendiente de decisión humana».
+- `docs/ROADMAP.md`: estado de la Fase 3, lo hecho después de la
+  implementación local y la lista de pendientes.
+- `docs/TESTING.md`: estado actual, `npm run test` 862 → 864, las filas de CI
+  de `test:db`, E1, `migration-upgrade-selftest.sh` y `ci.yml`, y el
+  registro de Auth.
+- `ROOMLY_MASTER_SPEC.md` §8: los textos editoriales, integrados; S1–S4,
+  abiertos.
+- No se tocó código, tests, el cuestionario, migraciones ni otros
+  documentos.
+
+**Pendiente (Fase 3 NO cerrada)**
+- **Decisiones funcionales del propietario:**
+  1. S1–S4 y su versionado: id nuevo y versión 2, o descartarlos. Mientras
+     S4 no se aplique, `pets_own` y `pets_tolerance` usan ejemplos distintos.
+  2. Mejoras del test que necesitan código: paginación, señalar las
+     preguntas sin responder y una confirmación al terminar. Sin implementar
+     en `83654eb`.
+  3. El texto «Por qué encajáis» de `/explorar` (lo comprueba E1).
+  4. Revisión legal de los datos de tabaco y del acceso operativo a las
+     respuestas.
+- **Trabajo técnico, con autorización:** la comprobación de
+  `compatibility_responses` en `cleanup.mjs`, que hoy verifica `profiles` y
+  `housing_preferences`.
+- **Tareas operativas, con intervención o autorización del propietario:**
+  1. `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción; no existe
+     despliegue y no se puede verificar desde el repositorio.
+  2. Rotar las claves de `uwxb…` y pausarlo.
+  3. Cualquier run nuevo contra `roomly-validation-3`, siempre con
+     `apply_migrations=false`.
+
+**Hallazgo, sin corregir**
+- `NEXT_PHASE_AUDIT.md` es una auditoría histórica: su última actualización
+  es del 2026-10-07.
+  - Su cabecera ya dice que las secciones 1, 2, 4 y 5 son la foto anterior a
+    la implementación; por ejemplo, la sección 2 describe `lib/matching/`
+    como vacío.
+  - Su sección 6 («Estado tras la implementación local», 2026-10-07) sigue
+    listando como pendientes la CI en un PR, la validación real, el E2 y los
+    textos, ya hechos, y no está marcada como superada.
+  - Conviene decidir si se marca entero como histórico y remite a
+    `PROGRESS.md` y `docs/ROADMAP.md`.
+
+---
+
 ## 2026-10-09 — Sesión 35: textos del cuestionario, mejoras editoriales (Fase 3 NO cerrada)
 
 **Contexto**
