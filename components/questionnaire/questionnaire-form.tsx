@@ -48,15 +48,27 @@ export function QuestionnaireForm({
           options.push(value);
         const allLabelled = options.every((value) => question.labels[value]);
         const errorId = `${question.id}-error`;
+        const helpId = `${question.id}-help`;
+        const describedBy = [
+          question.help ? helpId : null,
+          errors[question.id] ? errorId : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
         return (
           <fieldset
             key={question.id}
-            aria-describedby={errors[question.id] ? errorId : undefined}
+            aria-describedby={describedBy || undefined}
             className="flex flex-col gap-2"
           >
             <legend className="text-sm font-medium">
               {index + 1}. {question.text}
             </legend>
+            {question.help ? (
+              <p id={helpId} className={hintClass}>
+                {question.help}
+              </p>
+            ) : null}
             <div
               className={
                 allLabelled ? "flex flex-col gap-1" : "flex flex-wrap items-center gap-3"

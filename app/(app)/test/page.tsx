@@ -29,9 +29,17 @@ export default async function TestPage() {
         <div>
           <h1 className="text-xl font-medium">Test de convivencia</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            {total} preguntas sobre cómo vives en casa. No hay respuestas buenas ni malas:
-            solo sirven para encontrar compañeros con los que encajes. Nadie ve tus
-            respuestas; solo se muestran las coincidencias y diferencias, sin detalles.
+            {total} preguntas sobre cómo te gusta vivir en casa. No hay respuestas buenas
+            ni malas: contesta según cómo eres, no según lo que crees que se espera. Con
+            tus respuestas calculamos una compatibilidad orientativa, que no garantiza
+            cómo irá la convivencia. Las demás personas no ven tus respuestas: solo un
+            porcentaje y frases generales sobre en qué coincidís o en qué podéis diferir.
+          </p>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Responde todas las preguntas para ver tus compañeros compatibles. Puedes
+            guardar a medias y seguir más tarde. En las escalas del 1 al 5 solo se nombran
+            los extremos: elige el número que más se acerque a ti. Si aún no vives en el
+            piso, responde pensando en cómo vivirás allí.
           </p>
         </div>
 
@@ -40,9 +48,8 @@ export default async function TestPage() {
             role="status"
             className="rounded-[var(--radius)] border border-[var(--border)] p-3 text-sm"
           >
-            El test se ha actualizado. Hemos conservado las respuestas que siguen
-            valiendo; responde las que faltan para volver a ver tus compañeros
-            compatibles.
+            Hemos actualizado el test. Conservamos las respuestas que siguen valiendo;
+            responde las preguntas nuevas para volver a ver tus compañeros compatibles.
           </p>
         ) : null}
         {questionnaire.status === "draft" ? (

@@ -26,9 +26,9 @@ export function questionnaireAnswersSchema(
   const shape: Record<string, z.ZodOptional<z.ZodInt>> = {};
   for (const question of questionnaire.questions) {
     shape[question.id] = z
-      .int({ error: "Elige una de las opciones" })
-      .min(question.scale.min, { error: "Elige una de las opciones" })
-      .max(question.scale.max, { error: "Elige una de las opciones" })
+      .int({ error: "Elige una opción" })
+      .min(question.scale.min, { error: "Elige una opción" })
+      .max(question.scale.max, { error: "Elige una opción" })
       .optional();
   }
   return z.strictObject(shape, { error: unknownKeyError });
