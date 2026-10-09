@@ -6,6 +6,71 @@ próximos pasos.**
 
 ---
 
+## 2026-10-09 — Sesión 33: primera validación real de la Fase 3 en `roomly-validation-3` (Fase 3 NO cerrada)
+
+**Contexto**
+- El PR #8 (marca `roomly-validation-3`) se fusionó en `master` (`f619812`)
+  con los tres checks en verde.
+- El propietario creó a mano, después del merge:
+  - el proyecto `roomly-validation-3`, con su marca y su configuración de
+    Auth;
+  - el GitHub Environment `roomly-validation-3`, con sus secrets.
+  - Lo creó él, no Claude: esta sesión no tiene acceso a Supabase, y la API
+    de GitHub no le deja listar Environments ni secrets.
+
+**Qué se hizo**
+- **Comprobación previa:**
+  - `master` contiene `f619812`;
+  - el workflow solo se lanza a mano y tiene tres inputs: `confirm_project`,
+    `apply_migrations` y `run_e2e_real`;
+  - los 7 jobs usan `environment: roomly-validation-3`, y la guarda, la P0
+    y la confirmación exigen esa marca;
+  - la clave service_role nunca llega a la app ni a Playwright;
+  - los secrets no se pudieron listar (403): los verificó el job `guard`,
+    sin imprimir nada, antes de cualquier escritura.
+- **Run 16** (`37994799026`):
+  - lanzado con autorización explícita: `workflow_dispatch` sobre `master`,
+    con `confirm_project=roomly-validation-3`, `apply_migrations=true` y
+    `run_e2e_real=false`;
+  - según la API de GitHub, del 2026-10-09 21:39:57 UTC al 21:43:41 UTC,
+    en el primer intento, sin fallos ni reintentos.
+  - **guard:** destino verificado como `roomly-validation-3` (coherencia
+    local + marca del proyecto).
+  - **migrate:** las 10 migraciones y `seed.sql`, en una transacción.
+  - **preflight:** P0–P6 superadas; 18 tablas, 37 políticas, 13 triggers y
+    11 funciones (PostgreSQL 17.11).
+  - **sql-suite:** 305/305 en 14 archivos (40 del 14), cada uno revertido;
+    las 15 comprobaciones del runner, en verde y sin restos.
+  - **api-suite:** 52/52, con CRA1–CRA6 por primera vez en Supabase real.
+  - **auth-redirects:** AU3/AU5 16/16.
+  - **e2e-real:** omitido (`run_e2e_real=false`).
+- **Documentación:** «Resultado de la Fase 3» en
+  `docs/SUPABASE_VALIDATION.md`, filas de Supabase real en
+  `docs/TESTING.md` y esta entrada.
+
+**Qué no se tocó**
+- `uwxb…` (`roomly-validation-2`), su Environment y sus secrets.
+- Ningún otro proyecto, secret, Environment, SMTP ni configuración de
+  Supabase.
+- Sin E1 ni E2, y sin abrir el registro.
+- Ni código, ni migraciones, ni tests, ni workflows.
+
+**Qué queda (Fase 3 NO cerrada)**
+1. E2 con destino `/test` en `roomly-validation-3`:
+   - SMTP de Mailtrap;
+   - `E2E_EMAIL_TEMPLATE`, `E2E_MAILBOX_CONFIG` y `E2E_MAILBOX_ADAPTER` en
+     el Environment;
+   - una ventana de registro;
+   - run con `apply_migrations=false` y `run_e2e_real=true`;
+   - cada paso con su autorización.
+2. Textos finales del cuestionario.
+3. `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción.
+4. Pendiente operativo de `uwxb…` (rotar claves y pausar), sin tocar.
+5. `CLAUDE.md` («Estado actual») todavía no recoge el run 16. Este cambio se
+   limitó a los tres documentos autorizados.
+
+---
+
 ## 2026-10-08 — Sesión 32: marca `roomly-validation-3` para la validación real de la Fase 3 (Fase 3 NO cerrada)
 
 **Contexto**

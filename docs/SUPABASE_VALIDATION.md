@@ -13,11 +13,57 @@ Detalle y diagnóstico de los runs anteriores en «Resultado de la Fase 2.8».
 El checkpoint anterior contra `roomly-validation` (Fase 1) es histórico y
 está al final.
 
-**Desde la Fase 3 el destino es un proyecto nuevo, `roomly-validation-3`**
-(todavía sin crear; ver «Fase 3: la próxima validación real»). Su marca,
-su Environment y `confirm_project` son `roomly-validation-3`. `uwxb…` (marca
-`roomly-validation-2`) es el **proyecto anterior**: no se toca y la guarda
-lo rechaza.
+**Desde la Fase 3 el destino es un proyecto nuevo, `roomly-validation-3`**,
+creado por el propietario. Su marca, su Environment y `confirm_project` son
+`roomly-validation-3`. `uwxb…` (marca `roomly-validation-2`) es el
+**proyecto anterior**: no se toca y la guarda lo rechaza.
+
+Estado (2026-10-09): **validación estructural real de la Fase 3 completada**
+en `roomly-validation-3`, run 16 (ver «Resultado de la Fase 3»). El E2 de la
+Fase 3 (destino `/test`) sigue pendiente y la Fase 3 no está cerrada.
+
+## Resultado de la Fase 3: validación estructural (2026-10-09)
+
+| Run | Id | Commit | Parámetros | Resultado |
+|---|---|---|---|---|
+| **16** | `37994799026` | `f619812` (`master`, merge del PR #8) | `confirm_project=roomly-validation-3`, `apply_migrations=true`, `run_e2e_real=false` | ✅ **Validación estructural real**, primer intento, sin fallos ni reintentos |
+
+Lanzado a mano (`workflow_dispatch`) sobre `master`. Según la API de
+GitHub, empezó el 2026-10-09 a las 21:39:57 UTC y terminó a las 21:43:41
+UTC.
+
+**Qué comprobó cada job:**
+- **guard:** confirmación `roomly-validation-3`; los cinco secrets
+  presentes, URL y conexión de BD del mismo ref, y la marca leída del propio
+  proyecto («destino verificado como roomly-validation-3»).
+- **migrate:** las **10 migraciones** de `supabase/migrations/`, de
+  `20260925120000_initial_schema.sql` a
+  `20261007120000_compatibility_responses_hardening.sql`, y después
+  `supabase/seed.sql`, todo en **una transacción** («migraciones y seed
+  aplicados en una sola transacción»).
+- **preflight:** P0–P6 superadas:
+  - P0: marca `roomly-validation-3`;
+  - P1: 18 tablas y seed;
+  - P3: RLS en las 18 tablas y exactamente 37 políticas;
+  - P4: permisos de columna y de función, con `housing_preferences` y
+    `compatibility_responses`;
+  - P5: sin lints inesperados;
+  - P6: 13 triggers y 11 funciones.
+  - PostgreSQL 17.11.
+- **sql-suite:** **305/305** aserciones en los 14 archivos `tests/db/01`–`14`
+  (40 del archivo 14, `compatibility_responses`), cada uno revertido con
+  ROLLBACK. Las **15 comprobaciones del runner** también pasaron: 14 de
+  aislamiento tras cada ROLLBACK y una final sin `roomly_test`, sin
+  políticas temporales y sin usuarios de prueba.
+- **api-suite:** **52/52**: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, **CRA1–CRA6**
+  (por primera vez en Supabase real) y AU2.
+- **auth-redirects:** AU3/AU5 **16/16** (AU3a–g y AU5a–i), con la app
+  arrancada solo con la URL y la clave pública.
+- **e2e-real:** omitido, como estaba previsto (`run_e2e_real=false`).
+
+**Otros proyectos:** el workflow solo apunta al Environment
+`roomly-validation-3`. No se tocaron `uwxb…` (`roomly-validation-2`) ni su
+Environment, ni el histórico `roomly-validation`.
 
 ## Resultado de la Fase 2.8 (2026-10-06)
 
@@ -448,12 +494,12 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P0–P6 | `tests/supabase/preflight.sql` | Ver la tabla de arriba |
-| SQL 01–14 | `tests/db/*` vía `run-sql-suite.sh` | Las 305 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **El 14 todavía no se ha ejecutado en Supabase real** |
+| SQL 01–14 | `tests/db/*` vía `run-sql-suite.sh` | Las 305 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real en el run 16 (Fase 3): 305/305** |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
 | RO1–RO9 | api-suite | Propietario edita y pausa; no pone ni saca de `removed` (también vía upsert); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario |
 | RE1–RE9 | api-suite | Reporte válido nace `pending`; ningún campo administrativo en el INSERT; no en nombre de otro; no autocierre; el denunciado no lo ve; el admin resuelve |
-| CRA1–CRA6 | api-suite (Fase 3.1) | `compatibility_responses` por PostgREST: B lee su fila y C no; ningún JWT escribe (INSERT, UPDATE de `completed_at` o de versión, DELETE → `42501`); `anon` no lee; service_role completa una vez y después no cambia la fecha (S4), no baja de versión (S3) y sube completando (S5); con la cuenta eliminada ni service_role escribe. **Todavía no se ha ejecutado en Supabase real** |
+| CRA1–CRA6 | api-suite (Fase 3.1) | `compatibility_responses` por PostgREST: B lee su fila y C no; ningún JWT escribe (INSERT, UPDATE de `completed_at` o de versión, DELETE → `42501`); `anon` no lee; service_role completa una vez y después no cambia la fecha (S4), no baja de versión (S3) y sube completando (S5); con la cuenta eliminada ni service_role escribe. **Ejecutada en Supabase real en el run 16 (Fase 3): 6/6** |
 | AU2 | api-suite | La lista de redirects de Supabase Auth conserva `http://localhost:3000/callback` y no conserva destinos externos |
 | AU3, AU5 (sin sesión) | `auth-redirects.sh` | El callback con código inválido y `next` malicioso redirige siempre dentro del origen; `/admin` sin sesión → `/login?next=%2Fadmin` |
 | E2 (alta real) | job `e2e-real` | Registro por magic link con email real, `/callback` PKCE, onboarding (desde la Fase 3 termina en `/test`, que se abre sin service_role), `/perfil`, `/preferencias`, `/ajustes` y logout |
@@ -535,7 +581,7 @@ Desde la Fase 3 el workflow ya no puede ejecutarse contra este proyecto:
 usa el Environment `roomly-validation-3` y la guarda exige esa marca, así
 que `uwxb…` (`roomly-validation-2`) se rechaza antes de hacer nada.
 
-### Fase 3: la próxima validación real (pendiente, con autorización)
+### Fase 3: la próxima validación real (estructural hecha en el run 16; E2 pendiente)
 
 `uwxb…` tiene el esquema de la Fase 2 y **no se toca**. El código de la
 Fase 3 ya no encaja con ese esquema:
@@ -546,18 +592,21 @@ Fase 3 ya no encaja con ese esquema:
 Un run del workflow contra `uwxb…` no llega a ejecutarse: la guarda lo
 rechaza por su marca. La estrategia aprobada es un **proyecto Supabase
 nuevo y vacío**:
-1. Crear el proyecto `roomly-validation-3`, su marca, el GitHub Environment
-   `roomly-validation-3` y sus secrets (autorización aparte; lo hace el
-   propietario, después del merge de este cambio).
+1. ✅ Proyecto `roomly-validation-3`, su marca, el GitHub Environment
+   `roomly-validation-3` y sus secrets, creados por el propietario después
+   del merge del PR #8.
 2. ✅ Marca adaptada a `roomly-validation-3` (antes fijada a
    `roomly-validation-2`) en `tests/supabase/guard.sh`, `preflight.sql` P0,
    los selftests (con los casos de aislamiento de `roomly-validation-2`) y
    `supabase-validation.yml` (Environment de los 7 jobs y
    `confirm_project`).
-3. Run con `apply_migrations=true` desde cero: guarda, migraciones, P0–P6,
-   SQL 01–14, api-suite y AU.
-4. E2 en el proyecto nuevo (SMTP de Mailtrap y una ventana de registro), con
-   su propia autorización.
+3. ✅ Run 16 con `apply_migrations=true` desde cero: guarda, migraciones,
+   P0–P6, SQL 01–14, api-suite y AU, todo en verde (ver «Resultado de la
+   Fase 3»).
+4. **Pendiente:** E2 en el proyecto nuevo (SMTP de Mailtrap, los secrets del
+   E2 y una ventana de registro), con su propia autorización. Los próximos
+   runs contra `roomly-validation-3`, siempre con `apply_migrations=false`:
+   el esquema ya existe y apply-migrations se negaría.
 
 Mientras tanto, en local: `test:db` (14 archivos), `test:infra` (incluida la
 actualización incremental), unitarios y E1.
