@@ -209,29 +209,87 @@ function concordant(first: number, second: number): ReasonDirection {
   return null;
 }
 
+/** Ids de las preguntas que dan la dirección de las diferencias de Horarios y Ruido. */
+export type DirectionQuestionIds = {
+  bedtime: string;
+  wakeup: string;
+  noiseTolerance: string;
+  quietHours: string;
+};
+
+/**
+ * Las preguntas de la dirección, sacadas de la definición del cuestionario que
+ * se compara (nunca de un id fijo que pueda no existir en esa versión):
+ *   - Horarios: `schedule_bedtime` y `schedule_wakeup`, de similitud;
+ *   - Ruido: la tolerancia de la única pareja de Ruido (`noise_tolerance` en
+ *     la v1, `noise_tolerance_v2` en la v2), recíproca con su conducta, y
+ *     `rules_quiet_hours`, de similitud.
+ * Null si falta alguna o no tiene esa forma: `calculateCompatibility` devuelve
+ * entonces `invalid_questionnaire`, nunca una dirección calculada con un hueco.
+ */
+export function directionQuestionIds(
+  questionnaire: Questionnaire
+): DirectionQuestionIds | null {
+  const byId = new Map(
+    questionnaire.questions.map((question) => [question.id, question])
+  );
+  const isSimilarityIn = (id: string, category: Category) => {
+    const question = byId.get(id);
+    return question?.comparison === "similarity" && question.category === category;
+  };
+  if (
+    !isSimilarityIn("schedule_bedtime", "schedules") ||
+    !isSimilarityIn("schedule_wakeup", "schedules") ||
+    !isSimilarityIn("rules_quiet_hours", "noise")
+  ) {
+    return null;
+  }
+  const tolerances = questionnaire.questions.filter(
+    (question) => question.category === "noise" && question.comparison === "tolerance"
+  );
+  if (tolerances.length !== 1) return null;
+  const [tolerance] = tolerances;
+  const behavior = byId.get(tolerance.toleranceOf ?? "");
+  if (
+    behavior?.comparison !== "behavior" ||
+    behavior.category !== "noise" ||
+    behavior.pairedWith !== tolerance.id
+  ) {
+    return null;
+  }
+  return {
+    bedtime: "schedule_bedtime",
+    wakeup: "schedule_wakeup",
+    noiseTolerance: tolerance.id,
+    quietHours: "rules_quiet_hours",
+  };
+}
+
 /**
  * Solo para diferencias de Horarios y Ruido:
  *   - Horarios: Δ acostarse y Δ levantarse (A − B); `a_more` = A tiene un
  *     horario más tardío.
  *   - Ruido: Δ tolerancia (B − A) y Δ horas de silencio (A − B); `a_more` =
- *     A prefiere más tranquilidad. `noise_own` no interviene.
+ *     A prefiere más tranquilidad. La conducta de ruido no interviene.
+ * Las respuestas ya están validadas contra el cuestionario del que salen `ids`.
  */
 function direction(
   category: Category,
   a: Record<string, unknown>,
-  b: Record<string, unknown>
+  b: Record<string, unknown>,
+  ids: DirectionQuestionIds
 ): ReasonDirection {
   const n = (answers: Record<string, unknown>, id: string) => answers[id] as number;
   if (category === "schedules") {
     return concordant(
-      n(a, "schedule_bedtime") - n(b, "schedule_bedtime"),
-      n(a, "schedule_wakeup") - n(b, "schedule_wakeup")
+      n(a, ids.bedtime) - n(b, ids.bedtime),
+      n(a, ids.wakeup) - n(b, ids.wakeup)
     );
   }
   if (category === "noise") {
     return concordant(
-      n(b, "noise_tolerance") - n(a, "noise_tolerance"),
-      n(a, "rules_quiet_hours") - n(b, "rules_quiet_hours")
+      n(b, ids.noiseTolerance) - n(a, ids.noiseTolerance),
+      n(a, ids.quietHours) - n(b, ids.quietHours)
     );
   }
   return null;
@@ -256,6 +314,8 @@ export function calculateCompatibility(
   }
   const questionnaire = getQuestionnaire(a.questionnaireVersion);
   if (!questionnaire) return notComparable("version_mismatch");
+  const directionIds = directionQuestionIds(questionnaire);
+  if (!directionIds) return notComparable("invalid_questionnaire");
   if (!validHousing(a.housing) || !validHousing(b.housing)) {
     return notComparable("invalid_housing");
   }
@@ -309,7 +369,7 @@ export function calculateCompatibility(
     .map((category) => ({
       kind: "difference",
       category,
-      direction: direction(category, answersA, answersB),
+      direction: direction(category, answersA, answersB, directionIds),
     }));
 
   return {

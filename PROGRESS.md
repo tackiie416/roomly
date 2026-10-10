@@ -6,6 +6,189 @@ próximos pasos.**
 
 ---
 
+## 2026-10-10 — Sesión 37: versión 2 del cuestionario, S1–S4 (Fase 3 NO cerrada)
+
+**Contexto**
+- Una auditoría de impacto de solo lectura comparó tres opciones para
+  S1–S4:
+  - A: v2 antes del lanzamiento;
+  - B: mantener la v1 y aplazar;
+  - C: descartar.
+- El propietario autorizó el 2026-10-10 la opción A, con la lectura estricta
+  de D15a. La autorización cubre la implementación y sus pruebas, no commit,
+  push, PR ni cambios en servicios externos.
+- **Estado inicial de Git:**
+  - rama `claude/gifted-noether-y98vc6` en `ea0afb1`, limpia;
+  - una por detrás de `origin/master` (`21df385`, merge del PR #12);
+  - actualizada por fast-forward a `21df385`.
+
+**Qué se hizo** (sin commit al escribir esta entrada)
+- **`lib/matching/questionnaire.ts`:**
+  - la v1 (`QUESTIONNAIRE_V1`) queda como histórica, sin cambios;
+  - la v2 (`QUESTIONNAIRE_V2`) toma las 29 preguntas de la v1, en el mismo
+    orden, y sustituye ocho;
+  - `CURRENT_QUESTIONNAIRE_VERSION = 2` y `QUESTIONNAIRES = { 1, 2 }`.
+
+  | v1 | v2 | Cambio |
+  |---|---|---|
+  | `noise_own`, `noise_tolerance` | `noise_own_v2`, `noise_tolerance_v2` | S1: el extremo 5 es «Mucho» (antes «Bastante»); misma escala y orientación |
+  | `party_own`, `party_tolerance` | `party_own_v2`, `party_tolerance_v2` | S2: la tolerancia es a las fiestas que organiza un compañero; la conducta cambia de id por su pareja |
+  | `guests_overnight_own`, `guests_overnight_tolerance` | `…_own_v2`, `…_tolerance_v2` | S3: alguien invitado por ti / por un compañero se queda a dormir en casa |
+  | `pets_own`, `pets_tolerance` | `pets_own_v2`, `pets_tolerance_v2` | S4: «¿Vas a tener alguna mascota en el piso?», con los ejemplos «(pez, roedor, pájaro…)» en las dos; la tolerancia cambia de id por su pareja |
+
+  - Las otras 21 preguntas son los mismos objetos en las dos versiones.
+  - Los pesos, las categorías, las escalas, los valores y el orden no
+    cambian.
+- **`lib/matching/score.ts` y `types.ts`:**
+  - `directionQuestionIds(questionnaire)` saca del cuestionario que se
+    compara las preguntas de la dirección:
+    - la tolerancia de la única pareja de Ruido, recíproca con su conducta;
+    - `schedule_bedtime`, `schedule_wakeup` y `rules_quiet_hours`, de
+      similitud y en su categoría.
+  - Si falta alguna, `calculateCompatibility` devuelve `not_comparable` con
+    el motivo nuevo `invalid_questionnaire`. Sigue sin lanzar.
+  - Las fórmulas del score y el contrato de las explicaciones no cambian.
+- **Sin cambios:** los servicios `compatibility` y `matching`,
+  `questionnaire-status`, la validación, los filtros, las explicaciones, los
+  pesos, las páginas, las migraciones y `tests/db`, `tests/supabase` y la
+  api-suite. Todos leen la versión vigente o usan versiones literales en la
+  base de datos.
+- **Tests unitarios:** 864 → 1013. Detalle en `docs/TESTING.md`, «Fase 3 —
+  versión 2 del cuestionario».
+  - Nuevos: `questionnaire-versions.test.ts` (22) y
+    `matching-score-direction.test.ts` (19).
+  - `matching-score.test.ts` corre los casos del motor con la v1 y con la
+    v2 (86 → 172).
+  - `services-compatibility-versions.test.ts` prueba el paso real de la v1 a
+    la v2, sin `vi.mock` (5 → 16).
+  - Ajustados a la versión vigente, sin quitar aserciones:
+    `services-compatibility` (36), `questionnaire-status` (22 → 26),
+    `questionnaire-routes` (25 → 29), `services-matching` (25 → 27) y
+    `matching-filters` (33 → 34).
+- **E1:**
+  - `mock-supabase.mjs`: `seed-candidate` y el endpoint de test nuevo
+    `/__test/seed-own-response` (que deja el test propio en una versión
+    anterior) exigen una versión válida (ver «Auditorías previas al commit»);
+  - `helpers.ts`: `seedCandidate({ version })` y `seedOwnResponse`;
+  - `compatibility-flow.spec.ts`:
+    - usa la versión y los ids vigentes;
+    - una candidata solo con el test v1 no aparece;
+    - escenario nuevo del test v1 completado.
+- **Documentación:** `CLAUDE.md`, `ROOMLY_MASTER_SPEC.md` (§8–10),
+  `docs/ROADMAP.md`, `docs/TESTING.md` y esta entrada.
+
+**Paso de la v1 a la v2** (lo demuestran los tests)
+- Un test v1, completado o en borrador, es `outdated`.
+  - `/explorar` lleva a `/test`, que avisa («Hemos actualizado el test…»).
+  - El formulario trae las 21 respuestas comunes y deja sin responder los
+    ocho ids nuevos.
+- Las respuestas a los ocho ids de la v1 no se copian a sus `_v2`, ni se
+  aceptan del cliente:
+  - el esquema estricto las rechaza;
+  - un formulario antiguo que las envíe se rechaza entero sin escribir.
+- La primera escritura de la v2 sigue D7:
+  - con los ocho nuevos, se completa en la misma escritura;
+  - sin ellos, o con parte, queda como borrador;
+  - el mensaje dice cuántas faltan.
+- De una fila de una versión posterior no se usan las respuestas ni se
+  escribe nada (D7.5).
+- El motor no compara versiones distintas (`version_mismatch`). Unas
+  respuestas de la v1 con la versión 2 dan `incomplete_answers`, así que
+  nunca se puntúan. F5 y la consulta excluyen el test v1 de los candidatos.
+- Sin migración: el CHECK `>= 1` y el trigger (S3/S5) ya permiten subir a la
+  versión 2. Lo prueban CR14–CR16 y CRA5.
+
+**Resultados locales** (2026-10-10, rama de trabajo sin commit)
+- `npm run test`: 1013/1013.
+- `npm run test:db`: 305/305.
+  - El cluster local de PostgreSQL 16 estaba parado. Se arrancó con
+    `pg_ctlcluster` y se ejecutó como el usuario `postgres`, por la
+    autenticación peer.
+- `test:infra`: guarda 28, runner SQL 78, preflight 44, actualización
+  incremental 8; los cuatro en verde, como en la sesión 32.
+- E1: 30/30 con el Chromium preinstalado 1194, contra el Supabase simulado
+  (28, más los 2 de `mock-seed-version` que se añadieron tras la auditoría).
+  Es orientativo; el de referencia es el de CI.
+- `format:check`, `lint`, `typecheck` y `build`: en verde. El build se
+  repitió después de E1.
+- **Mutación:** volver al id fijo `noise_tolerance` en la dirección hace
+  fallar 3 tests (uno de `matching-score-direction` y dos de
+  `matching-score`). Se restauró, y los 191 tests de esos dos archivos pasan.
+- No se ejecutó nada contra Supabase real ni E2, y no hay CI de estos
+  cambios.
+
+**Auditorías previas al commit (solo lectura) y correcciones autorizadas**
+- La primera auditoría encontró que las siembras del mock de E1
+  (`/__test/seed-candidate` y `/__test/seed-own-response`) no exigían la
+  versión, aunque sus comentarios y esta entrada lo afirmaban.
+  - `Number(q.get("version"))` convertía una versión ausente, vacía o de
+    solo espacios en 0, y `Number.isInteger(0)` la daba por buena: se
+    sembraba la versión 0.
+  - También aceptaba valores que la columna no admite: «0» y «-1» (los
+    rechaza `CHECK >= 1`), «1e0» (PostgreSQL no lo convierte en `integer`) y
+    valores mayores que 2147483647 (fuera del rango de `integer`).
+- **Corrección** (solo en el mock): `seedVersion` aplica dos reglas
+  distintas.
+  - **Valor:** el rango de `questionnaire_version` (`integer NOT NULL`,
+    `CHECK >= 1`), de 1 a 2147483647.
+  - **Formato:** la forma decimal canónica, sin signo, espacios ni ceros a la
+    izquierda.
+    - Es una convención del mock, acorde con lo que emiten los helpers de
+      siembra (`String(version)`), no una exigencia de PostgreSQL.
+    - PostgreSQL convierte en 2 textos como `'02'`, `' 2 '` o `'+2'`; el mock
+      los rechaza a propósito.
+  - Si no se cumplen las dos, la siembra responde 400 antes de guardar nada.
+- **Regresión permanente** (`tests/e2e/local/mock-seed-version.spec.ts`, 2
+  tests de E1 contra el mock en marcha):
+  - 13 versiones no válidas en cada endpoint (`+2`, `02` y ` 2 ` por formato):
+    400, y ni se crea el usuario ni cambia el test guardado;
+  - se siembran 1, 2 y 2147483647 (el máximo de `integer`), con su valor
+    exacto.
+  - Contra la versión anterior del mock fallan los 2 tests; contra la
+    corregida pasan.
+- **Segunda auditoría:** la primera redacción atribuía el formato canónico a
+  la columna y presentaba «02» y « 2 » como defectos del mock anterior, y el
+  spec no probaba ni 2147483647 ni `+2`. Se corrigió la redacción (mock, spec
+  y esta entrada) y se añadieron los dos casos, sin cambiar la validación.
+- Sin cambios en el cuestionario, el motor, las migraciones ni el código de
+  producción.
+
+**Hallazgos, sin corregir**
+- **Pestaña de `/test` abierta antes del despliegue de la v2:** envía ids de
+  la v1 y recibe «Campo no permitido» sin guardar nada. Recargar lo
+  resuelve. No corrompe datos, pero el mensaje no explica el motivo;
+  mejorarlo es una decisión de producto.
+- **`getCandidates` omite en silencio los resultados `not_comparable`:**
+  - un cuestionario registrado sin sus preguntas de dirección dejaría
+    `/explorar` vacío;
+  - lo impide el test que exige esas preguntas a cada versión registrada
+    (`questionnaire-versions`), que falla en CI;
+  - que el servicio falle cerrado ante `invalid_questionnaire` quedó fuera de
+    esta autorización.
+- La cabecera de `questionnaire.ts` sigue llamando «borrador» a los textos,
+  aunque los editoriales ya se aprobaron en el PR #11. No se tocó.
+
+**Pendiente (Fase 3 NO cerrada)**
+- **Con autorización:** commit, push, PR y CI de la v2. Después, decidir si
+  necesita un run real: el E2 real llega hasta `/test`, y la suite SQL 14 y
+  CRA1–CRA6 no dependen del cuestionario.
+- **Decisiones funcionales del propietario:**
+  - mejoras del test que necesitan código: paginación, señalar las preguntas
+    sin responder y una confirmación al terminar;
+  - el texto «Por qué encajáis»;
+  - revisión legal de los datos de tabaco y del acceso operativo a las
+    respuestas.
+- **Trabajo técnico, con autorización:** la comprobación de
+  `compatibility_responses` en `cleanup.mjs`.
+- **Tareas operativas:**
+  - `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción;
+  - rotar las claves de `uwxb…` y pausarlo;
+  - cualquier run nuevo contra `roomly-validation-3`, siempre con
+    `apply_migrations=false`.
+- Marcar `NEXT_PHASE_AUDIT.md` como histórico (sesión 36).
+
+---
+
 ## 2026-10-09 — Sesión 36: sincronización documental de la Fase 3 tras el PR #11 (Fase 3 NO cerrada)
 
 **Contexto**

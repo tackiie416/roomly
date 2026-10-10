@@ -6,11 +6,29 @@ import {
   type FakeResponse,
 } from "./helpers/fake-supabase";
 import { TEST_USER, profileRow, type ProfileFixture } from "./helpers/profile-rows";
-import { QUESTIONNAIRE_V1 } from "@/lib/matching/questionnaire";
+import {
+  CURRENT_QUESTIONNAIRE_VERSION,
+  QUESTIONNAIRE_V1,
+  getCurrentQuestionnaire,
+} from "@/lib/matching/questionnaire";
 
 // Fase 3.5 — guards de /test y /explorar y Server Action del test.
 // /test nunca redirige según el estado del test; /explorar sin test
-// completado → /test; al completar → /explorar.
+// completado → /test; al completar → /explorar. Con la versión vigente (la
+// v2); un test de la v1 es `outdated`.
+
+const CURRENT = CURRENT_QUESTIONNAIRE_VERSION;
+/** Los ocho ids de la v1 que la v2 sustituye (S1–S4). */
+const REPLACED_V1_IDS = [
+  "noise_own",
+  "noise_tolerance",
+  "party_own",
+  "party_tolerance",
+  "guests_overnight_own",
+  "guests_overnight_tolerance",
+  "pets_own",
+  "pets_tolerance",
+];
 
 const serverMock = vi.hoisted(() => ({ createClient: vi.fn() }));
 const adminMock = vi.hoisted(() => ({ createAdminClient: vi.fn() }));
@@ -61,7 +79,7 @@ function as(
     userId: null,
     respond: (call) => ({
       data: {
-        questionnaire_version: call.payload?.questionnaire_version ?? 1,
+        questionnaire_version: call.payload?.questionnaire_version ?? CURRENT,
         answers: call.payload?.answers ?? {},
         completed_at:
           call.payload && "completed_at" in call.payload
@@ -77,6 +95,9 @@ function as(
 }
 
 const allAnswers = () =>
+  Object.fromEntries(getCurrentQuestionnaire().questions.map((q) => [q.id, 2]));
+/** Un test v1 completo. */
+const allV1Answers = () =>
   Object.fromEntries(QUESTIONNAIRE_V1.questions.map((q) => [q.id, 2]));
 
 function form(values: Record<string, string | number>) {
@@ -111,13 +132,17 @@ describe("requireQuestionnaire (/test)", () => {
     ["sin test", null, "none"],
     [
       "borrador",
-      { questionnaire_version: 1, answers: { clean_frequency: 3 }, completed_at: null },
+      {
+        questionnaire_version: CURRENT,
+        answers: { clean_frequency: 3 },
+        completed_at: null,
+      },
       "draft",
     ],
     [
       "completado",
       {
-        questionnaire_version: 1,
+        questionnaire_version: CURRENT,
         answers: allAnswers(),
         completed_at: "2026-10-02T10:00:00Z",
       },
@@ -126,6 +151,25 @@ describe("requireQuestionnaire (/test)", () => {
   ])("%s → no redirige (estado %s)", async (_label, row, status) => {
     as("complete", row);
     await expect(requireQuestionnaire("/test")).resolves.toMatchObject({ status });
+  });
+
+  it("completado en la v1 → no redirige (outdated) y solo trae las 21 respuestas comunes", async () => {
+    as("complete", {
+      questionnaire_version: 1,
+      answers: allV1Answers(),
+      completed_at: "2026-10-02T10:00:00Z",
+    });
+    const questionnaire = await requireQuestionnaire("/test");
+    expect(questionnaire).toMatchObject({
+      status: "outdated",
+      storedVersion: 1,
+      currentVersion: CURRENT,
+    });
+    expect(Object.keys(questionnaire.answers)).toHaveLength(21);
+    for (const id of REPLACED_V1_IDS) {
+      expect(questionnaire.answers).not.toHaveProperty(id);
+      expect(questionnaire.answers).not.toHaveProperty(`${id}_v2`);
+    }
   });
 
   it("versión posterior a la vigente (anomalía) → error genérico, sin redirigir", async () => {
@@ -155,7 +199,7 @@ describe("requireQuestionnaire (/test)", () => {
 describe("requireCompletedQuestionnaire (/explorar)", () => {
   it.each<[string, Row | null]>([
     ["sin test", null],
-    ["borrador", { questionnaire_version: 1, answers: {}, completed_at: null }],
+    ["borrador", { questionnaire_version: CURRENT, answers: {}, completed_at: null }],
   ])("%s → 307 a /test", async (_label, row) => {
     as("complete", row);
     await expect(requireCompletedQuestionnaire()).rejects.toEqual(redirectsTo("/test"));
@@ -177,7 +221,7 @@ describe("requireCompletedQuestionnaire (/explorar)", () => {
 
   it("completado en la versión vigente → pasa", async () => {
     as("complete", {
-      questionnaire_version: 1,
+      questionnaire_version: CURRENT,
       answers: allAnswers(),
       completed_at: "2026-10-02T10:00:00Z",
     });
@@ -200,7 +244,7 @@ describe("submitQuestionnaire", () => {
     expect(state.values).toEqual({ clean_frequency: "3", smoke_own: "1" });
     expect(writePayloads(admin.calls)[0].payload).toMatchObject({
       profile_id: TEST_USER,
-      questionnaire_version: 1,
+      questionnaire_version: CURRENT,
       completed_at: null,
     });
     expect(writePayloads(user.calls)).toHaveLength(0);
@@ -219,6 +263,54 @@ describe("submitQuestionnaire", () => {
     as("complete", null);
     const state = await submitQuestionnaire({}, form(answers));
     expect(state.success).toBe("Progreso guardado. Te falta 1 pregunta para terminar.");
+  });
+
+  it("test v1 completado + un formulario antiguo con los ids de la v1 → se rechaza sin escribir", async () => {
+    const { admin } = as("complete", {
+      questionnaire_version: 1,
+      answers: allV1Answers(),
+      completed_at: "2026-10-02T10:00:00Z",
+    });
+    const state = await submitQuestionnaire({}, form(allV1Answers()));
+    expect(state.formError).toContain("Campo no permitido");
+    expect(state.success).toBeUndefined();
+    expect(admin.calls).toHaveLength(0);
+  });
+
+  it("test v1 completado + solo respuestas comunes → borrador de la v2 al que le faltan los ocho ids nuevos", async () => {
+    const { admin } = as("complete", {
+      questionnaire_version: 1,
+      answers: allV1Answers(),
+      completed_at: "2026-10-02T10:00:00Z",
+    });
+    const state = await submitQuestionnaire({}, form({ clean_frequency: 4 }));
+    expect(state.success).toBe("Progreso guardado. Te faltan 8 preguntas para terminar.");
+    const [write] = writePayloads(admin.calls);
+    expect(write.payload).toMatchObject({
+      questionnaire_version: CURRENT,
+      completed_at: null,
+    });
+    const saved = write.payload?.answers as Record<string, number>;
+    expect(Object.keys(saved)).toHaveLength(21);
+    expect(saved.clean_frequency).toBe(4);
+    for (const id of REPLACED_V1_IDS) {
+      expect(saved).not.toHaveProperty(id);
+      expect(saved).not.toHaveProperty(`${id}_v2`);
+    }
+  });
+
+  it("test v1 completado + las 29 de la v2 → completado en la v2 y redirige a /explorar", async () => {
+    const { admin } = as("complete", {
+      questionnaire_version: 1,
+      answers: allV1Answers(),
+      completed_at: "2026-10-02T10:00:00Z",
+    });
+    await expect(submitQuestionnaire({}, form(allAnswers()))).rejects.toEqual(
+      redirectsTo("/explorar")
+    );
+    const [write] = writePayloads(admin.calls);
+    expect(write.payload?.questionnaire_version).toBe(CURRENT);
+    expect(typeof write.payload?.completed_at).toBe("string");
   });
 
   it.each(["profile_id", "questionnaire_version", "completed_at"])(
@@ -257,7 +349,7 @@ describe("submitQuestionnaire", () => {
 
   it("conflicto (otra pestaña) → mensaje, sin detalles técnicos", async () => {
     const { admin } = as("complete", {
-      questionnaire_version: 1,
+      questionnaire_version: CURRENT,
       answers: {},
       completed_at: null,
     });

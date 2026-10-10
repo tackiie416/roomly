@@ -104,6 +104,8 @@ export type CompatibilityReason = {
 
 export type NotComparableReason =
   | "version_mismatch"
+  /** Al cuestionario le faltan las preguntas de la dirección (fallo del código, no de las respuestas). */
+  | "invalid_questionnaire"
   | "incomplete_answers"
   | "invalid_answer"
   | "invalid_weights"

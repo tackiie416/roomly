@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { QUESTIONNAIRE_V1 } from "../../../lib/matching/questionnaire";
+import {
+  CURRENT_QUESTIONNAIRE_VERSION,
+  QUESTIONNAIRE_V1,
+  getCurrentQuestionnaire,
+} from "../../../lib/matching/questionnaire";
 import {
   APP,
   answerQuestions,
@@ -9,6 +13,7 @@ import {
   requestLog,
   resetMock,
   seedCandidate,
+  seedOwnResponse,
   uniqueEmail,
   userState,
 } from "./helpers";
@@ -16,10 +21,18 @@ import {
 // Fase 3 — E1: onboarding → /test (guardar a medias, retomar, completar) →
 // /explorar con candidatos (solo el DTO, sin admins, cuentas eliminadas ni
 // presupuestos incompatibles) → editar el test completado. service_role solo
-// lo usa el servidor de la app: lectura cruzada y escritura del test.
+// lo usa el servidor de la app: lectura cruzada y escritura del test. Con la
+// versión vigente del cuestionario (la v2, S1–S4); quien solo tiene el test v1
+// ve el aviso de actualización y no sale como candidato.
 test.describe.configure({ mode: "serial" });
 
-const IDS = QUESTIONNAIRE_V1.questions.map((q) => q.id);
+const CURRENT = CURRENT_QUESTIONNAIRE_VERSION;
+const IDS = getCurrentQuestionnaire().questions.map((q) => q.id);
+const V1_IDS = QUESTIONNAIRE_V1.questions.map((q) => q.id);
+/** Ids comunes a la v1 y la vigente (21) y los ocho nuevos de la vigente. */
+const SHARED_IDS = IDS.filter((id) => V1_IDS.includes(id));
+const NEW_IDS = IDS.filter((id) => !V1_IDS.includes(id));
+const REPLACED_IDS = V1_IDS.filter((id) => !IDS.includes(id));
 
 // Un número oculto solo cuenta como filtrado si aparece suelto: los UUID
 // aleatorios (ids del DTO, payload RSC) y los hashes de los chunks pueden
@@ -39,6 +52,7 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   // public_profile_previews); el resto de la fila, no.
   const match = await seedCandidate({
     name: "Compatible Uno",
+    version: CURRENT,
     questionIds: IDS,
     answer: 1,
     birth: "2001-03-15",
@@ -49,12 +63,20 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   // no comparable y el motor la omitiría).
   const lower = await seedCandidate({
     name: "Compatible Dos",
+    version: CURRENT,
     questionIds: IDS,
     answer: 3,
   });
-  await seedCandidate({ name: "Admin Oculta", questionIds: IDS, role: "admin" });
-  await seedCandidate({ name: "Eliminada Oculta", questionIds: IDS, deleted: true });
-  await seedCandidate({ name: "Presupuesto Lejano", questionIds: IDS, budgetMin: 900 });
+  const hiddenSeeds = [
+    { name: "Admin Oculta", role: "admin" as const },
+    { name: "Eliminada Oculta", deleted: true },
+    { name: "Presupuesto Lejano", budgetMin: 900 },
+  ];
+  for (const seed of hiddenSeeds) {
+    await seedCandidate({ ...seed, version: CURRENT, questionIds: IDS });
+  }
+  // Test completado solo en la v1: desactualizado, no es candidato.
+  await seedCandidate({ name: "Version Antigua", version: 1, questionIds: V1_IDS });
 
   const email = uniqueEmail("test-compat");
   await loginWithMagicLink(page, email);
@@ -73,7 +95,7 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   ).toBeVisible();
   let state = await userState(email);
   expect(state.compatibility).toMatchObject({
-    questionnaire_version: 1,
+    questionnaire_version: CURRENT,
     completed_at: null,
   });
   expect(Object.keys(state.compatibility?.answers as object)).toHaveLength(3);
@@ -112,6 +134,7 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
     "Admin Oculta",
     "Eliminada Oculta",
     "Presupuesto Lejano",
+    "Version Antigua",
     "2001-03-15",
     "clean_frequency",
     "categoryScores",
@@ -139,6 +162,7 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   await expect(page).toHaveURL(`${APP}/explorar`);
   state = await userState(email);
   expect(state.compatibility?.completed_at).toBe(completedAt);
+  expect(state.compatibility?.questionnaire_version).toBe(CURRENT);
   expect((state.compatibility?.answers as Record<string, number>)[IDS[1]]).toBe(3);
 
   // service_role: solo el servidor, solo lectura cruzada de perfiles y
@@ -159,6 +183,69 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   );
   expect(userTest.length).toBeGreaterThan(0);
   expect(userTest.every((entry) => entry.method === "GET")).toBe(true);
+});
+
+test("test v1 completado: aviso, se conservan las 21 respuestas comunes y se completa la v2", async ({
+  page,
+}) => {
+  expect(SHARED_IDS).toHaveLength(21);
+  expect(NEW_IDS).toHaveLength(8);
+  const email = uniqueEmail("test-v1");
+  await loginWithMagicLink(page, email);
+  await completeOnboarding(page, "Test Antiguo");
+  // El test se completó en la v1 (2 es válido en las escalas 1–3 y 1–5).
+  await seedOwnResponse(email, {
+    version: 1,
+    questionIds: V1_IDS,
+    answer: 2,
+    completed: true,
+  });
+
+  // Desactualizado: /explorar lleva a /test, que avisa del cambio.
+  await page.goto("/explorar");
+  await expect(page).toHaveURL(`${APP}/test`);
+  await expect(page.getByText("Hemos actualizado el test.")).toBeVisible();
+  // Las 21 comunes, marcadas con lo de la v1; las ocho nuevas, sin responder;
+  // los ocho ids de la v1 sustituidos no están en el formulario.
+  for (const id of SHARED_IDS) {
+    await expect(page.locator(`input[name="${id}"][value="2"]`)).toBeChecked();
+  }
+  for (const id of NEW_IDS) {
+    await expect(page.locator(`input[name="${id}"]:checked`)).toHaveCount(0);
+  }
+  for (const id of REPLACED_IDS) {
+    await expect(page.locator(`input[name="${id}"]`)).toHaveCount(0);
+  }
+
+  // Siete de las ocho nuevas → borrador de la v2; falta una.
+  await answerQuestions(page, NEW_IDS.slice(0, 7), 1);
+  await page.getByRole("button", { name: "Guardar respuestas" }).click();
+  await expect(
+    page.getByText("Progreso guardado. Te falta 1 pregunta para terminar.")
+  ).toBeVisible();
+  let state = await userState(email);
+  expect(state.compatibility).toMatchObject({
+    questionnaire_version: CURRENT,
+    completed_at: null,
+  });
+  let answers = state.compatibility?.answers as Record<string, number>;
+  expect(Object.keys(answers)).toHaveLength(28);
+  for (const id of REPLACED_IDS) expect(answers).not.toHaveProperty(id);
+  await page.goto("/explorar");
+  await expect(page).toHaveURL(`${APP}/test`);
+  await expect(page.getByText("Llevas 28 de 29 preguntas.")).toBeVisible();
+
+  // La última → completado en la v2 y /explorar.
+  await answerQuestions(page, NEW_IDS.slice(7), 1);
+  await page.getByRole("button", { name: "Guardar respuestas" }).click();
+  await expect(page).toHaveURL(`${APP}/explorar`);
+  state = await userState(email);
+  expect(state.compatibility?.questionnaire_version).toBe(CURRENT);
+  expect(state.compatibility?.completed_at).not.toBeNull();
+  answers = state.compatibility?.answers as Record<string, number>;
+  expect(Object.keys(answers).sort()).toEqual([...IDS].sort());
+  for (const id of SHARED_IDS) expect(answers[id]).toBe(2);
+  for (const id of NEW_IDS) expect(answers[id]).toBe(1);
 });
 
 test("el test funciona sin JavaScript", async ({ page, browser }) => {

@@ -311,11 +311,27 @@ Cumplimiento de los criterios de aceptación:
 - **Textos del cuestionario:** los cambios editoriales (E1–E19), los textos
   generales de `/test` (G1–G4) y la ayuda S5 de las visitas, dentro de la v1
   (PR #11). Son posteriores a los runs 16–18 y no han pasado por un run real.
+- **Versión 2 del cuestionario (S1–S4)**, implementada en la rama de
+  trabajo el 2026-10-10, sin commit, PR ni CI todavía. Detalle en
+  `PROGRESS.md`, sesión 37.
+  - El propietario eligió la opción A de la auditoría de impacto, con la
+    lectura estricta de D15a.
+  - La v1 queda como histórica, sin cambios; la v2 es la vigente
+    (`CURRENT_QUESTIONNAIRE_VERSION = 2`).
+  - Ocho ids nuevos con sufijo `_v2` (las cuatro parejas de S1–S4); las
+    otras 21 preguntas son las mismas.
+  - Un test de la v1 queda desactualizado. Se reutilizan sus 21 respuestas
+    comunes; las de los ocho ids sustituidos no se copian.
+  - Sin migración, y sin cambios en los pesos ni en las fórmulas del score.
+  - La dirección de las diferencias de Ruido ya no usa el id fijo
+    `noise_tolerance`: sale del cuestionario de cada versión, y sin esa
+    pregunta el motor devuelve `invalid_questionnaire`.
 
 **Pendiente** (cada punto con su decisión o autorización; qué bloquea el
 cierre lo decide el propietario):
-- **S1–S4**, los cambios semánticos de cuatro preguntas: aplicarlos con id
-  nuevo y versión 2 del cuestionario, o descartarlos.
+- **La v2 del cuestionario (S1–S4):** commit, PR y CI, con autorización.
+  Después, decidir si necesita un run real. El E2 real llega hasta `/test`, y
+  la suite SQL 14 y CRA1–CRA6 no dependen del cuestionario.
 - Mejoras del test que necesitan código: paginación, señalar las preguntas
   sin responder y una confirmación al terminar.
 - El texto «Por qué encajáis» de `/explorar`.

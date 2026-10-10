@@ -6,6 +6,7 @@ import {
   type CandidateEligibility,
   type HardFilterProfile,
 } from "@/lib/matching/filters";
+import { CURRENT_QUESTIONNAIRE_VERSION } from "@/lib/matching/questionnaire";
 
 // Fase 3.3 — filtros duros (antes del score): ciudad, fechas, presupuesto
 // (hueco > 150 excluye) y número de compañeros (`max = 0` = sin compañeros).
@@ -167,6 +168,25 @@ describe("candidato elegible (defensa en profundidad de la consulta)", () => {
     ["test de otra versión", { questionnaireVersion: 2 }],
   ])("%s no es elegible", (_label, overrides) => {
     expect(isEligibleCandidate({ ...base, ...overrides }, VIEWER, 1)).toBe(false);
+  });
+
+  it("con la versión vigente real (2): el test v1 completado ya no es elegible; el de la v2, sí", () => {
+    expect(CURRENT_QUESTIONNAIRE_VERSION).toBe(2);
+    expect(isEligibleCandidate(base, VIEWER, CURRENT_QUESTIONNAIRE_VERSION)).toBe(false);
+    expect(
+      isEligibleCandidate(
+        { ...base, questionnaireVersion: 2 },
+        VIEWER,
+        CURRENT_QUESTIONNAIRE_VERSION
+      )
+    ).toBe(true);
+    expect(
+      isEligibleCandidate(
+        { ...base, questionnaireVersion: 2, questionnaireCompletedAt: null },
+        VIEWER,
+        CURRENT_QUESTIONNAIRE_VERSION
+      )
+    ).toBe(false);
   });
 
   it("seeking_status, fumar y mascotas no son entradas de ningún filtro", () => {

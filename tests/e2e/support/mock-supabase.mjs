@@ -758,6 +758,38 @@ function handleRest(req, res, url, body, uid, isService) {
 }
 
 // ---------------------------------------------------------------- test hooks
+/** Respuestas sembradas: `answer` (1 por defecto) en cada id de `ids`. */
+function seededAnswers(params) {
+  const answer = Number(params.get("answer") ?? "1");
+  return Object.fromEntries(
+    (params.get("ids") ?? "")
+      .split(",")
+      .filter(Boolean)
+      .map((k) => [k, answer])
+  );
+}
+/** Máximo de una columna `integer` de PostgreSQL. */
+const PG_INTEGER_MAX = 2147483647;
+/**
+ * `version` de una siembra, que llega como texto de la URL. Dos reglas
+ * distintas:
+ *   - Valor: el rango de la columna `questionnaire_version` (`integer NOT
+ *     NULL`, `CHECK >= 1`), de 1 a 2147483647.
+ *   - Formato: una convención de este mock, no de PostgreSQL. Solo se acepta
+ *     la forma decimal canónica, la que emiten los helpers de siembra
+ *     (`String(version)`): sin signo, espacios ni ceros a la izquierda.
+ *     PostgreSQL convertiría en 2 textos como '02', ' 2 ' o '+2'; el mock los
+ *     rechaza a propósito.
+ * Si falta o no cumple las dos reglas (vacía, "null", "0", "1.5"…), null: la
+ * siembra responde 400 sin guardar nada. No se usa `Number()` sin más:
+ * `Number(null)` y `Number("")` dan 0.
+ */
+function seedVersion(params) {
+  const raw = params.get("version");
+  if (raw === null || !/^[1-9][0-9]*$/.test(raw)) return null;
+  const version = Number(raw);
+  return version <= PG_INTEGER_MAX ? version : null;
+}
 function findUser(email) {
   return [...state.users.values()].find(
     (u) => u.email === String(email ?? "").toLowerCase()
@@ -795,11 +827,34 @@ function handleTest(req, res, url) {
     }
     case "/__test/log":
       return send(res, 200, state.log);
+    case "/__test/seed-own-response": {
+      // Test propio ya guardado (datos de servidor), p. ej. en una versión
+      // anterior del cuestionario. Parámetros: email, version (obligatoria),
+      // ids (separados por comas), answer (valor para todas), completed ("1").
+      const user = findUser(email);
+      if (!user || !state.profiles.get(user.id))
+        return send(res, 404, { error: "sin perfil" });
+      const q = url.searchParams;
+      const version = seedVersion(q);
+      if (version === null) return send(res, 400, { error: "version no válida" });
+      const now = new Date().toISOString();
+      state.responses.set(user.id, {
+        profile_id: user.id,
+        questionnaire_version: version,
+        answers: seededAnswers(q),
+        completed_at: q.get("completed") === "1" ? now : null,
+        updated_at: now,
+      });
+      return send(res, 200, { ok: true });
+    }
     case "/__test/seed-candidate": {
       // Otra persona que ya terminó onboarding y test (datos de servidor).
       // Parámetros: email, name, birth, role, deleted, budget_min, budget_max,
-      // neighborhoods (ids separados por comas), answer (valor para todas).
+      // neighborhoods (ids separados por comas), version (obligatoria: la del
+      // test guardado), ids y answer (valor para todas).
       const q = url.searchParams;
+      const version = seedVersion(q);
+      if (version === null) return send(res, 400, { error: "version no válida" });
       const id = randomUUID();
       const now = new Date().toISOString();
       state.users.set(id, { id, email: String(email).toLowerCase(), created_at: now });
@@ -830,16 +885,10 @@ function handleTest(req, res, url) {
         university_id: q.get("university"),
         updated_at: now,
       });
-      const answer = Number(q.get("answer") ?? "1");
       state.responses.set(id, {
         profile_id: id,
-        questionnaire_version: Number(q.get("version") ?? "1"),
-        answers: Object.fromEntries(
-          (q.get("ids") ?? "")
-            .split(",")
-            .filter(Boolean)
-            .map((k) => [k, answer])
-        ),
+        questionnaire_version: version,
+        answers: seededAnswers(q),
         completed_at: now,
         updated_at: now,
       });
