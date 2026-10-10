@@ -88,24 +88,76 @@ roles) y H4 (eliminar `profiles_select_authenticated`). Decisiones en
 `docs/ROADMAP.md`. Claude no toca Supabase remoto, ni hace commit, push o
 PR, sin autorización explícita.
 
-**Fase 3 (Compatibility): implementación LOCAL hecha (2026-10-07), NO
-CERRADA.**
+**Fase 3 (Compatibility): implementada, integrada en `master` y validada en
+Supabase real, pero NO CERRADA.**
 - Especificación cerrada por el propietario: D1–D18, todas con la opción
   recomendada, y D6 = B. Resumen en `ROOMLY_MASTER_SPEC.md` §8–10 y §14;
   detalle en `PROGRESS.md`, sesión 31.
-- Lo implementado:
-  - migración `20261007120000`: el servidor es el único que escribe en
-    `compatibility_responses` y el trigger aplica S1–S6;
-  - cuestionario v1 (29 preguntas) y motor en `lib/matching/*`;
-  - servicios `lib/services/{compatibility,matching}.ts`, los únicos que
-    usan service_role;
-  - páginas `/test` y `/explorar`; el onboarding termina en `/test`.
-- Tests: `test` 862/862, `test:db` 305/305, `test:infra` en verde y E1
-  27/27 en local.
-- **Falta para cerrarla**, cada punto con su autorización: CI en un PR;
-  validación real en un proyecto Supabase **nuevo** (`uwxb…` no se toca y
-  su esquema es de la Fase 2); E2 con destino `/test`; textos finales del
-  cuestionario; la clave service_role en el servidor de producción.
+- **Integrado y validado:**
+  - PR #7 (`f34b2c8`): implementación.
+    - Migración `20261007120000`: el servidor es el único que escribe en
+      `compatibility_responses` y el trigger aplica S1–S6.
+    - Cuestionario v1 (29 preguntas) y motor en `lib/matching/*`.
+    - Servicios `lib/services/{compatibility,matching}.ts`, los únicos que
+      usan service_role.
+    - Páginas `/test` y `/explorar`; el onboarding termina en `/test`.
+  - PR #8 (`f619812`): marca, Environment y `confirm_project`
+    `roomly-validation-3`; la guarda rechaza `uwxb…` (`roomly-validation-2`).
+  - Validación real en el proyecto nuevo `roomly-validation-3` (PR #9
+    `6dae75f` y PR #10 `de68ef1` la documentan):
+    - **run 16** (`37994799026`, `f619812`, `apply_migrations=true`): las 10
+      migraciones y el seed en una transacción; P0–P6 (18 tablas, 37
+      políticas, 13 triggers, 11 funciones); SQL 01–14 305/305; supabase-js
+      52/52, con CRA1–CRA6; AU3/AU5 16/16;
+    - **run 18** (`37999470912`, `6dae75f`, `apply_migrations=false`,
+      `run_e2e_real=true`): guarda, P0–P6, SQL 01–14, supabase-js y AU3/AU5
+      otra vez en verde, y E2 1/1 hasta `/test`. El job `migrate` se omitió:
+      este run no volvió a aplicar las migraciones ni el seed. La limpieza
+      borró el usuario de prueba y los mensajes del buzón;
+    - el run 17 falló por configuración (`E2E_MAILBOX_CONFIG`) sin enviar
+      emails ni crear usuarios;
+    - D6 = B: la app del workflow no recibe service_role, así que el E2 no
+      guarda el test ni abre `/explorar`; eso lo cubren en real la suite SQL
+      14 y CRA1–CRA6.
+  - PR #11 (`83654eb`): textos editoriales del cuestionario (E1–E19), textos
+    generales de `/test` (G1–G4) y la ayuda S5 en las preguntas de visitas
+    (campo opcional `help`, solo de presentación).
+    - Dentro de la v1: mismos ids, orden, escalas, categorías, parejas y
+      pesos, y `CURRENT_QUESTIONNAIRE_VERSION = 1`.
+    - Solo cambia textos de la interfaz y no ha pasado por un run real (los
+      runs 16 y 18 son anteriores).
+  - Tests: `test` 864/864 en local sobre `83654eb`. CI de `master` tras el
+    PR #11 (run `38003093188`): 864/864 unitarios, E1 27/27 y `db-security`
+    (`tests/db` y los selftests) en verde. En local, `test:db` 305/305 y
+    `test:infra` son de la sesión 32 de `PROGRESS.md`.
+  - Evidencia verificada (PR, merges, CI y runs reales): `PROGRESS.md`,
+    sesión 36.
+  - Registro de Auth de `roomly-validation-3`: el propietario declaró el
+    2026-10-09 que está cerrado. Claude no lo ha verificado; la limpieza del
+    run 18 avisó de que seguía abierto.
+- **Decisiones funcionales pendientes (del propietario):**
+  - S1–S4, los cambios semánticos de cuatro preguntas, y su versionado: id
+    nuevo y versión 2, o descartarlos. Mientras S4 no se aplique,
+    `pets_own` y `pets_tolerance` usan ejemplos distintos.
+  - Mejoras del test que necesitan código: paginación, señalar las preguntas
+    sin responder y una confirmación al terminar.
+  - El texto «Por qué encajáis» de `/explorar` (lo comprueba E1).
+  - Revisión legal de los datos de tabaco y del acceso operativo a las
+    respuestas (el servidor las lee para calcular, y quien opere la base de
+    datos podría verlas).
+- **Trabajo técnico pendiente, con su autorización:** si se añade a
+  `cleanup.mjs` la comprobación de `compatibility_responses`. Hoy verifica
+  `profiles` y `housing_preferences`; esa tabla cae en cascada desde
+  `profiles`.
+- **Tareas operativas (intervención o autorización expresa del
+  propietario):**
+  - `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción antes de
+    desplegar, según `docs/SECURITY.md` y `docs/ENVIRONMENT.md`: solo en el
+    servidor, nunca en `NEXT_PUBLIC_*`. Claude no la configura ni la ve.
+  - `uwxb…`: rotar sus claves y pausarlo.
+  - Runs nuevos contra `roomly-validation-3`: siempre con
+    `apply_migrations=false`, y cada run, E2 o apertura del registro, con
+    autorización explícita.
 - No se avanza a la Fase 4.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
@@ -316,14 +368,15 @@ Prioridad: algoritmo de matching (casi cobertura total cuando exista, es
 el diferencial del producto; desde la Fase 3, `tests/unit/matching-*` con
 casos, propiedades y mutaciones), RLS por rol, y los 3 flujos E2E
 obligatorios (estudiante, room provider, admin). La conexión con
-Supabase real se verificó en la Fase 1 (`roomly-validation`, histórico) y
-la de Fase 2 en `roomly-validation-2b` (`uwxb…`), runs 13 y 15
-(`docs/SUPABASE_VALIDATION.md`). E2E: E1 (`npm run test:e2e`, Supabase
-simulado) corre en local y en CI; el entorno cloud de Claude Code no puede
-descargar el navegador de Playwright 1.63 y usa el Chromium preinstalado
-con `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (resultado orientativo; el de CI es el
-de referencia). E2 (real) solo se ejecuta desde el workflow manual; pasó en
-el run 15 y cada ejecución nueva requiere autorización.
+Supabase real se verificó en la Fase 1 (`roomly-validation`, histórico), la
+de Fase 2 en `roomly-validation-2b` (`uwxb…`), runs 13 y 15, y la de Fase 3
+en `roomly-validation-3`, runs 16 y 18 (`docs/SUPABASE_VALIDATION.md`). E2E:
+E1 (`npm run test:e2e`, Supabase simulado) corre en local y en CI; el
+entorno cloud de Claude Code no puede descargar el navegador de Playwright
+1.63 y usa el Chromium preinstalado con `PLAYWRIGHT_CHROMIUM_EXECUTABLE`
+(resultado orientativo; el de CI es el de referencia). E2 (real) solo se
+ejecuta desde el workflow manual; pasó en el run 15 (Fase 2) y en el run 18
+(Fase 3, hasta `/test`), y cada ejecución nueva requiere autorización.
 
 ## Alcance del MVP — qué NO construir todavía
 
@@ -343,11 +396,13 @@ de la 2.9. En Supabase real se validaron la RLS y los triggers (suite SQL
 01–13) y el alta completa (E2); la cuenta desactivada, en E1 y en
 `tests/db/08`.
 
-Fase 3, implementada en local y **no cerrada**: test de convivencia
-(`/test`, con guardado parcial) y candidatos compatibles con explicación
-(`/explorar`), sin validar todavía en Supabase real. Todavía no hay
-habitaciones, intereses («Me interesa», Fase 5), «Ver perfil» de terceros,
-chat ni admin real.
+Fase 3, integrada en `master` y validada en Supabase real (runs 16 y 18),
+**no cerrada**: test de convivencia (`/test`, con guardado parcial y los
+textos editoriales de la v1) y candidatos compatibles con explicación
+(`/explorar`). El E2 real llega hasta `/test`; guardar el test y
+`/explorar` los cubren en real la suite SQL y la api-suite (D6 = B).
+Todavía no hay habitaciones, intereses («Me interesa», Fase 5), «Ver
+perfil» de terceros, chat ni admin real.
 
 ## Funcionalidades pendientes
 
@@ -367,5 +422,7 @@ borrado de cuenta (H6).
 - Confirmar o corregir las recomendaciones técnicas reversibles: magic
   link vs. contraseña, Mapbox vs. Google Maps.
 - Cuándo retomar Google OAuth y Apple OAuth (diferidos).
+- Las decisiones abiertas de la Fase 3 (S1–S4 y su versionado, mejoras del
+  test, «Por qué encajáis», revisión legal): ver «Estado actual».
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.

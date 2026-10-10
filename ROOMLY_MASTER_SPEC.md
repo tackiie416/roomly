@@ -149,8 +149,21 @@ decisiones D1–D18):
 - **Ids estables (D15a)**: un id nunca cambia de significado, escala, tipo,
   categoría ni pareja. Al subir de versión se reutilizan las respuestas
   cuyos ids siguen existiendo (D15b).
-- **Pendiente** (no bloquea la implementación): la redacción final de los
-  textos y las etiquetas.
+- **Textos de la v1** (PR #11, `83654eb`, 2026-10-09): integrada la
+  redacción editorial aprobada.
+  - Enunciados y etiquetas más claros (E1–E19), textos generales de `/test`
+    (G1–G4) y una ayuda bajo las preguntas de visitas (S5), que no se guarda
+    ni puntúa.
+  - Sin cambiar ids, orden, escalas, categorías, parejas, pesos ni la
+    versión (`CURRENT_QUESTIONNAIRE_VERSION = 1`).
+- **Pendiente de decisión del propietario: S1–S4**, cuatro cambios
+  semánticos:
+  - S1: el extremo de la escala de ruido;
+  - S2: la tolerancia a las fiestas que organiza un compañero;
+  - S3: quién invita a quien se queda a dormir;
+  - S4: tener o traer una mascota al piso.
+  - Cambian lo que se pregunta, así que aplicarlos exige id nuevo y versión 2
+    (D15a); la alternativa es descartarlos.
 
 ## 9. Algoritmo de matching
 

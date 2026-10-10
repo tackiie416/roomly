@@ -250,7 +250,7 @@ verde en local, en CI y en Supabase real. Siguen fuera de alcance por
 decisión del usuario: Google y Apple OAuth (diferidos), foto de perfil y
 Storage (M3) y borrado de cuenta (H6).
 
-## Fase 3 — Compatibility — 🟡 IMPLEMENTACIÓN LOCAL HECHA (2026-10-07), NO CERRADA
+## Fase 3 — Compatibility — 🟡 INTEGRADA EN `master` Y VALIDADA EN SUPABASE REAL (2026-10-09), NO CERRADA
 
 Cuestionario de 25-30 preguntas (con guardado de progreso parcial —
 mitiga el abandono a mitad, ver riesgos), almacenamiento en
@@ -268,7 +268,8 @@ decisiones bloqueantes (D1–D18, todas con la opción recomendada) y D6 = B.
 El resumen está en `ROOMLY_MASTER_SPEC.md` §8–10 y §14, y el detalle en
 `PROGRESS.md` (sesión 31).
 
-Subfases implementadas en local, sin tocar Supabase remoto:
+Subfases, implementadas primero en local e integradas después en `master`
+con el PR #7 (`f34b2c8`):
 - **3.1 Base de datos y seguridad**:
   - migración `20261007120000_compatibility_responses_hardening.sql`: S1–S6,
     solo el servidor escribe, `authenticated` solo SELECT de su fila, `anon`
@@ -291,17 +292,45 @@ Cumplimiento de los criterios de aceptación:
   mutaciones;
 - los pesos y las constantes están en `lib/matching/weights.ts`.
 
-Qué falta para **cerrar** la Fase 3 (cada punto con su autorización):
-- Validación real desde cero en un **proyecto Supabase nuevo**. `uwxb…` no se
-  toca y su esquema es de la Fase 2. La suite SQL 14 y la api-suite CRA1–CRA6
-  necesitan la migración nueva. La marca ya está adaptada a
-  `roomly-validation-3` en la guarda, el preflight, los selftests y el
-  workflow; `uwxb…` (`roomly-validation-2`) se rechaza.
-- E2 real con el destino `/test`, en el proyecto nuevo.
-- CI en verde en un PR.
-- Textos y etiquetas finales del cuestionario.
+**Hecho después de la implementación local** (2026-10-08 y 2026-10-09):
+- **Integración en `master`:** PR #7 (implementación, `f34b2c8`), PR #8
+  (marca `roomly-validation-3`, `f619812`), PR #9 y PR #10 (documentación de
+  los runs, `6dae75f` y `de68ef1`) y PR #11 (textos editoriales, `83654eb`).
+- **CI de GitHub** (`lint-typecheck-test-build`, `db-security`, `e2e-local`):
+  en verde en el head de cada uno de esos PR y después de cada merge. La
+  última, el run `38003093188` sobre `83654eb`: 864/864 unitarios y E1 27/27.
+- **Validación real** en el proyecto nuevo `roomly-validation-3`; `uwxb…`
+  (`roomly-validation-2`) no se toca y la guarda lo rechaza. Detalle en
+  `docs/SUPABASE_VALIDATION.md`.
+  - Estructural: run 16 (`37994799026`, `f619812`, `apply_migrations=true`).
+  - E2: run 18 (`37999470912`, `6dae75f`), con el onboarding terminando en
+    `/test`. El run 17 falló por configuración, sin enviar emails ni crear
+    usuarios.
+  - D6 = B: el E2 no guarda el test ni abre `/explorar`; eso lo cubren en
+    real la suite SQL 14 y la api-suite CRA1–CRA6.
+- **Textos del cuestionario:** los cambios editoriales (E1–E19), los textos
+  generales de `/test` (G1–G4) y la ayuda S5 de las visitas, dentro de la v1
+  (PR #11). Son posteriores a los runs 16–18 y no han pasado por un run real.
+
+**Pendiente** (cada punto con su decisión o autorización; qué bloquea el
+cierre lo decide el propietario):
+- **S1–S4**, los cambios semánticos de cuatro preguntas: aplicarlos con id
+  nuevo y versión 2 del cuestionario, o descartarlos.
+- Mejoras del test que necesitan código: paginación, señalar las preguntas
+  sin responder y una confirmación al terminar.
+- El texto «Por qué encajáis» de `/explorar`.
+- Revisión legal de los datos de tabaco y del acceso operativo a las
+  respuestas.
+- Si se añade a `cleanup.mjs` la comprobación de `compatibility_responses`.
 - `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción, antes de
   desplegar.
+- Registro de Auth de `roomly-validation-3`: el propietario declaró el
+  2026-10-09 que está cerrado; no está verificado de forma independiente.
+- Cualquier run nuevo contra `roomly-validation-3`, siempre con
+  `apply_migrations=false` y con autorización expresa.
+
+Fuera de la Fase 3, pendiente operativo: rotar las claves de `uwxb…` y
+pausarlo.
 
 ## Fase 4 — Rooms
 
