@@ -48,15 +48,15 @@
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 864/864 (2 de aislamiento de la marca `roomly-validation-3` en `validation-infra.test.ts`, PR #8; antes 862, Fase 3, 245 nuevos: motor 86 (`matching-score`: cuestionario exacto, pesos, similitud, conducta/tolerancia con `min`, presupuesto 0/75/150/151, barrios, renormalización, r6, umbrales, dirección, 500 pares de simetría, determinismo, entradas inválidas sin excepción, textos sin cifras), filtros 33, estado del test y Zod 22, servicio del test 36 + 5 de cambio de versión, servicio de candidatos 25 (consulta única, filtros SQL, defensa en profundidad, orden, paginación, lista blanca del DTO), guards y Server Action 25, test estático de service_role 6, proxy +3, infraestructura +2, shell +2; antes 617: 20 del adaptador de Mailtrap del E2 real, Fase 2.8; 65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local (864/864 sobre `83654eb`, 2026-10-09); en CI (`lint-typecheck-test-build`) 864/864 sobre `83654eb` (run `38003093188`, después del merge del PR #11). Antes, en el PR #6: CI #11 (`f9f08ad`, 597) y CI #12 (`ec7c3fc`, 617) |
+| `npm run test` | ✅ 1013/1013 con la v2 del cuestionario (S1–S4, 2026-10-10, sin commit), 149 nuevos: motor 86 → 172 (los casos de la especificación con la v1 y con la v2, la lista exacta de cada versión, y v1 frente a v2 en el motor: `version_mismatch`, respuestas de la v1 sin puntuar en la v2), versiones del cuestionario 22 (`questionnaire-versions`, nuevo), dirección de Ruido por versión y cuestionarios rotos 19 (`matching-score-direction`, nuevo), cambio de versión 5 → 16 (paso real v1 → v2, sin `vi.mock`), estado del test y Zod 22 → 26, guards y Server Action 25 → 29, candidatos 25 → 27, filtros 33 → 34. Antes: ✅ 864/864 (2 de aislamiento de la marca `roomly-validation-3` en `validation-infra.test.ts`, PR #8; antes 862, Fase 3, 245 nuevos: motor 86 (`matching-score`: cuestionario exacto, pesos, similitud, conducta/tolerancia con `min`, presupuesto 0/75/150/151, barrios, renormalización, r6, umbrales, dirección, 500 pares de simetría, determinismo, entradas inválidas sin excepción, textos sin cifras), filtros 33, estado del test y Zod 22, servicio del test 36 + 5 de cambio de versión, servicio de candidatos 25 (consulta única, filtros SQL, defensa en profundidad, orden, paginación, lista blanca del DTO), guards y Server Action 25, test estático de service_role 6, proxy +3, infraestructura +2, shell +2; antes 617: 20 del adaptador de Mailtrap del E2 real, Fase 2.8; 65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local (1013/1013 en la rama de trabajo con la v2, sin commit, 2026-10-10; 864/864 sobre `83654eb`, 2026-10-09); en CI (`lint-typecheck-test-build`), todavía sin la v2: 864/864 sobre `83654eb` (run `38003093188`, después del merge del PR #11). Antes, en el PR #6: CI #11 (`f9f08ad`, 597) y CI #12 (`ec7c3fc`, 617) |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
 | Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
 | Shell de Fase 2.7 en Chromium | ✅ 35/35 (20 con JavaScript y 15 sin él; sin JavaScript no aplican `aria-current` ni «Reintentar»): `/` con su contenido y «Entrar», sin sesión/sin perfil/eliminada en las tres rutas, nav con los tres enlaces y navegación entre ellas, perfil incompleto, error de servidor sin texto técnico, logout desde el nav; y regresión con el shell: `/perfil` 24/24, `/preferencias` 43/43, `/ajustes` 24/24, onboarding 2/2 | local con `next start` y Supabase simulado; scripts en el scratchpad de la sesión (no en el repositorio) |
 | Flujo de `/ajustes` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript: sin sesión, sin perfil, eliminada, estado actual, desactivar/activar y recargar, mismo valor en `/perfil`, `full_name` inyectado, `?profile_id=` en la URL, eliminada con la página abierta, logout) + `/perfil` otra vez 24/24 | local con `next start` y Supabase simulado con estado (Fase 2.6); no es la suite E2E |
 | Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E |
-| `npm run test:db` (PostgreSQL local con shim) | ✅ 305/305 (Fase 3.1: `14_compatibility_responses`, 40 aserciones CR1–CR20; antes 265, incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3 y del punto A de la 2.9, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5, `11` de ownership aislado, `12` de Fase 2.6 y `13` de H4, Fase 2.9) | local; en CI (`db-security`, paso `tests/db/run.sh`) en verde sobre `83654eb` (run `38003093188`) y en los PR #7–#11; antes, sobre `f9f08ad` (PR #6, run `37231766834`) |
-| `npm run test:e2e` (E1, Playwright) | ✅ 27/27 en local (Fase 3: `compatibility-flow`: onboarding → `/test`, guardar a medias y retomar, `/explorar` → `/test` sin test, completar → `/explorar` con candidatos solo del DTO (sin admin, eliminada ni presupuesto lejano, sin fecha de nacimiento ni presupuesto exacto), paginación, editar sin cambiar la fecha, service_role solo para candidatos y escritura del test; y el test sin JavaScript; los demás specs, con el destino `/test`). Antes: ✅ 25/25 (también tras H4 de la 2.9, con el mock devolviendo solo la fila propia de `profiles`): rutas protegidas sin sesión (con y sin JavaScript, y 307 sin contenido), alta de estudiante por magic link → `/callback` PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout (sesión anterior inservible), enlace en otro navegador o reutilizado, `/callback` con código inventado o error, `next` tras el login, cuenta eliminada (rutas, formulario abierto, nuevo login), `profile_id`/`id` ajenos en URL y formularios, formularios sin JavaScript, smoke | local con el Chromium preinstalado **1194** vía `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (Playwright 1.63 espera 1243: combinación no soportada oficialmente); en CI (`e2e-local`) 27/27 sobre `83654eb` con el Chromium que instala el workflow (run `38003093188`); antes, 25/25 sobre `f9f08ad` con el Chromium oficial v1243 (PR #6, run `37231766834`) |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 305/305, también con la v2 del cuestionario (2026-10-10, sin cambios en la base de datos) (Fase 3.1: `14_compatibility_responses`, 40 aserciones CR1–CR20; antes 265, incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3 y del punto A de la 2.9, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5, `11` de ownership aislado, `12` de Fase 2.6 y `13` de H4, Fase 2.9) | local; en CI (`db-security`, paso `tests/db/run.sh`) en verde sobre `83654eb` (run `38003093188`) y en los PR #7–#11; antes, sobre `f9f08ad` (PR #6, run `37231766834`) |
+| `npm run test:e2e` (E1, Playwright) | ✅ 30/30 en local con la v2 del cuestionario (S1–S4, 2026-10-10, sin commit): candidatos sembrados con la versión vigente, una candidata solo con el test v1 que no aparece, un escenario nuevo (test v1 completado → aviso en `/test`, las 21 respuestas comunes marcadas y las 8 nuevas sin responder, borrador de la v2 con una pendiente y completado en la v2) y la regresión de la versión de las siembras del mock (`mock-seed-version`, 2 tests: 13 versiones no válidas → 400 sin sembrar ni cambiar nada; 1, 2 y 2147483647 se siembran). Antes: ✅ 27/27 en local (Fase 3: `compatibility-flow`: onboarding → `/test`, guardar a medias y retomar, `/explorar` → `/test` sin test, completar → `/explorar` con candidatos solo del DTO (sin admin, eliminada ni presupuesto lejano, sin fecha de nacimiento ni presupuesto exacto), paginación, editar sin cambiar la fecha, service_role solo para candidatos y escritura del test; y el test sin JavaScript; los demás specs, con el destino `/test`). Antes: ✅ 25/25 (también tras H4 de la 2.9, con el mock devolviendo solo la fila propia de `profiles`): rutas protegidas sin sesión (con y sin JavaScript, y 307 sin contenido), alta de estudiante por magic link → `/callback` PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout (sesión anterior inservible), enlace en otro navegador o reutilizado, `/callback` con código inventado o error, `next` tras el login, cuenta eliminada (rutas, formulario abierto, nuevo login), `profile_id`/`id` ajenos en URL y formularios, formularios sin JavaScript, smoke | local con el Chromium preinstalado **1194** vía `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (Playwright 1.63 espera 1243: combinación no soportada oficialmente); en CI (`e2e-local`), todavía sin la v2: 27/27 sobre `83654eb` con el Chromium que instala el workflow (run `38003093188`); antes, 25/25 sobre `f9f08ad` con el Chromium oficial v1243 (PR #6, run `37231766834`) |
 | Mutaciones de la app contra E1 | ✅ 4/4 detectadas (cuenta eliminada → home, ajustes sin esquema estricto, logout sin `signOut`, `/preferencias` sin ciudad obligatoria) | local, restauradas por hash |
 | `tests/supabase/guard-selftest.sh` | ✅ 28/28 (marca `roomly-validation-3`; las anteriores y variantes no pasan; aislamiento: con la marca `roomly-validation-2` la guarda, migraciones, P0 y suite SQL abortan) | local; en CI (`db-security`) desde 2.8 |
 | `tests/supabase/sql-suite-selftest.sh` | ✅ 78/78: `run-sql-suite.sh` real 01–14 con las mismas aserciones que `run.sh` (305 desde la Fase 3.1; 265 tras H4 de la 2.9; 240 tras el punto A; eran 218), una sesión aislada por archivo (14; el número se cuenta), sin restos, rollback de bloque, sin fugas de rol/GUC, 31 formas de control de transacción rechazadas antes de conectar, 16 identificadores `"..."`/cadenas `E'...'` que intentan ocultar un control (incluido el caso de la auditoría final) rechazados y los legítimos aceptados, WARNING → fallo, fallo a mitad sin restos, 11 sin reescribir falla, marcas anteriores (`roomly-validation` y `roomly-validation-2`) rechazadas | local; en CI (`db-security`) desde 2.8 |
@@ -95,12 +95,77 @@ verificado de forma independiente.
 Los textos editoriales del PR #11 (`83654eb`) son posteriores a estos runs y
 no han pasado por un run real; la CI de `83654eb` está en verde.
 
+La **v2 del cuestionario** (S1–S4, 2026-10-10) está implementada en la rama
+de trabajo, sin commit: sus resultados son locales (filas de `npm run test`,
+`test:db` y E1) y todavía no tiene CI ni run real.
+
 **La Fase 3 sigue abierta** por pendientes ajenos a la validación real (ver
 `docs/ROADMAP.md`). En las filas de Supabase real de esta tabla, lo marcado
 con los runs 16–18 es de la Fase 3 y el resto, de las Fases 1 y 2.
 
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
+
+## Fase 3 — versión 2 del cuestionario (S1–S4, 2026-10-10, en local)
+
+- **Versiones** (`tests/unit/questionnaire-versions.test.ts`, nuevo):
+  - registro de la 1 a la vigente (2), sin huecos, y cada versión con sus
+    preguntas de dirección;
+  - un id que está en dos versiones es la misma pregunta: enunciado, ayuda,
+    escala, etiquetas, tipo, categoría y pareja;
+  - la v2 sustituye exactamente ocho ids, en su posición, por su `_v2`. Los
+    nuevos no chocan con ningún id histórico y los sustituidos no vuelven;
+  - las cuatro parejas de la v2 son recíprocas y ninguna pregunta apunta a un
+    id sustituido;
+  - la v1 conserva el enunciado, las etiquetas y la pareja de sus ocho
+    preguntas sustituidas, y la v2 tiene los textos de S1–S4.
+- **Motor** (`matching-score.test.ts`):
+  - los casos de la especificación corren con la v1 y con la v2. En la v2,
+    los ids sustituidos se escriben con su `_v2`;
+  - cada versión tiene su lista exacta (29 preguntas, pares y unidades);
+  - la versión vigente es la 2 y la v1 sigue registrada;
+  - v1 frente a v2 da `version_mismatch`, y unas respuestas de la v1 con la
+    versión 2 dan `incomplete_answers`;
+  - en la v2, las claves de la v1 que guarde una fila no intervienen.
+- **Dirección de Ruido** (`matching-score-direction.test.ts`, nuevo):
+  - `directionQuestionIds` da `noise_tolerance` en la v1 y
+    `noise_tolerance_v2` en la v2;
+  - diez cuestionarios rotos dan `null` (sin tolerancia, dos tolerancias,
+    pareja no recíproca, sin horas de silencio…);
+  - con versiones rotas en el registro simulado, `calculateCompatibility`
+    devuelve `invalid_questionnaire` y nunca un resultado `ok`.
+  - **Mutación:** volver al id fijo `noise_tolerance` hace fallar 3 tests.
+- **Paso de la v1 a la v2** (`services-compatibility-versions.test.ts`, ya sin
+  `vi.mock`):
+  - un test v1 completado o en borrador es `outdated` y trae solo las 21
+    respuestas comunes;
+  - con los ocho ids nuevos se completa en la misma escritura (versión 2);
+    sin ellos, o con siete, queda como borrador;
+  - las respuestas a los ocho ids de la v1 se rechazan;
+  - de una fila de una versión posterior no se usan las respuestas ni se
+    escribe nada.
+- **Rutas y Server Action** (`questionnaire-routes.test.ts`):
+  - un test v1 completado no redirige en `/test`, que lo trae como
+    `outdated`, y en `/explorar` lleva a `/test`;
+  - un formulario antiguo con los ids de la v1 se rechaza sin escribir;
+  - solo respuestas comunes → borrador con «Te faltan 8 preguntas».
+- **Estado, filtros y candidatos:**
+  - con la versión vigente real, el test v1 es `outdated` y no es elegible;
+  - el esquema rechaza los ocho ids de la v1;
+  - una fila marcada como v2 con respuestas de la v1 no se puntúa.
+- **E1** (`compatibility-flow.spec.ts`):
+  - las siembras del mock exigen una versión válida y, si falta o no lo es,
+    responden 400 sin sembrar nada (`mock-seed-version.spec.ts`):
+    - valor: el rango de la columna (`integer`, `CHECK >= 1`), de 1 a
+      2147483647;
+    - formato: decimal canónico, una convención del mock (PostgreSQL
+      convertiría `02`, ` 2 ` o `+2` en 2; el mock los rechaza);
+  - un endpoint de test nuevo, `/__test/seed-own-response`, deja el test
+    propio en la v1;
+  - el escenario del test v1 completado recorre el aviso, las respuestas
+    reutilizadas, el borrador y el completado en la v2.
+- Sin cambios en `tests/db`, `tests/supabase` ni la api-suite: usan versiones
+  literales en la base de datos y no dependen del cuestionario.
 
 ## Fase 3 — compatibilidad (2026-10-07, implementación local)
 

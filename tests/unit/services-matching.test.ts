@@ -9,12 +9,21 @@ import {
   todayInMadrid,
   type CandidateDTO,
 } from "@/lib/services/matching";
-import { QUESTIONNAIRE_V1 } from "@/lib/matching/questionnaire";
+import {
+  CURRENT_QUESTIONNAIRE_VERSION,
+  QUESTIONNAIRE_V1,
+  getCurrentQuestionnaire,
+} from "@/lib/matching/questionnaire";
 import { createFakeSupabase, writePayloads, type Call } from "./helpers/fake-supabase";
 
 // Fase 3.4 — candidatos de /explorar. Lectura propia con el cliente del
 // usuario; lectura cruzada con service_role en UNA consulta con columnas
-// explícitas; filtros duros y score en Node; solo el DTO sale.
+// explícitas; filtros duros y score en Node; solo el DTO sale. Con la versión
+// vigente (la v2): quien solo tiene el test v1 no mira ni sale como candidato.
+
+const CURRENT = CURRENT_QUESTIONNAIRE_VERSION;
+/** Una versión que el código no conoce (anomalía). */
+const LATER = CURRENT_QUESTIONNAIRE_VERSION + 1;
 
 const VIEWER = "00000000-0000-4000-8000-0000000000aa";
 const BCN = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -32,7 +41,7 @@ const NAMES = [
 const TODAY = "2026-10-07";
 
 const answers = (value = 1, overrides: Record<string, number> = {}) => ({
-  ...Object.fromEntries(QUESTIONNAIRE_V1.questions.map((q) => [q.id, value])),
+  ...Object.fromEntries(getCurrentQuestionnaire().questions.map((q) => [q.id, value])),
   ...overrides,
 });
 
@@ -59,8 +68,11 @@ const housing = (overrides: Partial<Housing> = {}): Housing => ({
   roommates_wanted_max: null,
   ...overrides,
 });
-const completedResponse = (a = answers()) => ({
-  questionnaire_version: 1,
+/** Un test v1 completo: desde la v2 está desactualizado. */
+const v1Answers = (value = 1) =>
+  Object.fromEntries(QUESTIONNAIRE_V1.questions.map((q) => [q.id, value]));
+const completedResponse = (a: Record<string, number> = answers()) => ({
+  questionnaire_version: CURRENT,
   answers: a,
   completed_at: "2026-10-02T10:00:00Z",
 });
@@ -179,8 +191,19 @@ describe("comprobaciones de quien mira (sin lectura cruzada)", () => {
       "forbidden",
     ],
     [
-      "test de otra versión",
-      { response: { ...completedResponse(), questionnaire_version: 2 } },
+      "test completado en la v1 (desactualizado)",
+      {
+        response: {
+          questionnaire_version: 1,
+          answers: v1Answers(),
+          completed_at: "2026-10-02T10:00:00Z",
+        },
+      },
+      "forbidden",
+    ],
+    [
+      "test de una versión posterior (anomalía)",
+      { response: { ...completedResponse(), questionnaire_version: LATER } },
       "forbidden",
     ],
     ["sin ciudad", { housing: housing({ city_id: null }) }, "forbidden"],
@@ -226,7 +249,11 @@ describe("la lectura cruzada", () => {
       { kind: "not", column: "onboarding_completed_at", operator: "is", value: null },
       { kind: "neq", column: "role", value: "admin" },
       { kind: "eq", column: "housing_preferences.city_id", value: BCN },
-      { kind: "eq", column: "compatibility_responses.questionnaire_version", value: 1 },
+      {
+        kind: "eq",
+        column: "compatibility_responses.questionnaire_version",
+        value: CURRENT,
+      },
       {
         kind: "not",
         column: "compatibility_responses.completed_at",
@@ -271,7 +298,14 @@ describe("defensa en profundidad y filtros duros", () => {
       candidate({ id: VIEWER }),
       candidate({ onboarding_completed_at: null }),
       candidate({
-        compatibility_responses: { ...completedResponse(), questionnaire_version: 2 },
+        compatibility_responses: {
+          questionnaire_version: 1,
+          answers: v1Answers(),
+          completed_at: "2026-10-02T10:00:00Z",
+        },
+      }),
+      candidate({
+        compatibility_responses: { ...completedResponse(), questionnaire_version: LATER },
       }),
       candidate({
         compatibility_responses: { ...completedResponse(), completed_at: null },
@@ -312,6 +346,12 @@ describe("defensa en profundidad y filtros duros", () => {
       good,
       candidate({}, {}, { ...answers(), smoke_own: 9 }),
     ]);
+    expect(data.candidates.map((c) => c.id)).toEqual([good.id]);
+  });
+
+  it("una fila marcada con la versión vigente pero con respuestas de la v1 no se puntúa", async () => {
+    const good = candidate();
+    const { data } = await run({}, [good, candidate({}, {}, v1Answers())]);
     expect(data.candidates.map((c) => c.id)).toEqual([good.id]);
   });
 

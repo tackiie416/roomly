@@ -70,10 +70,12 @@ export async function requestLog(): Promise<
 
 /**
  * Otra persona que ya terminó el onboarding y el test (operación de
- * servidor del mock). `answer` es el valor de todas sus respuestas.
+ * servidor del mock). `version` es la del test guardado y `answer`, el valor
+ * de todas sus respuestas.
  */
 export async function seedCandidate(options: {
   name: string;
+  version: number;
   questionIds: readonly string[];
   answer?: number;
   birth?: string;
@@ -86,6 +88,7 @@ export async function seedCandidate(options: {
   const params = new URLSearchParams({
     email: uniqueEmail("candidata"),
     name: options.name,
+    version: String(options.version),
     ids: options.questionIds.join(","),
     answer: String(options.answer ?? 1),
   });
@@ -100,6 +103,29 @@ export async function seedCandidate(options: {
   const response = await mock(`/__test/seed-candidate?${params}`);
   expect(response.status).toBe(200);
   return ((await response.json()) as { id: string }).id;
+}
+
+/**
+ * Test propio ya guardado por el servidor (p. ej., completado en una versión
+ * anterior del cuestionario), para quien ya ha hecho el onboarding.
+ */
+export async function seedOwnResponse(
+  email: string,
+  options: {
+    version: number;
+    questionIds: readonly string[];
+    answer: number;
+    completed: boolean;
+  }
+): Promise<void> {
+  const params = new URLSearchParams({
+    email,
+    version: String(options.version),
+    ids: options.questionIds.join(","),
+    answer: String(options.answer),
+    completed: options.completed ? "1" : "0",
+  });
+  expect((await mock(`/__test/seed-own-response?${params}`)).status).toBe(200);
 }
 
 /** Marca en /test la opción `value` de cada pregunta indicada. */

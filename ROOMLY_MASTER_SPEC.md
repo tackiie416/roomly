@@ -132,7 +132,9 @@ guardar progreso parcial (Fase 3), y la propia analítica distingue
 
 **Implementado en la Fase 3** (especificación cerrada del 2026-10-07,
 decisiones D1–D18):
-- **Versión 1, 29 preguntas**, en `lib/matching/questionnaire.ts`.
+- **29 preguntas**, en `lib/matching/questionnaire.ts`. Desde S1–S4
+  (2026-10-10) la vigente es la **versión 2**; la **versión 1** se conserva
+  como histórica, sin cambios.
 - **Todas obligatorias** para completar el test; no hay «prefiero no
   responder» y no se pregunta nada de salud (alergias incluidas).
 - **Escalas**: 1–5, salvo fumar y mascotas, que van de 1 a 3. Hay tres tipos
@@ -156,14 +158,37 @@ decisiones D1–D18):
     ni puntúa.
   - Sin cambiar ids, orden, escalas, categorías, parejas, pesos ni la
     versión (`CURRENT_QUESTIONNAIRE_VERSION = 1`).
-- **Pendiente de decisión del propietario: S1–S4**, cuatro cambios
-  semánticos:
-  - S1: el extremo de la escala de ruido;
-  - S2: la tolerancia a las fiestas que organiza un compañero;
-  - S3: quién invita a quien se queda a dormir;
-  - S4: tener o traer una mascota al piso.
-  - Cambian lo que se pregunta, así que aplicarlos exige id nuevo y versión 2
-    (D15a); la alternativa es descartarlos.
+- **S1–S4, en la versión 2** (decisión del propietario del 2026-10-10: la
+  opción A de la auditoría de impacto, con la lectura estricta de D15a).
+  Cuatro cambios semánticos:
+  - S1: el extremo superior de la escala de ruido pasa de «Bastante» a
+    «Mucho», con la misma escala y la misma orientación;
+  - S2: la tolerancia se refiere a las fiestas que organiza un compañero;
+  - S3: quien se queda a dormir es alguien invitado por ti o por un
+    compañero;
+  - S4: las mascotas que habrá en el piso, con los mismos ejemplos de
+    mascotas pequeñas en la conducta y en la tolerancia.
+- **Ocho ids nuevos, con sufijo `_v2`**: `noise_own_v2`,
+  `noise_tolerance_v2`, `party_own_v2`, `party_tolerance_v2`,
+  `guests_overnight_own_v2`, `guests_overnight_tolerance_v2`, `pets_own_v2` y
+  `pets_tolerance_v2`.
+  - D15a también fija la pareja. Por eso se renuevan los dos miembros de cada
+    pareja, aunque `party_own_v2` y `pets_tolerance_v2` pregunten lo mismo
+    que en la v1.
+  - Las otras 21 preguntas son las mismas en las dos versiones: mismo id,
+    enunciado, ayuda, escala, etiquetas, tipo, categoría y pareja.
+  - Los pesos, las categorías, las escalas y el orden no cambian.
+- **Paso de la v1 a la v2** (D15b y D7):
+  - un test de la v1 queda desactualizado: `/explorar` lleva a `/test`, que
+    avisa del cambio;
+  - se reutilizan las 21 respuestas cuyos ids siguen en la v2, si son
+    válidas;
+  - las de los ocho ids sustituidos no se copian ni se reinterpretan bajo los
+    ids nuevos;
+  - la primera escritura de la v2 sigue las reglas de siempre: queda
+    completada solo si están las 29 respuestas y, si no, es un borrador.
+  - Sin migración: la base de datos ya admite subir de versión, y nunca
+    bajar.
 
 ## 9. Algoritmo de matching
 
@@ -209,7 +234,9 @@ no técnico necesita ajustarlos sin depender de un despliegue.
 - **Total**: categorías redondeadas a 6 decimales (r6) y total
   `round_half_up(r6(100·Σ peso·cat / Σ pesos presentes))`, entre 0 y 100.
   Es simétrico, determinista y nunca lanza: una entrada inválida o de otra
-  versión del cuestionario devuelve `not_comparable`.
+  versión del cuestionario devuelve `not_comparable`. Solo se comparan dos
+  tests de la misma versión; un test de la v1 nunca se puntúa como si fuera
+  de la v2.
 - **Filtros duros** (antes del score), no puntúan:
   - misma ciudad;
   - fechas que se solapan (NULL = abierto);
@@ -236,6 +263,11 @@ Nunca solo "92% compatible". Siempre con razones: "Por qué encajáis"
   tardío»): solo en las diferencias de Horarios y Ruido, y solo si los dos
   componentes van en el mismo sentido; si no, frase neutra. El resto de
   categorías va siempre en neutro.
+  - Las preguntas que dan la dirección salen de la definición de la versión
+    que se compara: en Ruido, la tolerancia es `noise_tolerance` en la v1 y
+    `noise_tolerance_v2` en la v2.
+  - Si a un cuestionario le falta alguna, el motor no da resultado
+    (`invalid_questionnaire`), nunca una dirección calculada con un hueco.
 - **Riesgo residual aceptado (D11)**: una explicación neutra puede dejar
   intuir algo de las respuestas del otro.
 

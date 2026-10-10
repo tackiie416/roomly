@@ -325,13 +325,143 @@ const QUESTIONS_V1: readonly Question[] = [
   },
 ];
 
+/** Versión 1: histórica desde la v2. No se edita para acercarla a la v2. */
 export const QUESTIONNAIRE_V1: Questionnaire = { version: 1, questions: QUESTIONS_V1 };
 
+/**
+ * Versión 2 (S1–S4, decisión del propietario del 2026-10-10, con la lectura
+ * estricta de D15a). Las 29 preguntas de la v1, en el mismo orden; ocho se
+ * sustituyen por un id nuevo, con sufijo `_v2`, porque cambia lo que se
+ * pregunta o cambia su pareja:
+ *   - S1: el extremo superior de la escala de ruido es «Mucho» (antes «Bastante»).
+ *   - S2: la tolerancia se refiere a las fiestas que organiza un compañero.
+ *     `party_own_v2` pregunta lo mismo que `party_own`, pero su pareja cambia.
+ *   - S3: quien se queda a dormir es alguien invitado por ti o por un compañero.
+ *   - S4: las mascotas que habrá en el piso, con los mismos ejemplos de
+ *     mascotas pequeñas en la conducta y en la tolerancia. `pets_tolerance_v2`
+ *     pregunta lo mismo que `pets_tolerance`, pero su pareja cambia.
+ * Las otras 21 son las mismas preguntas (los mismos objetos) que en la v1: un
+ * id compartido significa lo mismo en las dos versiones. Las respuestas a los
+ * ocho ids de la v1 no se reutilizan en la v2 (D15b: solo por id).
+ */
+const REPLACED_IN_V2: ReadonlyMap<string, Question> = new Map<string, Question>([
+  [
+    "noise_own",
+    {
+      id: "noise_own_v2",
+      text: "¿Cuánto ruido sueles hacer en casa (música, llamadas, televisión…)?",
+      category: "noise",
+      comparison: "behavior",
+      scale: LIKERT,
+      labels: { 1: "Muy poco", 5: "Mucho" },
+      pairedWith: "noise_tolerance_v2",
+    },
+  ],
+  [
+    "noise_tolerance",
+    {
+      id: "noise_tolerance_v2",
+      text: "Cuando estás en casa, ¿cuánto ruido de tus compañeros te parece aceptable?",
+      category: "noise",
+      comparison: "tolerance",
+      scale: LIKERT,
+      labels: { 1: "Muy poco", 5: "Mucho" },
+      toleranceOf: "noise_own_v2",
+    },
+  ],
+  [
+    "party_own",
+    {
+      id: "party_own_v2",
+      text: "¿Cada cuánto te gustaría organizar reuniones o fiestas en casa?",
+      category: "parties",
+      comparison: "behavior",
+      scale: LIKERT,
+      labels: PARTY_FREQUENCY,
+      pairedWith: "party_tolerance_v2",
+    },
+  ],
+  [
+    "party_tolerance",
+    {
+      id: "party_tolerance_v2",
+      text: "¿Cada cuánto te parece bien que un compañero organice reuniones o fiestas en casa?",
+      category: "parties",
+      comparison: "tolerance",
+      scale: LIKERT,
+      labels: PARTY_FREQUENCY,
+      toleranceOf: "party_own_v2",
+    },
+  ],
+  [
+    "guests_overnight_own",
+    {
+      id: "guests_overnight_own_v2",
+      text: "¿Cada cuánto se quedaría a dormir en casa alguien invitado por ti?",
+      category: "guests",
+      comparison: "behavior",
+      scale: LIKERT,
+      labels: OVERNIGHT_FREQUENCY,
+      pairedWith: "guests_overnight_tolerance_v2",
+    },
+  ],
+  [
+    "guests_overnight_tolerance",
+    {
+      id: "guests_overnight_tolerance_v2",
+      text: "¿Cada cuánto te parece bien que alguien invitado por un compañero se quede a dormir en casa?",
+      category: "guests",
+      comparison: "tolerance",
+      scale: LIKERT,
+      labels: OVERNIGHT_FREQUENCY,
+      toleranceOf: "guests_overnight_own_v2",
+    },
+  ],
+  [
+    "pets_own",
+    {
+      id: "pets_own_v2",
+      text: "¿Vas a tener alguna mascota en el piso?",
+      category: "pets",
+      comparison: "behavior",
+      scale: THREE,
+      labels: { 1: "No", 2: "Sí, pequeña (pez, roedor, pájaro…)", 3: "Sí, gato o perro" },
+      pairedWith: "pets_tolerance_v2",
+    },
+  ],
+  [
+    "pets_tolerance",
+    {
+      id: "pets_tolerance_v2",
+      text: "¿Qué mascotas de tus compañeros aceptarías en el piso?",
+      category: "pets",
+      comparison: "tolerance",
+      scale: THREE,
+      labels: {
+        1: "Ninguna",
+        2: "Solo pequeñas (pez, roedor, pájaro…)",
+        3: "También gatos o perros",
+      },
+      toleranceOf: "pets_own_v2",
+    },
+  ],
+]);
+
+const QUESTIONS_V2: readonly Question[] = QUESTIONS_V1.map(
+  (question) => REPLACED_IN_V2.get(question.id) ?? question
+);
+
+/** Versión 2: la vigente. */
+export const QUESTIONNAIRE_V2: Questionnaire = { version: 2, questions: QUESTIONS_V2 };
+
 /** Versión vigente. Nunca baja. */
-export const CURRENT_QUESTIONNAIRE_VERSION = 1;
+export const CURRENT_QUESTIONNAIRE_VERSION = 2;
 
 /** Todas las versiones conocidas por el código. */
-const QUESTIONNAIRES: Readonly<Record<number, Questionnaire>> = { 1: QUESTIONNAIRE_V1 };
+const QUESTIONNAIRES: Readonly<Record<number, Questionnaire>> = {
+  1: QUESTIONNAIRE_V1,
+  2: QUESTIONNAIRE_V2,
+};
 
 export function getQuestionnaire(version: number): Questionnaire | null {
   return QUESTIONNAIRES[version] ?? null;

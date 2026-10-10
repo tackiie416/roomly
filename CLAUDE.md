@@ -135,20 +135,37 @@ Supabase real, pero NO CERRADA.**
   - Registro de Auth de `roomly-validation-3`: el propietario declaró el
     2026-10-09 que está cerrado. Claude no lo ha verificado; la limpieza del
     run 18 avisó de que seguía abierto.
+- **Versión 2 del cuestionario (S1–S4): implementada en local, sin commit
+  (2026-10-10).** El propietario eligió la opción A de la auditoría de
+  impacto, con la lectura estricta de D15a.
+  - La v1 queda como histórica, sin cambios. La v2 es la vigente
+    (`CURRENT_QUESTIONNAIRE_VERSION = 2`), con las mismas 29 preguntas,
+    orden, escalas, categorías y pesos.
+  - Ocho ids nuevos con sufijo `_v2`: las cuatro parejas de S1–S4
+    (`noise_*`, `party_*`, `guests_overnight_*` y `pets_*`). Las otras 21
+    preguntas son las mismas en las dos versiones.
+  - Un test de la v1 queda `outdated` y `/explorar` lleva a `/test` hasta
+    completar la v2. Se reutilizan sus 21 respuestas comunes; las de los ocho
+    ids sustituidos no se copian. Sin migración.
+  - La dirección de Ruido sale del cuestionario de cada versión
+    (`directionQuestionIds`, en `lib/matching/score.ts`); si falta esa
+    pregunta, el motor devuelve `invalid_questionnaire`.
+  - En local: `test` 1013/1013, `test:db` 305/305, `test:infra`, E1 30/30
+    (orientativo), lint, typecheck, format y build. Sin CI ni run real
+    todavía. Detalle: `PROGRESS.md`, sesión 37.
 - **Decisiones funcionales pendientes (del propietario):**
-  - S1–S4, los cambios semánticos de cuatro preguntas, y su versionado: id
-    nuevo y versión 2, o descartarlos. Mientras S4 no se aplique,
-    `pets_own` y `pets_tolerance` usan ejemplos distintos.
   - Mejoras del test que necesitan código: paginación, señalar las preguntas
     sin responder y una confirmación al terminar.
   - El texto «Por qué encajáis» de `/explorar` (lo comprueba E1).
   - Revisión legal de los datos de tabaco y del acceso operativo a las
     respuestas (el servidor las lee para calcular, y quien opere la base de
     datos podría verlas).
-- **Trabajo técnico pendiente, con su autorización:** si se añade a
-  `cleanup.mjs` la comprobación de `compatibility_responses`. Hoy verifica
-  `profiles` y `housing_preferences`; esa tabla cae en cascada desde
-  `profiles`.
+- **Trabajo técnico pendiente, con su autorización:**
+  - commit, PR y CI de la v2 del cuestionario; después, decidir si necesita
+    un run real;
+  - si se añade a `cleanup.mjs` la comprobación de
+    `compatibility_responses`. Hoy verifica `profiles` y
+    `housing_preferences`; esa tabla cae en cascada desde `profiles`.
 - **Tareas operativas (intervención o autorización expresa del
   propietario):**
   - `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción antes de
@@ -398,8 +415,8 @@ de la 2.9. En Supabase real se validaron la RLS y los triggers (suite SQL
 
 Fase 3, integrada en `master` y validada en Supabase real (runs 16 y 18),
 **no cerrada**: test de convivencia (`/test`, con guardado parcial y los
-textos editoriales de la v1) y candidatos compatibles con explicación
-(`/explorar`). El E2 real llega hasta `/test`; guardar el test y
+textos editoriales de la v1; la v2 de S1–S4, en local sin commit) y
+candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta `/test`; guardar el test y
 `/explorar` los cubren en real la suite SQL y la api-suite (D6 = B).
 Todavía no hay habitaciones, intereses («Me interesa», Fase 5), «Ver
 perfil» de terceros, chat ni admin real.
@@ -422,7 +439,8 @@ borrado de cuenta (H6).
 - Confirmar o corregir las recomendaciones técnicas reversibles: magic
   link vs. contraseña, Mapbox vs. Google Maps.
 - Cuándo retomar Google OAuth y Apple OAuth (diferidos).
-- Las decisiones abiertas de la Fase 3 (S1–S4 y su versionado, mejoras del
-  test, «Por qué encajáis», revisión legal): ver «Estado actual».
+- Las decisiones abiertas de la Fase 3 (mejoras del test, «Por qué
+  encajáis», revisión legal y si la v2 del cuestionario necesita un run
+  real): ver «Estado actual».
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.

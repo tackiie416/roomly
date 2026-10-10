@@ -3,7 +3,10 @@ import {
   getOwnQuestionnaire,
   saveQuestionnaireAnswers,
 } from "@/lib/services/compatibility";
-import { QUESTIONNAIRE_V1 } from "@/lib/matching/questionnaire";
+import {
+  CURRENT_QUESTIONNAIRE_VERSION,
+  getCurrentQuestionnaire,
+} from "@/lib/matching/questionnaire";
 import {
   createFakeSupabase,
   dbError,
@@ -15,8 +18,13 @@ import {
 // Fase 3.1 — servicio del test propio. El cliente del usuario solo LEE
 // (perfil y fila propia); el cliente admin (service_role) solo ESCRIBE.
 // profile_id sale de la sesión; versión y completed_at los decide el servidor.
+// Con la versión vigente (la v2 desde S1–S4); el paso desde la v1, en
+// services-compatibility-versions.test.ts.
 
 const USER = "11111111-2222-4333-8444-555555555555";
+const CURRENT = CURRENT_QUESTIONNAIRE_VERSION;
+/** Una versión que el código no conoce (anomalía). */
+const LATER = CURRENT_QUESTIONNAIRE_VERSION + 1;
 const ACTIVE = {
   id: USER,
   deleted_at: null,
@@ -24,7 +32,9 @@ const ACTIVE = {
 };
 
 function allAnswers(value = 1): Record<string, number> {
-  return Object.fromEntries(QUESTIONNAIRE_V1.questions.map((q) => [q.id, value]));
+  return Object.fromEntries(
+    getCurrentQuestionnaire().questions.map((q) => [q.id, value])
+  );
 }
 function allButLast(value = 1): Record<string, number> {
   const answers = allAnswers(value);
@@ -103,13 +113,13 @@ describe("getOwnQuestionnaire (solo lectura, cliente del usuario)", () => {
     ["sin fila → none", null, "none"],
     [
       "versión vigente sin completar → draft",
-      { questionnaire_version: 1, answers: {}, completed_at: null },
+      { questionnaire_version: CURRENT, answers: {}, completed_at: null },
       "draft",
     ],
     [
       "versión vigente completada → completed",
       {
-        questionnaire_version: 1,
+        questionnaire_version: CURRENT,
         answers: allAnswers(),
         completed_at: "2026-10-02T10:00:00Z",
       },
@@ -117,7 +127,7 @@ describe("getOwnQuestionnaire (solo lectura, cliente del usuario)", () => {
     ],
     [
       "versión posterior (anomalía) → unsupported",
-      { questionnaire_version: 2, answers: allAnswers(), completed_at: null },
+      { questionnaire_version: LATER, answers: allAnswers(), completed_at: null },
       "unsupported",
     ],
   ])("%s", async (_label, row, status) => {
@@ -133,7 +143,7 @@ describe("getOwnQuestionnaire (solo lectura, cliente del usuario)", () => {
   it("devuelve solo respuestas válidas de ids conocidos", async () => {
     const user = userClient({
       row: {
-        questionnaire_version: 1,
+        questionnaire_version: CURRENT,
         answers: {
           clean_frequency: 3,
           smoke_own: 9,
@@ -242,7 +252,7 @@ describe("saveQuestionnaireAnswers: comprobaciones antes de escribir", () => {
 
   it("una fila de una versión posterior (anomalía) no se toca → conflict", async () => {
     const user = userClient({
-      row: { questionnaire_version: 2, answers: allAnswers(), completed_at: null },
+      row: { questionnaire_version: LATER, answers: allAnswers(), completed_at: null },
     });
     const admin = adminClient();
     expect(await saveQuestionnaireAnswers(user.client, allAnswers(), admin.deps)).toEqual(
@@ -256,7 +266,7 @@ describe("saveQuestionnaireAnswers: comprobaciones antes de escribir", () => {
 });
 
 describe("saveQuestionnaireAnswers: escrituras (D7.1–D7.4)", () => {
-  it("primer guardado parcial → INSERT de un borrador, con profile_id de la sesión y versión 1", async () => {
+  it("primer guardado parcial → INSERT de un borrador, con profile_id de la sesión y la versión vigente", async () => {
     const user = userClient({ row: null });
     const admin = adminClient();
     const result = await saveQuestionnaireAnswers(
@@ -272,7 +282,7 @@ describe("saveQuestionnaireAnswers: escrituras (D7.1–D7.4)", () => {
       operation: "insert",
       payload: {
         profile_id: USER,
-        questionnaire_version: 1,
+        questionnaire_version: CURRENT,
         answers: { clean_frequency: 3 },
         completed_at: null,
       },
@@ -293,7 +303,7 @@ describe("saveQuestionnaireAnswers: escrituras (D7.1–D7.4)", () => {
 
   it("borrador + las preguntas que faltan → UPDATE que completa (filtrado por versión y completed_at NULL)", async () => {
     const user = userClient({
-      row: { questionnaire_version: 1, answers: allButLast(), completed_at: null },
+      row: { questionnaire_version: CURRENT, answers: allButLast(), completed_at: null },
     });
     const admin = adminClient();
     const result = await saveQuestionnaireAnswers(
@@ -304,19 +314,19 @@ describe("saveQuestionnaireAnswers: escrituras (D7.1–D7.4)", () => {
     expect(result.ok && result.data.status).toBe("completed");
     const update = writePayloads(admin.calls)[0];
     expect(update.operation).toBe("update");
-    expect(update.payload).toMatchObject({ questionnaire_version: 1 });
+    expect(update.payload).toMatchObject({ questionnaire_version: CURRENT });
     expect(typeof update.payload?.completed_at).toBe("string");
     expect((update.payload?.answers as Record<string, number>).rules_explicit).toBe(4);
     expect(update.filters).toEqual([
       { kind: "eq", column: "profile_id", value: USER },
-      { kind: "eq", column: "questionnaire_version", value: 1 },
+      { kind: "eq", column: "questionnaire_version", value: CURRENT },
       { kind: "is", column: "completed_at", value: null },
     ]);
   });
 
   it("borrador que sigue incompleto → completed_at null", async () => {
     const user = userClient({
-      row: { questionnaire_version: 1, answers: {}, completed_at: null },
+      row: { questionnaire_version: CURRENT, answers: {}, completed_at: null },
     });
     const admin = adminClient();
     const result = await saveQuestionnaireAnswers(
@@ -331,7 +341,7 @@ describe("saveQuestionnaireAnswers: escrituras (D7.1–D7.4)", () => {
   it("D7.2: rehacer un test completado → UPDATE sin completed_at (la fecha no cambia)", async () => {
     const user = userClient({
       row: {
-        questionnaire_version: 1,
+        questionnaire_version: CURRENT,
         answers: allAnswers(),
         completed_at: "2026-10-02T10:00:00Z",
       },
@@ -348,7 +358,7 @@ describe("saveQuestionnaireAnswers: escrituras (D7.1–D7.4)", () => {
     expect((update.payload?.answers as Record<string, number>).clean_dishes).toBe(5);
     expect(update.filters).toEqual([
       { kind: "eq", column: "profile_id", value: USER },
-      { kind: "eq", column: "questionnaire_version", value: 1 },
+      { kind: "eq", column: "questionnaire_version", value: CURRENT },
     ]);
   });
 
@@ -357,7 +367,7 @@ describe("saveQuestionnaireAnswers: escrituras (D7.1–D7.4)", () => {
     corrupt.rules_explicit = 99;
     const user = userClient({
       row: {
-        questionnaire_version: 1,
+        questionnaire_version: CURRENT,
         answers: corrupt,
         completed_at: "2026-10-02T10:00:00Z",
       },
@@ -374,7 +384,7 @@ describe("saveQuestionnaireAnswers: escrituras (D7.1–D7.4)", () => {
 
   it("si otra pestaña cambió la fila (0 filas actualizadas) → conflict", async () => {
     const user = userClient({
-      row: { questionnaire_version: 1, answers: {}, completed_at: null },
+      row: { questionnaire_version: CURRENT, answers: {}, completed_at: null },
     });
     const admin = adminClient(() => ({ data: null, error: null }));
     expect(
