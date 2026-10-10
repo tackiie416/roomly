@@ -135,9 +135,10 @@ Supabase real, pero NO CERRADA.**
   - Registro de Auth de `roomly-validation-3`: el propietario declaró el
     2026-10-09 que está cerrado. Claude no lo ha verificado; la limpieza del
     run 18 avisó de que seguía abierto.
-- **Versión 2 del cuestionario (S1–S4): implementada en local, sin commit
-  (2026-10-10).** El propietario eligió la opción A de la auditoría de
-  impacto, con la lectura estricta de D15a.
+- **Versión 2 del cuestionario (S1–S4): integrada en `master` (PR #13,
+  merge `7550d71`, 2026-10-10), sin validación real contra Supabase.** El
+  propietario eligió la opción A de la auditoría de impacto, con la lectura
+  estricta de D15a.
   - La v1 queda como histórica, sin cambios. La v2 es la vigente
     (`CURRENT_QUESTIONNAIRE_VERSION = 2`), con las mismas 29 preguntas,
     orden, escalas, categorías y pesos.
@@ -150,9 +151,12 @@ Supabase real, pero NO CERRADA.**
   - La dirección de Ruido sale del cuestionario de cada versión
     (`directionQuestionIds`, en `lib/matching/score.ts`); si falta esa
     pregunta, el motor devuelve `invalid_questionnaire`.
-  - En local: `test` 1013/1013, `test:db` 305/305, `test:infra`, E1 30/30
-    (orientativo), lint, typecheck, format y build. Sin CI ni run real
-    todavía. Detalle: `PROGRESS.md`, sesión 37.
+  - CI de GitHub en verde en el head del PR (run `38088753365`) y después
+    del merge (run `38089079771`, sobre `7550d71`): 1013/1013 unitarios,
+    build, E1 30/30 y `db-security`. En local, antes del commit, también
+    `test:db` 305/305 y `test:infra`. Detalle: `PROGRESS.md`, sesión 37.
+  - Sin validación real contra Supabase: los runs 16 y 18 son anteriores a
+    la v2. Si hace falta un run nuevo, lo decide el propietario.
 - **Decisiones funcionales pendientes (del propietario):**
   - Mejoras del test que necesitan código: paginación, señalar las preguntas
     sin responder y una confirmación al terminar.
@@ -161,8 +165,8 @@ Supabase real, pero NO CERRADA.**
     respuestas (el servidor las lee para calcular, y quien opere la base de
     datos podría verlas).
 - **Trabajo técnico pendiente, con su autorización:**
-  - commit, PR y CI de la v2 del cuestionario; después, decidir si necesita
-    un run real;
+  - un run real de la v2 del cuestionario, si el propietario decide que hace
+    falta;
   - si se añade a `cleanup.mjs` la comprobación de
     `compatibility_responses`. Hoy verifica `profiles` y
     `housing_preferences`; esa tabla cae en cascada desde `profiles`.
@@ -415,8 +419,8 @@ de la 2.9. En Supabase real se validaron la RLS y los triggers (suite SQL
 
 Fase 3, integrada en `master` y validada en Supabase real (runs 16 y 18),
 **no cerrada**: test de convivencia (`/test`, con guardado parcial y los
-textos editoriales de la v1; la v2 de S1–S4, en local sin commit) y
-candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta `/test`; guardar el test y
+textos editoriales de la v1; la v2 de S1–S4, integrada con el PR #13 y sin
+run real) y candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta `/test`; guardar el test y
 `/explorar` los cubren en real la suite SQL y la api-suite (D6 = B).
 Todavía no hay habitaciones, intereses («Me interesa», Fase 5), «Ver
 perfil» de terceros, chat ni admin real.
