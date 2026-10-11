@@ -31,6 +31,102 @@ Evaluación (2026-10-11): la v2 del cuestionario (PR #13) **no tiene
 validación real propia**, y se decidió no hacer un run solo por ella. Ver
 «Evaluación posterior a la v2 del cuestionario».
 
+Estado (2026-10-11, run 19): **primer run real de SVC1–SVC5 y GC1–GC4**, en
+verde en `roomly-validation-3`. Valida en real los servicios
+`saveQuestionnaireAnswers` y `getCandidates`, llamados desde el runner; **no
+valida el runtime completo de Next.js**. Ver «Resultado: run 19, servicios
+del servidor (SVC/GC)».
+
+## Resultado: run 19, servicios del servidor (SVC/GC) (2026-10-11)
+
+| Run | Id | Commit | Parámetros | Resultado |
+|---|---|---|---|---|
+| **19** | `38106687478` | `92fb757` (`master`, merge del PR #17) | `confirm_project=roomly-validation-3`, `apply_migrations=false`, `run_e2e_real=false` | ✅ Todos los jobs ejecutados en verde, en el primer intento y sin reintentos |
+
+- URL: https://github.com/tackiie416/roomly/actions/runs/38106687478
+- Commit completo: `92fb757948e1cf9cc53321da1cc6efb5a596c59a`.
+- Lanzado a mano (`workflow_dispatch`) sobre `master`, una sola vez, con
+  autorización expresa del propietario para esta ejecución. Según la API de
+  GitHub, empezó el 2026-10-11 a las 02:54:57 UTC y terminó a las 02:58:05
+  UTC.
+- Es el **primer run real de SVC y GC**. Los runs 16 y 18 son anteriores a
+  la v2 y a estos tests: no cubren SVC ni GC.
+
+**Qué comprobó cada job:**
+- **guard:** confirmación `roomly-validation-3` y «destino verificado como
+  roomly-validation-3 (coherencia local + marca del proyecto)».
+- **migrate:** omitido, como debía (`apply_migrations=false`).
+- **preflight:** P0–P6 superadas:
+  - P0: marca `roomly-validation-3`;
+  - P1: PostgreSQL 17.11, 18 tablas y seed;
+  - P3: RLS en las 18 tablas y exactamente 37 políticas;
+  - P4: permisos de columna, incluidos `housing_preferences` y
+    `compatibility_responses`;
+  - P5: sin lints inesperados;
+  - P6: 13 triggers y 11 funciones.
+- **sql-suite:** los 14 archivos `tests/db/01`–`14` completados en Supabase
+  real, con el mensaje «RESULTADO: suite SQL completa en Supabase real» y la
+  comprobación final sin restos (sin `roomly_test`, políticas temporales ni
+  usuarios de test). Sobre el recuento:
+  - el runner aborta ante cualquier aserción fallida: cada fallo es un
+    `RAISE EXCEPTION`, con `ON_ERROR_STOP`;
+  - las 305 aserciones son las de la suite documentada y del código
+    revisado (`tests/db`, sin cambios desde el run 18);
+  - **no** salen de contar las líneas del log de este run, que no se pudo
+    descargar entero.
+- **api-suite:** **62/62**:
+  - las 52 anteriores (PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, CRA1–CRA6 y
+    AU2);
+  - las **10 nuevas**: SVC1–SVC4, los dos casos de SVC5 y GC1–GC4.
+- **auth-redirects:** AU3/AU5 **16/16** (AU3a–g y AU5a–i).
+- **e2e-real:** omitido, como debía (`run_e2e_real=false`). No se abrió el
+  registro ni se enviaron emails.
+
+**Casos nuevos, en verde en Supabase real** (llamados con el JWT real del
+usuario y service_role inyectado en el runner):
+- **SVC1:** un borrador parcial de la v2 se guarda como versión 2 y se relee
+  con el JWT del usuario.
+- **SVC2:** el cuestionario completo se guarda como completado y se fija
+  `completed_at`.
+- **SVC3:** volver a guardar un test completado no cambia `completed_at`.
+- **SVC4:** paso de la v1 a la v2 en una sola escritura. Se conservan las 21
+  respuestas comunes, se descartan los ocho ids sustituidos y el trigger
+  rechaza volver a la v1.
+- **SVC5** (dos casos): un id de la v1 y una respuesta fuera de escala se
+  rechazan sin escribir.
+- **GC1:** aparece el candidato elegible.
+- **GC2:** no aparecen los candidatos que incumplen los criterios (test v1,
+  borrador v2, otra ciudad, cuenta desactivada, admin y onboarding
+  incompleto), ni quien mira.
+- **GC3:** el DTO solo trae los campos permitidos.
+- **GC4:** los filtros reales de PostgREST (`!inner`, versión y test
+  completado) se verificaron en la respuesta cruda, antes del filtrado
+  posterior del servicio (`isEligibleCandidate`). El test registró que
+  PostgREST devuelve `compatibility_responses` y `housing_preferences` como
+  **objeto**.
+
+**Limpieza:**
+- El teardown de la api-suite terminó sin errores, sin «Teardown
+  incompleto».
+- Sus comprobaciones finales no encontraron filas de los usuarios de prueba
+  del run en `profiles`, `housing_preferences` ni `compatibility_responses`.
+- Esa evidencia sale **del propio workflow**: no se hizo una inspección
+  remota independiente del proyecto.
+
+**Qué no cubre este run:**
+- Es una validación real de los servicios `saveQuestionnaireAnswers` y
+  `getCandidates`, **no del runtime completo de Next.js**.
+- **E2 se omitió**: el recorrido de autenticación y del cuestionario en el
+  navegador no se volvió a comprobar.
+- **Sigue sin resolverse el riesgo de la combinación «Next.js en ejecución +
+  cliente admin»** (`docs/SECURITY.md`).
+- La CI ordinaria (`ci.yml`) sigue siendo distinta de esta validación: no
+  ejecuta la api-suite contra Supabase real.
+- **La Fase 3 sigue abierta.**
+
+**Otros proyectos:** no se tocaron `uwxb…` (`roomly-validation-2`), su
+Environment ni sus secrets.
+
 ## Evaluación posterior a la v2 del cuestionario (2026-10-11)
 
 Evaluación documental, **no un run**: no se lanzó ningún workflow ni se
@@ -107,6 +203,11 @@ pero **pendiente de su primer run real**. Hasta entonces, estos dos
 recorridos siguen sin cobertura real confirmada. Aunque pase, no cubre la
 combinación «Next en ejecución + cliente admin», que sigue siendo un riesgo
 aceptado hasta el despliegue (`docs/SECURITY.md`).
+
+Actualización (run 19, 2026-10-11): SVC1–SVC5 y GC1–GC4 pasaron en Supabase
+real (ver «Resultado: run 19, servicios del servidor (SVC/GC)»). Los dos
+recorridos tienen ya cobertura real **a nivel de servicio**. La combinación
+«Next en ejecución + cliente admin» sigue sin cubrir.
 
 **Si se decide un run futuro.** Las instrucciones generales están en «Cómo
 se ejecuta», en «E2 — requisitos del magic link real» (incluida su
@@ -689,8 +790,8 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | RO1–RO9 | api-suite | Propietario edita y pausa; no pone ni saca de `removed` (también vía upsert); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario |
 | RE1–RE9 | api-suite | Reporte válido nace `pending`; ningún campo administrativo en el INSERT; no en nombre de otro; no autocierre; el denunciado no lo ve; el admin resuelve |
 | CRA1–CRA6 | api-suite (Fase 3.1) | `compatibility_responses` por PostgREST: B lee su fila y C no; ningún JWT escribe (INSERT, UPDATE de `completed_at` o de versión, DELETE → `42501`); `anon` no lee; service_role completa una vez y después no cambia la fecha (S4), no baja de versión (S3) y sube completando (S5); con la cuenta eliminada ni service_role escribe. **Ejecutada en Supabase real en el run 16 (Fase 3): 6/6** |
-| SVC1–SVC5 | api-suite (servicios del servidor) | `saveQuestionnaireAnswers` (`lib/services/compatibility.ts`) con el JWT real del usuario y service_role inyectado en `deps.adminClient`. SVC1: unas respuestas parciales de la v2 quedan como borrador de la versión 2, que se relee con la sesión del usuario. SVC2: con las 29 queda completado y se fija `completed_at`. SVC3: volver a guardarlo no cambia `completed_at`. SVC4: una fila v1 completada sube a la v2 en una sola escritura, con el UPDATE condicionado a la versión 1 (petición observada); se reutilizan las 21 respuestas comunes, desaparecen los ocho ids sustituidos y el trigger rechaza volver a la v1. SVC5: un id de la v1 o una respuesta fuera de escala → `validation`, sin pedir service_role ni escribir. **Implementada; pendiente de su primer run real** |
-| GC1–GC4 | api-suite (servicios del servidor) | `getCandidates` (`lib/services/matching.ts`) con el JWT real de quien mira y service_role inyectado. GC1: aparece el candidato elegible. GC2: no aparecen quien mira, un test v1, un borrador v2, otra ciudad, una cuenta desactivada, un admin ni un onboarding incompleto; cada candidato falla un solo criterio. GC3: el DTO solo trae su lista blanca: la edad con una fecha fija, el presupuesto en escalones y la universidad leída con el JWT. GC4: la respuesta cruda de PostgREST, observada sin cambiarla, ya excluye esos casos con los filtros `!inner`, de versión y de test completado, antes de `isEligibleCandidate`. Solo se comprueban los ids propios, nunca totales. **Implementada; pendiente de su primer run real** |
+| SVC1–SVC5 | api-suite (servicios del servidor) | `saveQuestionnaireAnswers` (`lib/services/compatibility.ts`) con el JWT real del usuario y service_role inyectado en `deps.adminClient`. SVC1: unas respuestas parciales de la v2 quedan como borrador de la versión 2, que se relee con la sesión del usuario. SVC2: con las 29 queda completado y se fija `completed_at`. SVC3: volver a guardarlo no cambia `completed_at`. SVC4: una fila v1 completada sube a la v2 en una sola escritura, con el UPDATE condicionado a la versión 1 (petición observada); se reutilizan las 21 respuestas comunes, desaparecen los ocho ids sustituidos y el trigger rechaza volver a la v1. SVC5: un id de la v1 o una respuesta fuera de escala → `validation`, sin pedir service_role ni escribir. **Ejecutada en Supabase real en el run 19: 6/6** (SVC1–SVC4 y los dos casos de SVC5) |
+| GC1–GC4 | api-suite (servicios del servidor) | `getCandidates` (`lib/services/matching.ts`) con el JWT real de quien mira y service_role inyectado. GC1: aparece el candidato elegible. GC2: no aparecen quien mira, un test v1, un borrador v2, otra ciudad, una cuenta desactivada, un admin ni un onboarding incompleto; cada candidato falla un solo criterio. GC3: el DTO solo trae su lista blanca: la edad con una fecha fija, el presupuesto en escalones y la universidad leída con el JWT. GC4: la respuesta cruda de PostgREST, observada sin cambiarla, ya excluye esos casos con los filtros `!inner`, de versión y de test completado, antes de `isEligibleCandidate`. Solo se comprueban los ids propios, nunca totales. **Ejecutada en Supabase real en el run 19: 4/4** |
 | AU2 | api-suite | La lista de redirects de Supabase Auth conserva `http://localhost:3000/callback` y no conserva destinos externos |
 | AU3, AU5 (sin sesión) | `auth-redirects.sh` | El callback con código inválido y `next` malicioso redirige siempre dentro del origen; `/admin` sin sesión → `/login?next=%2Fadmin` |
 | E2 (alta real) | job `e2e-real` | Registro por magic link con email real, `/callback` PKCE, onboarding (desde la Fase 3 termina en `/test`, que se abre sin service_role), `/perfil`, `/preferencias`, `/ajustes` y logout. **En verde en el run 18 (Fase 3), con el paso por `/test`** |
@@ -729,7 +830,9 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
 - El teardown corre en `afterAll`, que Vitest ejecuta aunque fallen
   `beforeAll` o los tests. Si la guarda F1 no pasó, no toca nada.
 - Desde SVC/GC:
-  - los candidatos de GC se apuntan para la limpieza nada más crearse;
+  - todos los usuarios de prueba, actores y candidatos de GC, se apuntan para
+    la limpieza nada más crearse y antes de iniciar sesión
+    (`createTestUser`, en `tests/integration/test-users.ts`);
   - al final, el teardown cuenta las filas de `profiles`,
     `housing_preferences` y `compatibility_responses` de esos usuarios de
     prueba (las dos últimas caen en cascada desde `profiles`). Si queda
