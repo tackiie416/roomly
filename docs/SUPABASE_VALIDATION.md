@@ -55,17 +55,23 @@ Por qué:
   v2, la dirección de Ruido, `invalid_questionnaire`, `version_mismatch` y el
   filtro de versión. Lo cubren los tests unitarios y E1, contra el Supabase
   simulado.
-- La parte de base de datos de la transición ya se comprobó en real en los
-  runs 16 y 18:
-  - CRA5 (api-suite): sube a la versión 2 y después no deja bajar;
-  - CR14–CR16 (suite SQL): sube a la versión 2 completando o dejando un
-    borrador, y rechaza bajar de versión.
+- La mecánica de versión en la base de datos ya se comprobó en real en los
+  runs 16 y 18, antes de que existiera la v2. En esas pruebas, la «versión
+  2» es solo un número:
+  - CRA5 (api-suite): sube la fila a la versión 2 completando en la misma
+    escritura y después rechaza bajar a la versión 1;
+  - CR14–CR16 (suite SQL): suben a la versión 2 completando o dejando un
+    borrador, y rechazan bajar de versión.
 
-  Ninguna de esas pruebas depende del contenido del cuestionario, porque la
-  base de datos no valida las respuestas.
-- Un run con los tests de hoy no comprobaría nada propio de la v2: los jobs
-  estructurales ejecutan los mismos tests que en el run 18. El E2 solo
-  comprueba el título de `/test`.
+  Son pruebas del trigger y de las restricciones de la base de datos, no del
+  significado del cuestionario. Algunas usan ids concretos en `answers`
+  (`clean_frequency` en la suite SQL; CRA5 parte de `{}`), pero el
+  resultado no depende de lo que signifiquen. La base de datos valida que
+  `answers` sea un objeto JSON y las reglas de versión, pero no los ids ni
+  los valores que define el cuestionario.
+- Un run con los tests actuales apenas comprobaría nada específico de la
+  v2. Los jobs estructurales ejecutan los mismos tests que en el run 18, y
+  el E2 solo comprueba el título de `/test`.
 
 Qué **no** significa esta decisión:
 - **No es una validación real de la v2.** Los runs 16 (`f619812`) y 18
@@ -76,7 +82,8 @@ Qué **no** significa esta decisión:
   E1 y `db-security` corren contra el Supabase simulado y contra PostgreSQL
   local.
 - **No afirma que la aplicación esté validada en producción** ni en un
-  entorno real completo: todavía no se ha desplegado.
+  entorno real completo. Según la documentación revisada (`CLAUDE.md`),
+  todavía no hay despliegue.
 - **La Fase 3 sigue abierta.**
 
 **Pendiente antes del primer despliegue** (no depende de la v2). Dos
@@ -92,8 +99,48 @@ versión del cuestionario, porque la app del workflow no recibe service_role
 El workflow actual no los cubre. Cómo cubrirlos (por ejemplo, un entorno de
 staging con la clave solo en el servidor, o un test nuevo en la api-suite)
 está por evaluar y decidir. Lo decide el propietario, y cualquier opción
-necesita autorización expresa. Cualquier run futuro contra
-`roomly-validation-3` se lanza con `apply_migrations=false`.
+necesita autorización expresa.
+
+**Si se decide un run futuro.** Las instrucciones generales están en «Cómo
+se ejecuta», en «E2 — requisitos del magic link real» (incluida su
+«Preparación y limpieza») y en «Limpieza de la api-suite» (dentro de
+«Matriz de pruebas»). Este apartado no cambia sus parámetros ni sus reglas.
+
+Precondiciones:
+- autorización expresa del propietario;
+- un único destino, `roomly-validation-3`, con
+  `confirm_project=roomly-validation-3` y `apply_migrations=false`;
+- credenciales y configuración vigentes en el Environment, sin consultar
+  ni revelar ningún secret;
+- si se activa el E2: registro abierto por el propietario y buzón de prueba
+  configurado.
+
+Efectos esperados:
+- la suite SQL ejecuta cada archivo en una transacción que termina en
+  `ROLLBACK`;
+- la api-suite crea usuarios temporales ya confirmados (`email_confirm`,
+  sin depender del envío de correo) y su teardown los borra;
+- si se activa el E2: envía un email real al buzón de prueba y crea un
+  usuario que la limpieza del job intenta borrar.
+
+Riesgos operativos:
+- la limpieza no cierra el registro: solo avisa si sigue abierto. El
+  propietario debe cerrarlo después de cualquier run que lo haya abierto;
+- si el runner se interrumpe y no llega a la limpieza, pueden quedar
+  usuarios de prueba hasta una limpieza posterior (la preparación del E2 y
+  el inicio de la api-suite borran los restos de runs anteriores);
+- las salvaguardas limitan lo que se borra, así que la limpieza no garantiza
+  eliminar todos los restos en cualquier escenario:
+  - solo borra emails que encajan exactamente con el patrón de prueba;
+  - la del E2 no borra nada si encuentra más de 10 usuarios de prueba;
+  - la api-suite no borra datos enlazados a datos ajenos: su teardown
+    falla y lo reporta;
+- alcance real de las comprobaciones:
+  - la limpieza del E2 comprueba que no queden usuarios de la plantilla ni
+    filas suyas en `profiles` y `housing_preferences`; no comprueba
+    `compatibility_responses`, que cae en cascada desde `profiles`;
+  - el teardown de la api-suite reporta los errores de cada borrado, pero
+    después no vuelve a contar las filas.
 
 ## Resultado de la Fase 3: validación estructural (2026-10-09)
 
