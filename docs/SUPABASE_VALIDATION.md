@@ -101,6 +101,13 @@ staging con la clave solo en el servidor, o un test nuevo en la api-suite)
 está por evaluar y decidir. Lo decide el propietario, y cualquier opción
 necesita autorización expresa.
 
+Estado posterior a esta evaluación (2026-10-11): el test nuevo en la
+api-suite está implementado (SVC1–SVC5 y GC1–GC4, ver «Matriz de pruebas»),
+pero **pendiente de su primer run real**. Hasta entonces, estos dos
+recorridos siguen sin cobertura real confirmada. Aunque pase, no cubre la
+combinación «Next en ejecución + cliente admin», que sigue siendo un riesgo
+aceptado hasta el despliegue (`docs/SECURITY.md`).
+
 **Si se decide un run futuro.** Las instrucciones generales están en «Cómo
 se ejecuta», en «E2 — requisitos del magic link real» (incluida su
 «Preparación y limpieza») y en «Limpieza de la api-suite» (dentro de
@@ -682,15 +689,27 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | RO1–RO9 | api-suite | Propietario edita y pausa; no pone ni saca de `removed` (también vía upsert); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario |
 | RE1–RE9 | api-suite | Reporte válido nace `pending`; ningún campo administrativo en el INSERT; no en nombre de otro; no autocierre; el denunciado no lo ve; el admin resuelve |
 | CRA1–CRA6 | api-suite (Fase 3.1) | `compatibility_responses` por PostgREST: B lee su fila y C no; ningún JWT escribe (INSERT, UPDATE de `completed_at` o de versión, DELETE → `42501`); `anon` no lee; service_role completa una vez y después no cambia la fecha (S4), no baja de versión (S3) y sube completando (S5); con la cuenta eliminada ni service_role escribe. **Ejecutada en Supabase real en el run 16 (Fase 3): 6/6** |
+| SVC1–SVC5 | api-suite (servicios del servidor) | `saveQuestionnaireAnswers` (`lib/services/compatibility.ts`) con el JWT real del usuario y service_role inyectado en `deps.adminClient`. SVC1: unas respuestas parciales de la v2 quedan como borrador de la versión 2, que se relee con la sesión del usuario. SVC2: con las 29 queda completado y se fija `completed_at`. SVC3: volver a guardarlo no cambia `completed_at`. SVC4: una fila v1 completada sube a la v2 en una sola escritura, con el UPDATE condicionado a la versión 1 (petición observada); se reutilizan las 21 respuestas comunes, desaparecen los ocho ids sustituidos y el trigger rechaza volver a la v1. SVC5: un id de la v1 o una respuesta fuera de escala → `validation`, sin pedir service_role ni escribir. **Implementada; pendiente de su primer run real** |
+| GC1–GC4 | api-suite (servicios del servidor) | `getCandidates` (`lib/services/matching.ts`) con el JWT real de quien mira y service_role inyectado. GC1: aparece el candidato elegible. GC2: no aparecen quien mira, un test v1, un borrador v2, otra ciudad, una cuenta desactivada, un admin ni un onboarding incompleto; cada candidato falla un solo criterio. GC3: el DTO solo trae su lista blanca: la edad con una fecha fija, el presupuesto en escalones y la universidad leída con el JWT. GC4: la respuesta cruda de PostgREST, observada sin cambiarla, ya excluye esos casos con los filtros `!inner`, de versión y de test completado, antes de `isEligibleCandidate`. Solo se comprueban los ids propios, nunca totales. **Implementada; pendiente de su primer run real** |
 | AU2 | api-suite | La lista de redirects de Supabase Auth conserva `http://localhost:3000/callback` y no conserva destinos externos |
 | AU3, AU5 (sin sesión) | `auth-redirects.sh` | El callback con código inválido y `next` malicioso redirige siempre dentro del origen; `/admin` sin sesión → `/login?next=%2Fadmin` |
 | E2 (alta real) | job `e2e-real` | Registro por magic link con email real, `/callback` PKCE, onboarding (desde la Fase 3 termina en `/test`, que se abre sin service_role), `/perfil`, `/preferencias`, `/ajustes` y logout. **En verde en el run 18 (Fase 3), con el paso por `/test`** |
 | AU6 (Google) | Fuera de alcance (diferido) | — |
 
 Actores de la api-suite: A, B, C (chat), O (propietario), R (denunciante),
-T (denunciado), D (admin, rol asignado con `service_role` en PR11). Cada uno
-con su propio cliente y su JWT real; `service_role` solo prepara y limpia
-datos y ejecuta PR11 y la parte de servidor de RO7.
+T (denunciado), D (admin, rol asignado con `service_role` en PR11) y, desde
+SVC/GC, S (SVC1–SVC3 y SVC5), U (SVC4) y V (quien mira en GC). Cada uno con
+su propio cliente y su JWT real.
+
+`service_role`:
+- prepara y limpia datos y ejecuta PR11 y la parte de servidor de RO7;
+- en SVC/GC se inyecta en los dos servicios que lo usan en el servidor.
+
+D6 = B no cambia: ese proceso es el runner, nunca la app ni el navegador.
+
+Los siete candidatos de GC (E, Y, Z, M, X, K, N) son usuarios de prueba sin
+sesión, con el mismo formato de email y la misma limpieza; nadie inicia
+sesión con ellos.
 
 **Limpieza de la api-suite (respeta H6).** Primero borra mensajes,
 participantes y conversaciones; después reportes, logs, intereses, matches,
@@ -709,6 +728,12 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
   ajenos, no se borra: `deleteUser` falla y el teardown lo reporta.
 - El teardown corre en `afterAll`, que Vitest ejecuta aunque fallen
   `beforeAll` o los tests. Si la guarda F1 no pasó, no toca nada.
+- Desde SVC/GC:
+  - los candidatos de GC se apuntan para la limpieza nada más crearse;
+  - al final, el teardown cuenta las filas de `profiles`,
+    `housing_preferences` y `compatibility_responses` de esos usuarios de
+    prueba (las dos últimas caen en cascada desde `profiles`). Si queda
+    alguna, falla de forma visible.
 
 **Aserciones.**
 - **Éxito** es exactamente `error === null` (F4).

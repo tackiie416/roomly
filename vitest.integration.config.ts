@@ -21,6 +21,11 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": dirname,
+      // Como en vitest.config.ts: `server-only` lanza un error fuera de un
+      // entorno de servidor de React. Las pruebas SVC/GC importan
+      // lib/services/{compatibility,matching}.ts y usan su módulo vacío (el
+      // que Next.js resuelve con la condición "react-server").
+      "server-only": path.join(dirname, "node_modules/server-only/empty.js"),
     },
   },
 });
