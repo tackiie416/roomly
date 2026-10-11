@@ -46,6 +46,7 @@ import {
   type CandidateDTO,
 } from "@/lib/services/matching";
 import type { DbClient } from "@/lib/services/result";
+import { createTestUser } from "./test-users";
 
 // ---------------------------------------------------------------------------
 // Entorno y guardas de destino
@@ -156,13 +157,14 @@ const U = () => actors.u;
 const V = () => actors.v;
 
 /**
- * Usuarios de prueba SIN sesión (los candidatos de GC): nadie inicia sesión
- * con ellos, así que no se piden más tokens a Auth de los necesarios. Mismo
- * formato de email (F2) y misma limpieza que los actores: su id se apunta
- * aquí nada más crearse, para que el teardown lo borre aunque falle lo que
- * venga después.
+ * Todos los usuarios de prueba creados por ESTE run: los actores con sesión y
+ * los candidatos de GC, que no inician sesión (así no se piden más tokens a
+ * Auth de los necesarios). `createTestUser` apunta cada id aquí nada más
+ * crearlo, antes de iniciar sesión o de cualquier otro paso, y el teardown
+ * borra exactamente estos ids (más los restos de runs anteriores, F2). Un Set:
+ * ningún id se intenta borrar dos veces.
  */
-const fixtureUserIds = new Set<string>();
+const testUserIds = new Set<string>();
 
 const conv1 = randomUUID();
 const conv2 = randomUUID();
@@ -335,19 +337,18 @@ beforeAll(async () => {
     const email = testEmail(key);
     if (!TEST_EMAIL.test(email)) throw new Error("formato de email de prueba inválido");
     const password = randomBytes(24).toString("base64url"); // nunca se imprime
-    const { data, error } = await service.auth.admin.createUser({
+    const client = createClient(env.url, env.anonKey, CLIENT_OPTIONS);
+    // El id queda en `testUserIds` antes de iniciar sesión: si el login falla
+    // (p. ej. por un límite de Auth), el teardown de este run lo borra.
+    const id = await createTestUser({
+      key,
       email,
       password,
-      email_confirm: true,
+      admin: service.auth.admin,
+      registry: testUserIds,
+      signIn: (credentials) => client.auth.signInWithPassword(credentials),
     });
-    if (error || !data.user) throw new Error(`createUser(${key}): ${error?.message}`);
-
-    const client = createClient(env.url, env.anonKey, CLIENT_OPTIONS);
-    const signIn = await client.auth.signInWithPassword({ email, password });
-    if (signIn.error)
-      throw new Error(`signInWithPassword(${key}): ${signIn.error.message}`);
-
-    actors[key] = { key, id: data.user.id, email, client };
+    actors[key] = { key, id, email, client };
   }
 
   // Perfiles de todos salvo A (A crea el suyo en PR4, como haría el producto).
@@ -381,10 +382,8 @@ afterAll(async () => {
   }
   // Sin identidad verificada no se ha creado nada y no se toca nada.
   if (!identityVerified) return;
-  await teardownUsers(
-    [...Object.values(actors).map((a) => a.id), ...fixtureUserIds],
-    [...createdConversationIds]
-  );
+  // Cada actor está en `testUserIds` desde que se creó, haya iniciado sesión o no.
+  await teardownUsers([...testUserIds], [...createdConversationIds]);
 }, 120_000);
 
 // ===========================================================================
@@ -1170,8 +1169,9 @@ async function storedResponse(id: string): Promise<StoredResponse | null> {
 }
 
 /**
- * Candidato de GC: usuario de prueba sin sesión (F2) con su perfil. Su id se
- * apunta en `fixtureUserIds` antes de seguir, para que el teardown lo borre.
+ * Candidato de GC: usuario de prueba sin sesión (F2) con su perfil.
+ * `createTestUser` apunta su id en `testUserIds` antes de crear el perfil,
+ * para que el teardown lo borre aunque falle lo que venga después.
  */
 async function createCandidate(key: string, fullName: string): Promise<string> {
   if ((ACTOR_KEYS as readonly string[]).includes(key)) {
@@ -1179,21 +1179,21 @@ async function createCandidate(key: string, fullName: string): Promise<string> {
   }
   const email = testEmail(key);
   if (!TEST_EMAIL.test(email)) throw new Error("formato de email de prueba inválido");
-  const { data, error } = await service.auth.admin.createUser({
+  const id = await createTestUser({
+    key,
     email,
     password: randomBytes(24).toString("base64url"), // nunca se usa ni se imprime
-    email_confirm: true,
+    admin: service.auth.admin,
+    registry: testUserIds,
   });
-  if (error || !data.user) throw new Error(`createUser(${key}): ${error?.message}`);
-  fixtureUserIds.add(data.user.id);
   const profile = await service.from("profiles").insert({
-    id: data.user.id,
+    id,
     full_name: fullName,
     date_of_birth: "2000-03-15",
     seeking_status: "looking_for_room",
   });
   expectOk(profile.error);
-  return data.user.id;
+  return id;
 }
 
 const V1_IDS = QUESTIONNAIRE_V1.questions.map((q) => q.id);
