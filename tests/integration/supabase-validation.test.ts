@@ -1,13 +1,19 @@
 /**
  * Validación contra un proyecto Supabase REAL (roomly-validation-3, Fase 3).
- * Matriz: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, CRA1–CRA6 (Fase 3.1), AU2 — ver
+ * Matriz: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, CRA1–CRA6 (Fase 3.1),
+ * SVC1–SVC5 y GC1–GC4 (servicios del servidor), AU2 — ver
  * docs/SUPABASE_VALIDATION.md.
  *
  * Reglas de esta suite:
  *   - Toda aserción de autorización usa un cliente propio con el JWT real
  *     del usuario (signInWithPassword) o sin sesión (anon).
  *   - service_role solo prepara datos, limpia datos, y ejecuta las
- *     operaciones de servidor explícitamente autorizadas (PR11, RO7).
+ *     operaciones de servidor explícitamente autorizadas (PR11, RO7). En SVC
+ *     y GC se inyecta (`deps.adminClient`) en los dos servicios que lo usan
+ *     en el servidor, lib/services/{compatibility,matching}.ts, como hace la
+ *     app; la sesión de esos servicios es siempre el JWT real del usuario.
+ *     D6 = B no cambia: este proceso es el runner, nunca la app ni el
+ *     navegador.
  *   - Nunca se imprime ninguna variable de entorno, clave ni contraseña.
  *   - Se niega a ejecutarse si la URL no es la del proyecto de validación.
  *
@@ -24,6 +30,23 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  CURRENT_QUESTIONNAIRE_VERSION,
+  QUESTIONNAIRE_V1,
+  QUESTIONNAIRE_V2,
+} from "@/lib/matching/questionnaire";
+import type { Question, Questionnaire } from "@/lib/matching/types";
+import {
+  getOwnQuestionnaire,
+  saveQuestionnaireAnswers,
+} from "@/lib/services/compatibility";
+import {
+  CANDIDATE_SELECT,
+  getCandidates,
+  type CandidateDTO,
+} from "@/lib/services/matching";
+import type { DbClient } from "@/lib/services/result";
+import { createTestUser } from "./test-users";
 
 // ---------------------------------------------------------------------------
 // Entorno y guardas de destino
@@ -116,11 +139,12 @@ function record(line: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Actores: A, B, C (chat), O (propietario), R (denunciante), T (denunciado), D (admin)
+// Actores: A, B, C (chat), O (propietario), R (denunciante), T (denunciado), D (admin),
+// S (SVC1–SVC3 y SVC5), U (SVC4: de la v1 a la v2), V (quien mira en GC)
 // ---------------------------------------------------------------------------
 type Actor = { key: string; id: string; email: string; client: Client };
 const actors: Record<string, Actor> = {};
-const ACTOR_KEYS = ["a", "b", "c", "o", "r", "t", "d"] as const;
+const ACTOR_KEYS = ["a", "b", "c", "o", "r", "t", "d", "s", "u", "v"] as const;
 const A = () => actors.a;
 const B = () => actors.b;
 const C = () => actors.c;
@@ -128,6 +152,19 @@ const O = () => actors.o;
 const R = () => actors.r;
 const T = () => actors.t;
 const D = () => actors.d;
+const S = () => actors.s;
+const U = () => actors.u;
+const V = () => actors.v;
+
+/**
+ * Todos los usuarios de prueba creados por ESTE run: los actores con sesión y
+ * los candidatos de GC, que no inician sesión (así no se piden más tokens a
+ * Auth de los necesarios). `createTestUser` apunta cada id aquí nada más
+ * crearlo, antes de iniciar sesión o de cualquier otro paso, y el teardown
+ * borra exactamente estos ids (más los restos de runs anteriores, F2). Un Set:
+ * ningún id se intenta borrar dos veces.
+ */
+const testUserIds = new Set<string>();
 
 const conv1 = randomUUID();
 const conv2 = randomUUID();
@@ -224,6 +261,24 @@ async function teardownUsers(userIds: string[], conversationIds: string[]) {
       const { error } = await service.auth.admin.deleteUser(id);
       if (error) failures.push(`deleteUser: ${error.message}`);
     }
+
+    // Comprobación final: ni perfiles ni lo que cae en cascada desde ellos
+    // (preferencias y test de SVC/GC). Solo cuenta las filas de estos
+    // usuarios de prueba; si queda alguna, el teardown falla de forma visible.
+    for (const [table, column] of [
+      ["profiles", "id"],
+      ["housing_preferences", "profile_id"],
+      ["compatibility_responses", "profile_id"],
+    ] as const) {
+      const { count, error } = await service
+        .from(table)
+        .select(column, { count: "exact", head: true })
+        .in(column, userIds);
+      if (error)
+        failures.push(`comprobación de ${table}: ${error.code} ${error.message}`);
+      else if (count !== 0)
+        failures.push(`quedan ${count} filas de ${table} de usuarios de prueba`);
+    }
   }
 
   if (failures.length > 0) {
@@ -282,19 +337,18 @@ beforeAll(async () => {
     const email = testEmail(key);
     if (!TEST_EMAIL.test(email)) throw new Error("formato de email de prueba inválido");
     const password = randomBytes(24).toString("base64url"); // nunca se imprime
-    const { data, error } = await service.auth.admin.createUser({
+    const client = createClient(env.url, env.anonKey, CLIENT_OPTIONS);
+    // El id queda en `testUserIds` antes de iniciar sesión: si el login falla
+    // (p. ej. por un límite de Auth), el teardown de este run lo borra.
+    const id = await createTestUser({
+      key,
       email,
       password,
-      email_confirm: true,
+      admin: service.auth.admin,
+      registry: testUserIds,
+      signIn: (credentials) => client.auth.signInWithPassword(credentials),
     });
-    if (error || !data.user) throw new Error(`createUser(${key}): ${error?.message}`);
-
-    const client = createClient(env.url, env.anonKey, CLIENT_OPTIONS);
-    const signIn = await client.auth.signInWithPassword({ email, password });
-    if (signIn.error)
-      throw new Error(`signInWithPassword(${key}): ${signIn.error.message}`);
-
-    actors[key] = { key, id: data.user.id, email, client };
+    actors[key] = { key, id, email, client };
   }
 
   // Perfiles de todos salvo A (A crea el suyo en PR4, como haría el producto).
@@ -328,10 +382,8 @@ afterAll(async () => {
   }
   // Sin identidad verificada no se ha creado nada y no se toca nada.
   if (!identityVerified) return;
-  await teardownUsers(
-    Object.values(actors).map((a) => a.id),
-    [...createdConversationIds]
-  );
+  // Cada actor está en `testUserIds` desde que se creó, haya iniciado sesión o no.
+  await teardownUsers([...testUserIds], [...createdConversationIds]);
 }, 120_000);
 
 // ===========================================================================
@@ -976,6 +1028,563 @@ describe("Compatibility responses (CRA)", () => {
         .eq("id", C().id);
       expectOk(restore.error);
     }
+  });
+});
+
+// ===========================================================================
+// SERVICIOS DEL SERVIDOR (SVC, GC): los dos recorridos que usan service_role
+// dentro de la app. Se llama a los servicios reales con el JWT real del
+// usuario y con service_role inyectado en `deps.adminClient`, como hace el
+// servidor. Nada de esto llega a la app ni al navegador (D6 = B).
+// ===========================================================================
+
+/** Los servicios esperan el cliente tipado de la app; aquí es el mismo cliente, sin tipos. */
+const asDb = (client: Client) => client as unknown as DbClient;
+
+/**
+ * Una petición a PostgREST tal como salió y su respuesta cruda. Sin el host:
+ * la URL del proyecto nunca se guarda ni se imprime.
+ */
+type Observed = {
+  method: string;
+  path: string;
+  params: URLSearchParams;
+  data: unknown;
+  error: PostgrestError | null;
+};
+
+/**
+ * `client` sin cambios, pero observado: por cada consulta que se espera,
+ * apunta en `sink` el método, la ruta, los parámetros y la respuesta cruda de
+ * PostgREST, y devuelve esa misma respuesta. No toca la petición ni el
+ * resultado; el servicio no sabe que se le observa.
+ */
+function observed(client: Client, sink: Observed[]): Client {
+  const isRequest = (value: object) =>
+    "method" in value && "url" in value && value.url instanceof URL;
+  const wrap = <T extends object>(target: T): T =>
+    new Proxy(target, {
+      get(obj, prop) {
+        const value = Reflect.get(obj, prop, obj);
+        if (typeof value !== "function") return value;
+        if (prop === "then" && isRequest(obj)) {
+          const request = obj as unknown as { method: string; url: URL };
+          return (
+            onFulfilled?: (result: unknown) => unknown,
+            onRejected?: (reason: unknown) => unknown
+          ) =>
+            value.call(
+              obj,
+              (result: { data: unknown; error: PostgrestError | null }) => {
+                sink.push({
+                  method: request.method,
+                  path: request.url.pathname,
+                  params: new URLSearchParams(request.url.searchParams),
+                  data: result.data,
+                  error: result.error,
+                });
+                return onFulfilled ? onFulfilled(result) : result;
+              },
+              onRejected
+            );
+        }
+        return (...args: unknown[]) => {
+          const out = value.apply(obj, args);
+          return out !== null && typeof out === "object" ? wrap(out) : out;
+        };
+      },
+    });
+  return wrap(client);
+}
+
+/** Respuestas válidas: el mínimo de cada escala, o el valor siguiente. */
+const low = (q: Question) => q.scale.min;
+const next = (q: Question) => q.scale.min + 1;
+function answersOf(
+  questionnaire: Questionnaire,
+  value: (q: Question) => number,
+  ids?: readonly string[]
+): Record<string, number> {
+  return Object.fromEntries(
+    questionnaire.questions
+      .filter((q) => !ids || ids.includes(q.id))
+      .map((q) => [q.id, value(q)])
+  );
+}
+
+/**
+ * Preferencias de vivienda y, si se pide, el onboarding completado, en el
+ * orden que exige el esquema: el trigger de onboarding pide antes unas
+ * preferencias con ciudad.
+ */
+async function prepareStudent(
+  id: string,
+  housing: Record<string, unknown>,
+  { onboarding = true }: { onboarding?: boolean } = {}
+) {
+  const prefs = await service
+    .from("housing_preferences")
+    .insert({ profile_id: id, ...housing });
+  expectOk(prefs.error);
+  if (onboarding) {
+    const done = await service
+      .from("profiles")
+      .update({ onboarding_completed_at: new Date().toISOString() })
+      .eq("id", id);
+    expectOk(done.error);
+  }
+}
+
+/** Estado de partida del test, escrito directamente por service_role (no es lo que se prueba). */
+async function seedResponse(
+  id: string,
+  version: number,
+  answers: Record<string, number>,
+  completedAt: string | null
+) {
+  const { error } = await service.from("compatibility_responses").insert({
+    profile_id: id,
+    questionnaire_version: version,
+    answers,
+    completed_at: completedAt,
+  });
+  expectOk(error);
+}
+
+type StoredResponse = {
+  questionnaire_version: number;
+  answers: Record<string, number>;
+  completed_at: string | null;
+};
+
+/** La fila guardada, leída con service_role para comprobar lo que hay de verdad en la BD. */
+async function storedResponse(id: string): Promise<StoredResponse | null> {
+  const { data, error } = await service
+    .from("compatibility_responses")
+    .select("questionnaire_version, answers, completed_at")
+    .eq("profile_id", id)
+    .maybeSingle();
+  expectOk(error);
+  return data as StoredResponse | null;
+}
+
+/**
+ * Candidato de GC: usuario de prueba sin sesión (F2) con su perfil.
+ * `createTestUser` apunta su id en `testUserIds` antes de crear el perfil,
+ * para que el teardown lo borre aunque falle lo que venga después.
+ */
+async function createCandidate(key: string, fullName: string): Promise<string> {
+  if ((ACTOR_KEYS as readonly string[]).includes(key)) {
+    throw new Error(`la clave ${key} ya es de un actor con sesión`);
+  }
+  const email = testEmail(key);
+  if (!TEST_EMAIL.test(email)) throw new Error("formato de email de prueba inválido");
+  const id = await createTestUser({
+    key,
+    email,
+    password: randomBytes(24).toString("base64url"), // nunca se usa ni se imprime
+    admin: service.auth.admin,
+    registry: testUserIds,
+  });
+  const profile = await service.from("profiles").insert({
+    id,
+    full_name: fullName,
+    date_of_birth: "2000-03-15",
+    seeking_status: "looking_for_room",
+  });
+  expectOk(profile.error);
+  return id;
+}
+
+const V1_IDS = QUESTIONNAIRE_V1.questions.map((q) => q.id);
+const V2_IDS = QUESTIONNAIRE_V2.questions.map((q) => q.id);
+/** Las 21 preguntas que siguen igual en la v2. */
+const SHARED_IDS = V2_IDS.filter((id) => V1_IDS.includes(id));
+/** Los ocho ids nuevos de la v2 (`_v2`). */
+const NEW_IDS = V2_IDS.filter((id) => !V1_IDS.includes(id));
+/** Los ocho ids de la v1 que la v2 sustituye. */
+const REPLACED_IDS = V1_IDS.filter((id) => !V2_IDS.includes(id));
+const questionV2 = (id: string) => QUESTIONNAIRE_V2.questions.find((q) => q.id === id)!;
+
+describe("Guardado del test por el servicio del servidor (SVC)", () => {
+  const deps = { adminClient: () => asDb(service) };
+  /** Primer guardado parcial: cinco preguntas comunes y una nueva. */
+  const PARTIAL = answersOf(QUESTIONNAIRE_V2, low, [
+    ...SHARED_IDS.slice(0, 5),
+    NEW_IDS[0],
+  ]);
+  let firstCompletedAt: string | null = null;
+
+  beforeAll(async () => {
+    // Precondiciones de la v2 vigente; si cambian, estos casos no prueban lo que dicen.
+    expect(CURRENT_QUESTIONNAIRE_VERSION).toBe(2);
+    expect([SHARED_IDS.length, NEW_IDS.length, REPLACED_IDS.length]).toEqual([21, 8, 8]);
+    // S y U: perfil (creado arriba), preferencias con ciudad y onboarding completo.
+    await prepareStudent(S().id, { city_id: cityId });
+    await prepareStudent(U().id, { city_id: cityId });
+  });
+
+  it("SVC1: respuestas parciales de la v2 → borrador de la versión 2, que se relee con la sesión del usuario", async () => {
+    const result = await saveQuestionnaireAnswers(asDb(S().client), PARTIAL, deps);
+    expect(result).toEqual({
+      ok: true,
+      data: { status: "draft", answers: PARTIAL, storedVersion: 2, currentVersion: 2 },
+    });
+    expect(await storedResponse(S().id)).toEqual({
+      questionnaire_version: 2,
+      answers: PARTIAL,
+      completed_at: null,
+    });
+    // Con el JWT del usuario: su fila (RLS) y el servicio de lectura.
+    const own = await S()
+      .client.from("compatibility_responses")
+      .select("questionnaire_version, answers, completed_at")
+      .eq("profile_id", S().id);
+    expectOk(own.error);
+    expect(own.data).toEqual([
+      { questionnaire_version: 2, answers: PARTIAL, completed_at: null },
+    ]);
+    expect(await getOwnQuestionnaire(asDb(S().client))).toEqual({
+      ok: true,
+      data: { status: "draft", answers: PARTIAL, storedVersion: 2, currentVersion: 2 },
+    });
+  });
+
+  it("SVC2: con las 29 respuestas el test queda completado y se fija completed_at", async () => {
+    const rest = answersOf(
+      QUESTIONNAIRE_V2,
+      low,
+      V2_IDS.filter((id) => !(id in PARTIAL))
+    );
+    const result = await saveQuestionnaireAnswers(asDb(S().client), rest, deps);
+    expect(result).toMatchObject({
+      ok: true,
+      data: { status: "completed", storedVersion: 2 },
+    });
+    const row = await storedResponse(S().id);
+    expect(row?.questionnaire_version).toBe(2);
+    expect(row?.answers).toEqual({ ...PARTIAL, ...rest });
+    expect(Object.keys(row?.answers ?? {}).sort()).toEqual([...V2_IDS].sort());
+    expect(row?.completed_at).not.toBeNull();
+    firstCompletedAt = row?.completed_at ?? null;
+  });
+
+  it("SVC3: volver a guardar un test completado cambia la respuesta, pero no completed_at", async () => {
+    expect(firstCompletedAt, "depende de SVC2").not.toBeNull();
+    const id = SHARED_IDS[0];
+    const changed = { [id]: questionV2(id).scale.max };
+    const result = await saveQuestionnaireAnswers(asDb(S().client), changed, deps);
+    expect(result).toMatchObject({ ok: true, data: { status: "completed" } });
+    const row = await storedResponse(S().id);
+    expect(row?.answers[id]).toBe(changed[id]);
+    expect(Object.keys(row?.answers ?? {})).toHaveLength(29);
+    expect(row?.completed_at).toBe(firstCompletedAt);
+  });
+
+  it("SVC4: de una fila v1 completada a la v2 en una sola escritura: 21 respuestas reutilizadas y ocho ids descartados", async () => {
+    const v1Answers = answersOf(QUESTIONNAIRE_V1, next);
+    const v1CompletedAt = "2026-10-01T10:00:00+00:00";
+    await seedResponse(U().id, 1, v1Answers, v1CompletedAt);
+
+    const sink: Observed[] = [];
+    const result = await saveQuestionnaireAnswers(
+      asDb(U().client),
+      answersOf(QUESTIONNAIRE_V2, low, NEW_IDS),
+      { adminClient: () => asDb(observed(service, sink)) }
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      data: { status: "completed", storedVersion: 2 },
+    });
+
+    // Una sola escritura con service_role: el UPDATE condicionado a la fila
+    // tal como se leyó (su perfil y la versión 1; como estaba completada, sin
+    // condición sobre completed_at).
+    expect(sink.length).toBe(1);
+    const [write] = sink;
+    expectOk(write.error);
+    expect(write.method).toBe("PATCH");
+    expect(write.path).toBe("/rest/v1/compatibility_responses");
+    expect(write.params.getAll("profile_id")).toEqual([`eq.${U().id}`]);
+    expect(write.params.getAll("questionnaire_version")).toEqual(["eq.1"]);
+    expect(write.params.has("completed_at")).toBe(false);
+
+    // Lo que quedó en la BD: el trigger dejó subir de versión y completar a la vez (S5).
+    const row = await storedResponse(U().id);
+    expect(row?.questionnaire_version).toBe(2);
+    expect(row?.completed_at).not.toBeNull();
+    expect(Date.parse(row?.completed_at ?? "")).not.toBe(Date.parse(v1CompletedAt));
+    const saved = row?.answers ?? {};
+    expect(Object.keys(saved).sort()).toEqual([...V2_IDS].sort());
+    for (const id of SHARED_IDS) expect(saved[id], id).toBe(v1Answers[id]);
+    for (const id of NEW_IDS) expect(saved[id], id).toBe(low(questionV2(id)));
+    for (const id of REPLACED_IDS) expect(saved, id).not.toHaveProperty(id);
+
+    // Y sobre esa misma fila el trigger no deja volver a la v1 (S3).
+    const down = await service
+      .from("compatibility_responses")
+      .update({ questionnaire_version: 1 })
+      .eq("profile_id", U().id);
+    expectPgError(down.error, "23514");
+    expect(down.error?.message).toMatch(/^questionnaire_version_downgrade:/);
+  });
+
+  it.each<[string, () => Record<string, number>]>([
+    ["un id de la v1 que la v2 sustituye", () => ({ [REPLACED_IDS[0]]: 1 })],
+    [
+      "una respuesta fuera de la escala",
+      () => ({ [NEW_IDS[0]]: questionV2(NEW_IDS[0]).scale.max + 1 }),
+    ],
+  ])("SVC5: %s se rechaza sin escribir nada", async (_label, input) => {
+    const before = await storedResponse(S().id);
+    let adminCalls = 0;
+    const result = await saveQuestionnaireAnswers(asDb(S().client), input(), {
+      adminClient: () => {
+        adminCalls += 1;
+        return asDb(service);
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toBe("validation");
+    expect(adminCalls, "service_role no se llega a pedir").toBe(0);
+    expect(await storedResponse(S().id)).toEqual(before);
+  });
+});
+
+describe("Candidatos de /explorar por el servicio del servidor (GC)", () => {
+  /** Fecha fija para la edad: quien nació el 2000-03-15 tiene 26 años. */
+  const TODAY = "2026-06-15";
+  const deps = (sink?: Observed[]) => ({
+    adminClient: () => asDb(sink ? observed(service, sink) : service),
+    today: () => TODAY,
+  });
+  const ids = {
+    eligible: "",
+    v1: "",
+    draft: "",
+    otherCity: "",
+    deleted: "",
+    admin: "",
+    noOnboarding: "",
+  };
+  let university = { id: "", name: "" };
+  /** Quien no debe aparecer nunca: quien mira y cada candidato que falla un criterio. */
+  const excluded = (): Array<[string, string]> => [
+    ["quien mira", V().id],
+    ["test v1 completado", ids.v1],
+    ["borrador de la v2", ids.draft],
+    ["otra ciudad", ids.otherCity],
+    ["cuenta desactivada", ids.deleted],
+    ["rol admin", ids.admin],
+    ["onboarding incompleto", ids.noOnboarding],
+  ];
+
+  beforeAll(async () => {
+    const madrid = await service
+      .from("cities")
+      .select("id")
+      .eq("slug", "madrid")
+      .single();
+    expectOk(madrid.error);
+    const upf = await service
+      .from("universities")
+      .select("id, name")
+      .eq("slug", "upf")
+      .single();
+    expectOk(upf.error);
+    university = { id: upf.data?.id, name: upf.data?.name };
+
+    const completedAt = new Date().toISOString();
+    const v2 = answersOf(QUESTIONNAIRE_V2, low);
+
+    // Quien mira: en Barcelona, sin presupuesto ni fechas, con el test v2 completado.
+    await prepareStudent(V().id, { city_id: cityId });
+    await seedResponse(V().id, 2, v2, completedAt);
+
+    // El elegible: con universidad (nombre leído de la tabla de referencia con
+    // el JWT de quien mira) y un presupuesto exacto que el DTO no debe enseñar.
+    ids.eligible = await createCandidate("e", "Validación GC elegible");
+    await prepareStudent(ids.eligible, {
+      city_id: cityId,
+      university_id: university.id,
+      budget_min: 437,
+      budget_max: 683,
+    });
+    await seedResponse(ids.eligible, 2, answersOf(QUESTIONNAIRE_V2, next), completedAt);
+
+    // Cada uno de los demás falla un solo criterio de los que filtra la consulta.
+    ids.v1 = await createCandidate("y", "Validación GC test v1");
+    await prepareStudent(ids.v1, { city_id: cityId });
+    await seedResponse(ids.v1, 1, answersOf(QUESTIONNAIRE_V1, low), completedAt);
+
+    ids.draft = await createCandidate("z", "Validación GC borrador");
+    await prepareStudent(ids.draft, { city_id: cityId });
+    await seedResponse(ids.draft, 2, v2, null);
+
+    ids.otherCity = await createCandidate("m", "Validación GC otra ciudad");
+    await prepareStudent(ids.otherCity, { city_id: madrid.data?.id });
+    await seedResponse(ids.otherCity, 2, v2, completedAt);
+
+    // Desactivada después de guardar su test: con deleted_at, el trigger ya
+    // no deja escribirlo.
+    ids.deleted = await createCandidate("x", "Validación GC desactivada");
+    await prepareStudent(ids.deleted, { city_id: cityId });
+    await seedResponse(ids.deleted, 2, v2, completedAt);
+    const deactivate = await service
+      .from("profiles")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", ids.deleted);
+    expectOk(deactivate.error);
+
+    // El rol solo lo cambia service_role (PR11).
+    ids.admin = await createCandidate("k", "Validación GC admin");
+    await prepareStudent(ids.admin, { city_id: cityId });
+    await seedResponse(ids.admin, 2, v2, completedAt);
+    const promote = await service
+      .from("profiles")
+      .update({ role: "admin" })
+      .eq("id", ids.admin);
+    expectOk(promote.error);
+
+    // Preferencias y test completos, pero sin onboarding: el trigger del test no lo exige.
+    ids.noOnboarding = await createCandidate("n", "Validación GC sin onboarding");
+    await prepareStudent(ids.noOnboarding, { city_id: cityId }, { onboarding: false });
+    await seedResponse(ids.noOnboarding, 2, v2, completedAt);
+  });
+
+  /** Todas las páginas: lo que haya en el proyecto además de estos datos no importa. */
+  async function allCandidates(): Promise<CandidateDTO[]> {
+    const candidates: CandidateDTO[] = [];
+    for (let page = 1; page <= 50; page++) {
+      const result = await getCandidates(asDb(V().client), page, deps());
+      expect(result.ok ? null : result.error).toBeNull();
+      if (!result.ok) break;
+      candidates.push(...result.data.candidates);
+      if (page >= result.data.totalPages) break;
+    }
+    return candidates;
+  }
+
+  it("GC1: el candidato v2 completado y elegible de la misma ciudad aparece", async () => {
+    const found = (await allCandidates()).map((c) => c.id);
+    expect(found).toContain(ids.eligible);
+  });
+
+  it("GC2: no aparecen quien mira, el test v1, el borrador v2, otra ciudad, la cuenta desactivada, el admin ni el onboarding incompleto", async () => {
+    const found = (await allCandidates()).map((c) => c.id);
+    for (const [label, id] of excluded()) expect(found, label).not.toContain(id);
+  });
+
+  it("GC3: el DTO solo trae los campos permitidos, sin respuestas, fecha de nacimiento ni presupuesto exacto", async () => {
+    const dto = (await allCandidates()).find((c) => c.id === ids.eligible);
+    expect(dto, "el candidato elegible").toBeDefined();
+    if (!dto) return;
+    expect(Object.keys(dto).sort()).toEqual([
+      "age",
+      "budgetRange",
+      "differences",
+      "fullName",
+      "id",
+      "neighborhoods",
+      "neighborhoodsTotal",
+      "score",
+      "strengths",
+      "university",
+    ]);
+    expect(dto).toMatchObject({
+      fullName: "Validación GC elegible",
+      age: 26,
+      university: university.name,
+      neighborhoods: [],
+      neighborhoodsTotal: 0,
+      // 437–683 € → escalones de 50: el mínimo hacia abajo y el máximo hacia arriba.
+      budgetRange: { min: 400, max: 700 },
+    });
+    expect(dto.score).toBeGreaterThanOrEqual(0);
+    expect(dto.score).toBeLessThanOrEqual(100);
+    for (const reason of [...dto.strengths, ...dto.differences]) {
+      expect(typeof reason).toBe("string");
+    }
+    // Sin el id (un uuid puede contener cualquier cifra), nada privado en el DTO.
+    const text = JSON.stringify({ ...dto, id: null });
+    for (const leaked of [
+      "437",
+      "683",
+      "2000-03-15",
+      "answers",
+      "categoryScores",
+      "date_of_birth",
+      "budget_min",
+      "budget_max",
+      "questionnaire_version",
+      "completed_at",
+      ...V2_IDS,
+    ]) {
+      expect(text, leaked).not.toContain(leaked);
+    }
+  });
+
+  it("GC4: la consulta real de PostgREST ya filtra por sí misma (!inner, versión, test completado, ciudad, cuenta, rol y onboarding)", async () => {
+    const sink: Observed[] = [];
+    const result = await getCandidates(asDb(V().client), 1, deps(sink));
+    expect(result.ok ? null : result.error).toBeNull();
+
+    // La única consulta con service_role: la lectura cruzada de candidatos.
+    expect(sink.length).toBe(1);
+    const [query] = sink;
+    expectOk(query.error);
+    expect(query.method).toBe("GET");
+    expect(query.path).toBe("/rest/v1/profiles");
+    expect(query.params.get("select")).toBe(CANDIDATE_SELECT.replace(/\s/g, ""));
+    const filters = Object.fromEntries(
+      [
+        "id",
+        "deleted_at",
+        "onboarding_completed_at",
+        "role",
+        "housing_preferences.city_id",
+        "compatibility_responses.questionnaire_version",
+        "compatibility_responses.completed_at",
+      ].map((column) => [column, query.params.getAll(column)])
+    );
+    expect(filters).toEqual({
+      id: [`neq.${V().id}`],
+      deleted_at: ["is.null"],
+      onboarding_completed_at: ["not.is.null"],
+      role: ["neq.admin"],
+      "housing_preferences.city_id": [`eq.${cityId}`],
+      "compatibility_responses.questionnaire_version": [
+        `eq.${CURRENT_QUESTIONNAIRE_VERSION}`,
+      ],
+      "compatibility_responses.completed_at": ["not.is.null"],
+    });
+
+    // La respuesta cruda, antes de isEligibleCandidate: los excluidos ya no
+    // vienen de PostgREST, y el elegible trae su test v2 completado y su ciudad.
+    type RawRow = {
+      id: string;
+      housing_preferences: unknown;
+      compatibility_responses: unknown;
+    };
+    const rows = (query.data ?? []) as RawRow[];
+    const rawIds = rows.map((row) => row.id);
+    expect(rawIds).toContain(ids.eligible);
+    for (const [label, id] of excluded()) expect(rawIds, label).not.toContain(id);
+
+    const row = rows.find((r) => r.id === ids.eligible);
+    const embedded = <T>(value: unknown) =>
+      (Array.isArray(value) ? value[0] : value) as T | undefined;
+    const response = embedded<{
+      questionnaire_version: number;
+      completed_at: string | null;
+    }>(row?.compatibility_responses);
+    const housing = embedded<{ city_id: string }>(row?.housing_preferences);
+    expect(response?.questionnaire_version).toBe(CURRENT_QUESTIONNAIRE_VERSION);
+    expect(response?.completed_at).not.toBeNull();
+    expect(housing?.city_id).toBe(cityId);
+    record(
+      `GC4: PostgREST devuelve los recursos embebidos como ${Array.isArray(row?.compatibility_responses) ? "lista" : "objeto"} (compatibility_responses) y ${Array.isArray(row?.housing_preferences) ? "lista" : "objeto"} (housing_preferences)`
+    );
   });
 });
 

@@ -35,6 +35,15 @@
     (`uwxb…`).
   - Desde la Fase 3, el recorrido pasa por `/test`. **En verde en el run
     18** (2026-10-09), en `roomly-validation-3`.
+- **api-suite** (`npm run test:supabase`, `tests/integration/`): supabase-js
+  con JWT reales contra el proyecto real de validación, solo desde el
+  workflow manual (job `api-suite`).
+  - SVC1–SVC5 y GC1–GC4 llaman además a los dos servicios del servidor,
+    `saveQuestionnaireAnswers` y `getCandidates`, con el JWT real del
+    usuario y service_role inyectado en el runner, nunca en la app (D6 = B).
+    **Implementados, pendientes de su primer run real.**
+  - La CI no ejecuta esta suite: solo la compila (`typecheck`) y la analiza
+    (`lint`). Un CI en verde no dice nada de su resultado.
 - Chromium con scripts del scratchpad (2.3–2.7): `next start` contra un
   Supabase simulado con estado; no están en el repositorio. E1 los sustituye
   como suite reproducible.
@@ -71,7 +80,7 @@
 | Migraciones + seed en Supabase real | ✅ las 9 migraciones y el seed, en una transacción (run 13) · ✅ las 10 migraciones y el seed, en una transacción (run 16, Fase 3) | `roomly-validation-2b` (`uwxb…`) · `roomly-validation-3` |
 | Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) · ✅ marca `roomly-validation-3`, 18 tablas, 37 políticas, 13 triggers, 11 funciones (run 16; en verde en los runs 17 y 18) | `roomly-validation-2b` · `roomly-validation-3` |
 | Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) · ✅ 305/305 en `01`–`14` (los 14 archivos, cada uno revertido; las 15 comprobaciones del runner, sin restos; runs 16 y 18) | `roomly-validation` (Fase 1) · `roomly-validation-2b` · `roomly-validation-3` |
-| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ✅ 46/46 (run 13; en verde en el 15) · ✅ 52/52, con CRA1–CRA6 (runs 16 y 18) | `roomly-validation` · `roomly-validation-2b` · `roomly-validation-3` |
+| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ✅ 46/46 (run 13; en verde en el 15) · ✅ 52/52, con CRA1–CRA6 (runs 16 y 18) · ⏳ SVC1–SVC5 y GC1–GC4 (servicios del servidor), implementados después del run 18 y **pendientes de su primer run real**; no están en los 52/52. En local, sin red y con un `fetch` falso, se comprobó que la config de integración resuelve `server-only` y que la observación de GC4/SVC4 captura la petición y la respuesta cruda con postgrest-js sin cambiarlas; no es una validación real | `roomly-validation` · `roomly-validation-2b` · `roomly-validation-3` |
 | AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ✅ 16/16 (run 13; en verde en el 15) · ✅ 16/16 (runs 16 y 18) | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2b` · `roomly-validation-3` |
 | AU4 magic link / AU5 con sesión | ✅ manual (histórico; login de un usuario creado en el dashboard) | `roomly-validation`, PC del propietario |
 | E2 real (alta por magic link con email real) | ✅ 1/1, run 15 (`37543144825`, `ec7c3fc`): `signInWithOtp` → email en Mailtrap → `/auth/v1/verify` → `/callback?code=` con PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout; limpieza sin residuos (1 usuario borrado, buzón vacío). Run 14: falló antes de enviar nada por `E2E_MAILBOX_CONFIG` mal formado · ✅ 1/1, run 18 (`37999470912`, `6dae75f`, Fase 3): el mismo recorrido, con el onboarding terminando en `/test` («Test de convivencia»); limpieza: 1 usuario borrado, sin datos asociados, y mensajes del buzón borrados. Run 17 (`37998858090`): falló a los 267 ms, antes de abrir `/login`, por `E2E_MAILBOX_CONFIG` no válido; sin emails ni usuarios | workflow manual, job `e2e-real`, `roomly-validation-2b` · `roomly-validation-3` |
@@ -535,3 +544,8 @@ jobs de 2.8 aún no han corrido en GitHub. La validación contra Supabase real
 tiene su propio workflow manual (`supabase-validation.yml`, Environment
 `roomly-validation-3`, con el job `e2e-real`), que nunca corre en push ni en
 PR.
+
+La CI tampoco ejecuta `npm run test:supabase` (la api-suite real, SVC/GC
+incluidos). `lint` y `typecheck` cubren `tests/integration/` y
+`vitest.integration.config.ts`, pero esas pruebas solo corren en el
+workflow manual.
