@@ -292,13 +292,15 @@ Cumplimiento de los criterios de aceptación:
   mutaciones;
 - los pesos y las constantes están en `lib/matching/weights.ts`.
 
-**Hecho después de la implementación local** (2026-10-08 y 2026-10-09):
+**Hecho después de la implementación local** (2026-10-08 a 2026-10-10):
 - **Integración en `master`:** PR #7 (implementación, `f34b2c8`), PR #8
   (marca `roomly-validation-3`, `f619812`), PR #9 y PR #10 (documentación de
-  los runs, `6dae75f` y `de68ef1`) y PR #11 (textos editoriales, `83654eb`).
+  los runs, `6dae75f` y `de68ef1`), PR #11 (textos editoriales, `83654eb`) y
+  PR #13 (cuestionario v2, `7550d71`).
 - **CI de GitHub** (`lint-typecheck-test-build`, `db-security`, `e2e-local`):
   en verde en el head de cada uno de esos PR y después de cada merge. La
-  última, el run `38003093188` sobre `83654eb`: 864/864 unitarios y E1 27/27.
+  última, el run `38089079771` sobre `7550d71`: 1013/1013 unitarios y E1
+  30/30.
 - **Validación real** en el proyecto nuevo `roomly-validation-3`; `uwxb…`
   (`roomly-validation-2`) no se toca y la guarda lo rechaza. Detalle en
   `docs/SUPABASE_VALIDATION.md`.
@@ -311,9 +313,14 @@ Cumplimiento de los criterios de aceptación:
 - **Textos del cuestionario:** los cambios editoriales (E1–E19), los textos
   generales de `/test` (G1–G4) y la ayuda S5 de las visitas, dentro de la v1
   (PR #11). Son posteriores a los runs 16–18 y no han pasado por un run real.
-- **Versión 2 del cuestionario (S1–S4)**, implementada en la rama de
-  trabajo el 2026-10-10, sin commit, PR ni CI todavía. Detalle en
+- **Versión 2 del cuestionario (S1–S4)**, integrada en `master` el
+  2026-10-10 con el PR #13 (`ef11777`, merge `7550d71`). Detalle en
   `PROGRESS.md`, sesión 37.
+  - CI en verde en el head del PR (run `38088753365`) y después del merge
+    (run `38089079771`): 1013/1013 unitarios, build, E1 30/30 y
+    `db-security`.
+  - Sin validación real contra Supabase: los runs 16–18 son anteriores a la
+    v2.
   - El propietario eligió la opción A de la auditoría de impacto, con la
     lectura estricta de D15a.
   - La v1 queda como histórica, sin cambios; la v2 es la vigente
@@ -329,9 +336,9 @@ Cumplimiento de los criterios de aceptación:
 
 **Pendiente** (cada punto con su decisión o autorización; qué bloquea el
 cierre lo decide el propietario):
-- **La v2 del cuestionario (S1–S4):** commit, PR y CI, con autorización.
-  Después, decidir si necesita un run real. El E2 real llega hasta `/test`, y
-  la suite SQL 14 y CRA1–CRA6 no dependen del cuestionario.
+- **La v2 del cuestionario (S1–S4):** decidir si necesita un run real, con
+  autorización. El E2 real llega hasta `/test`, y la suite SQL 14 y CRA1–CRA6
+  no dependen del cuestionario.
 - Mejoras del test que necesitan código: paginación, señalar las preguntas
   sin responder y una confirmación al terminar.
 - El texto «Por qué encajáis» de `/explorar`.
