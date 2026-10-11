@@ -42,8 +42,8 @@
     `saveQuestionnaireAnswers` y `getCandidates`, con el JWT real del
     usuario y service_role inyectado en el runner, nunca en la app (D6 = B).
     **En verde por primera vez en el run 19** (2026-10-11,
-    `roomly-validation-3`): 62/62. Valida esos servicios, no el runtime
-    completo de Next.js.
+    `roomly-validation-3`): SVC 6/6 y GC 4/4, dentro de una api-suite 62/62.
+    Valida esos servicios, no el runtime completo de Next.js.
   - La CI no ejecuta esta suite: solo la compila (`typecheck`) y la analiza
     (`lint`). Un CI en verde no dice nada de su resultado.
 - Chromium con scripts del scratchpad (2.3–2.7): `next start` contra un
@@ -118,9 +118,9 @@ La **v2 del cuestionario** (S1–S4) está integrada en `master` con el PR #13
 
 **Servicios del servidor (SVC/GC) en Supabase real: run 19** (`38106687478`,
 `92fb757`, 2026-10-11), con `apply_migrations=false` y `run_e2e_real=false`:
-- guarda, P0–P6, suite SQL 01–14, api-suite 62/62 (SVC1–SVC5 y GC1–GC4, por
-  primera vez en real) y AU3/AU5 16/16, todo en verde; migraciones y E2
-  omitidos por los parámetros;
+- guarda, P0–P6, suite SQL 01–14, api-suite 62/62 (incluidos SVC 6/6 y
+  GC 4/4, por primera vez en real) y AU3/AU5 16/16, todo en verde;
+  migraciones y E2 omitidos por los parámetros;
 - el teardown terminó sin errores y sus comprobaciones finales no
   encontraron filas de prueba en `profiles`, `housing_preferences` ni
   `compatibility_responses`. Es evidencia del propio workflow, sin una
