@@ -12,7 +12,7 @@
 - **E2E (Playwright)**: los 3 flujos completos que pide el brief
   (sección 39).
 
-## Estado actual (2026-10-11, Fase 3 integrada en `master` con la v2 del cuestionario; validada en Supabase real antes de la v2; no cerrada)
+## Estado actual (2026-10-11, Fase 3 integrada en `master` con la v2 del cuestionario; validada en Supabase real antes de la v2 y, en el run 19, los servicios SVC/GC; no cerrada)
 
 **Qué demuestra cada capa** (no confundirlas):
 - `npm run test` (Vitest): lógica de la aplicación con un cliente Supabase
@@ -41,7 +41,9 @@
   - SVC1–SVC5 y GC1–GC4 llaman además a los dos servicios del servidor,
     `saveQuestionnaireAnswers` y `getCandidates`, con el JWT real del
     usuario y service_role inyectado en el runner, nunca en la app (D6 = B).
-    **Implementados, pendientes de su primer run real.**
+    **En verde por primera vez en el run 19** (2026-10-11,
+    `roomly-validation-3`): SVC 6/6 y GC 4/4, dentro de una api-suite 62/62.
+    Valida esos servicios, no el runtime completo de Next.js.
   - La CI no ejecuta esta suite: solo la compila (`typecheck`) y la analiza
     (`lint`). Un CI en verde no dice nada de su resultado.
 - Chromium con scripts del scratchpad (2.3–2.7): `next start` contra un
@@ -78,10 +80,10 @@
 | Mutaciones de la Fase 3.1 contra `test:db` | ✅ 5/5 detectadas (sin S4, UPDATE devuelto a `authenticated`, sin bloqueo de cuentas eliminadas, SELECT para `anon`, bajar de versión permitido) | local, sobre una copia de la migración en el scratchpad |
 | Mutaciones del motor (Fase 3.2) | ✅ 7/7 detectadas (media en vez de `min`, Jaccard, dato ausente como neutro, sin r6, dirección por suma en vez de signos concordantes, sin tope de diferencias, umbral de fortaleza exclusivo) | local, `score.ts` restaurado y comprobado con `diff` |
 | Migraciones + seed en Supabase real | ✅ las 9 migraciones y el seed, en una transacción (run 13) · ✅ las 10 migraciones y el seed, en una transacción (run 16, Fase 3) | `roomly-validation-2b` (`uwxb…`) · `roomly-validation-3` |
-| Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) · ✅ marca `roomly-validation-3`, 18 tablas, 37 políticas, 13 triggers, 11 funciones (run 16; en verde en los runs 17 y 18) | `roomly-validation-2b` · `roomly-validation-3` |
-| Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) · ✅ 305/305 en `01`–`14` (los 14 archivos, cada uno revertido; las 15 comprobaciones del runner, sin restos; runs 16 y 18) | `roomly-validation` (Fase 1) · `roomly-validation-2b` · `roomly-validation-3` |
-| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ✅ 46/46 (run 13; en verde en el 15) · ✅ 52/52, con CRA1–CRA6 (runs 16 y 18) · ⏳ SVC1–SVC5 y GC1–GC4 (servicios del servidor), implementados después del run 18 y **pendientes de su primer run real**; no están en los 52/52. En local, sin red y con un `fetch` falso, se comprobó que la config de integración resuelve `server-only` y que la observación de GC4/SVC4 captura la petición y la respuesta cruda con postgrest-js sin cambiarlas; no es una validación real | `roomly-validation` · `roomly-validation-2b` · `roomly-validation-3` |
-| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ✅ 16/16 (run 13; en verde en el 15) · ✅ 16/16 (runs 16 y 18) | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2b` · `roomly-validation-3` |
+| Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) · ✅ marca `roomly-validation-3`, 18 tablas, 37 políticas, 13 triggers, 11 funciones (run 16; en verde en los runs 17, 18 y 19) | `roomly-validation-2b` · `roomly-validation-3` |
+| Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) · ✅ 305/305 en `01`–`14` (los 14 archivos, cada uno revertido; las 15 comprobaciones del runner, sin restos; runs 16 y 18) · ✅ los 14 archivos completados con el mensaje de éxito y la comprobación final sin restos (run 19; el runner aborta ante cualquier aserción fallida, y las 305 son las de la suite, no un recuento sacado del log) | `roomly-validation` (Fase 1) · `roomly-validation-2b` · `roomly-validation-3` |
+| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ✅ 46/46 (run 13; en verde en el 15) · ✅ 52/52, con CRA1–CRA6 (runs 16 y 18) · ✅ **62/62**, con las 10 nuevas de los servicios del servidor: SVC1–SVC4, los dos casos de SVC5 y GC1–GC4 (run 19, `38106687478`, `92fb757`; su primer run real). Antes del run, en local, sin red y con un `fetch` falso, se comprobó que la config de integración resuelve `server-only` y que la observación de GC4/SVC4 captura la petición y la respuesta cruda con postgrest-js sin cambiarlas; eso no fue una validación real | `roomly-validation` · `roomly-validation-2b` · `roomly-validation-3` |
+| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ✅ 16/16 (run 13; en verde en el 15) · ✅ 16/16 (runs 16 y 18) · ✅ 16/16 (run 19) | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2b` · `roomly-validation-3` |
 | AU4 magic link / AU5 con sesión | ✅ manual (histórico; login de un usuario creado en el dashboard) | `roomly-validation`, PC del propietario |
 | E2 real (alta por magic link con email real) | ✅ 1/1, run 15 (`37543144825`, `ec7c3fc`): `signInWithOtp` → email en Mailtrap → `/auth/v1/verify` → `/callback?code=` con PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout; limpieza sin residuos (1 usuario borrado, buzón vacío). Run 14: falló antes de enviar nada por `E2E_MAILBOX_CONFIG` mal formado · ✅ 1/1, run 18 (`37999470912`, `6dae75f`, Fase 3): el mismo recorrido, con el onboarding terminando en `/test` («Test de convivencia»); limpieza: 1 usuario borrado, sin datos asociados, y mensajes del buzón borrados. Run 17 (`37998858090`): falló a los 267 ms, antes de abrir `/login`, por `E2E_MAILBOX_CONFIG` no válido; sin emails ni usuarios | workflow manual, job `e2e-real`, `roomly-validation-2b` · `roomly-validation-3` |
 | Adaptador de Mailtrap (`tests/unit/mailtrap-mailbox.test.ts`) | ✅ 20/20 sin red; mutaciones 3/3 detectadas (sin decodificar `&amp;`, sin filtrar el destinatario, otra cabecera de autenticación) | local y CI |
@@ -109,13 +111,32 @@ La **v2 del cuestionario** (S1–S4) está integrada en `master` con el PR #13
 - **CI de GitHub:** en verde en el head del PR #13, después de su merge y
   después del merge del PR #14 (`83d9687`). Corre contra PostgreSQL local y
   el Supabase simulado (filas de `npm run test`, E1 y CI).
-- **Validación real contra Supabase:** la v2 no ha pasado por ningún run
-  real. Los runs 16–18 son anteriores, y si hace falta uno nuevo lo decide el
-  propietario.
+- **Validación real contra Supabase:** los runs 16–18 son anteriores a la
+  v2. Desde el run 19, los servicios del servidor la ejecutan en real (SVC y
+  GC, ver abajo). El recorrido en el navegador (E2) y el runtime de Next.js
+  con el cliente admin no han pasado por ningún run real con la v2.
+
+**Servicios del servidor (SVC/GC) en Supabase real: run 19** (`38106687478`,
+`92fb757`, 2026-10-11), con `apply_migrations=false` y `run_e2e_real=false`:
+- guarda, P0–P6, suite SQL 01–14, api-suite 62/62 (incluidos SVC 6/6 y
+  GC 4/4, por primera vez en real) y AU3/AU5 16/16, todo en verde;
+  migraciones y E2 omitidos por los parámetros;
+- el teardown terminó sin errores y sus comprobaciones finales no
+  encontraron filas de prueba en `profiles`, `housing_preferences` ni
+  `compatibility_responses`. Es evidencia del propio workflow, sin una
+  inspección remota independiente;
+- valida los servicios `saveQuestionnaireAnswers` y `getCandidates`, no el
+  runtime completo de Next.js. Sigue pendiente la combinación «Next.js en
+  ejecución + cliente admin».
+
+Detalle en `docs/SUPABASE_VALIDATION.md` («Resultado: run 19, servicios del
+servidor (SVC/GC)»). Los tests unitarios y E1 siguen corriendo contra el
+Supabase simulado en la CI; la api-suite real solo corre en el workflow
+manual.
 
 **La Fase 3 sigue abierta** por pendientes ajenos a la validación real (ver
 `docs/ROADMAP.md`). En las filas de Supabase real de esta tabla, lo marcado
-con los runs 16–18 es de la Fase 3 y el resto, de las Fases 1 y 2.
+con los runs 16–19 es de la Fase 3 y el resto, de las Fases 1 y 2.
 
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
