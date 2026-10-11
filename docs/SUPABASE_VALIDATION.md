@@ -27,6 +27,74 @@ Detalle en «Resultado de la Fase 3: validación estructural» y «Resultado de
 la Fase 3: E2 real». **La Fase 3 no está cerrada**: quedan pendientes fuera
 de la validación real (ver `docs/ROADMAP.md`).
 
+Evaluación (2026-10-11): la v2 del cuestionario (PR #13) **no tiene
+validación real propia**, y se decidió no hacer un run solo por ella. Ver
+«Evaluación posterior a la v2 del cuestionario».
+
+## Evaluación posterior a la v2 del cuestionario (2026-10-11)
+
+Evaluación documental, **no un run**: no se lanzó ningún workflow ni se
+contactó con Supabase, Auth ni Mailtrap, y no se tocó ningún proyecto,
+Environment ni secret. Responde a si la v2 del cuestionario (PR #13, merge
+`7550d71`) necesita un run real propio.
+
+**Decisión (2026-10-11): no se ejecuta un run real solo por los cambios de
+la v2.**
+
+Por qué:
+- Desde la base de la v2 (`21df385`) hasta `master` (`fed61a8`) no cambian
+  `supabase/migrations/`, `lib/services/`, `.github/workflows/` ni los tests
+  reales (`tests/db`, `tests/integration`, `tests/supabase`,
+  `tests/e2e/real`). La v2 cambia el código de `lib/matching/`
+  (`questionnaire.ts`, `score.ts` y `types.ts`), sus tests y la
+  documentación.
+- La base de datos no conoce los ids de las preguntas: solo exige que
+  `answers` sea un objeto JSON y que `questionnaire_version` sea >= 1. Unas
+  respuestas con ids `_v2` no cambian nada para Postgres.
+- Lo propio de la v2 es código: la definición, la transición de la v1 a la
+  v2, la dirección de Ruido, `invalid_questionnaire`, `version_mismatch` y el
+  filtro de versión. Lo cubren los tests unitarios y E1, contra el Supabase
+  simulado.
+- La parte de base de datos de la transición ya se comprobó en real en los
+  runs 16 y 18:
+  - CRA5 (api-suite): sube a la versión 2 y después no deja bajar;
+  - CR14–CR16 (suite SQL): sube a la versión 2 completando o dejando un
+    borrador, y rechaza bajar de versión.
+
+  Ninguna de esas pruebas depende del contenido del cuestionario, porque la
+  base de datos no valida las respuestas.
+- Un run con los tests de hoy no comprobaría nada propio de la v2: los jobs
+  estructurales ejecutan los mismos tests que en el run 18. El E2 solo
+  comprueba el título de `/test`.
+
+Qué **no** significa esta decisión:
+- **No es una validación real de la v2.** Los runs 16 (`f619812`) y 18
+  (`6dae75f`) son anteriores a la v2 y a los textos del PR #11. El run 18
+  llegó a `/test` con el cuestionario v1 y no es una validación real de la
+  v2.
+- **La CI en verde no es una prueba contra Supabase real.** Los unitarios,
+  E1 y `db-security` corren contra el Supabase simulado y contra PostgreSQL
+  local.
+- **No afirma que la aplicación esté validada en producción** ni en un
+  entorno real completo: todavía no se ha desplegado.
+- **La Fase 3 sigue abierta.**
+
+**Pendiente antes del primer despliegue** (no depende de la v2). Dos
+recorridos no se han ejecutado nunca contra Supabase real, con ninguna
+versión del cuestionario, porque la app del workflow no recibe service_role
+(D6 = B):
+- guardar el test por el servicio del servidor: `saveQuestionnaireAnswers`
+  en `lib/services/compatibility.ts`, con service_role;
+- la consulta real de candidatos de `/explorar`: `getCandidates` en
+  `lib/services/matching.ts`, con el select anidado (`!inner`) y el filtro
+  de versión.
+
+El workflow actual no los cubre. Cómo cubrirlos (por ejemplo, un entorno de
+staging con la clave solo en el servidor, o un test nuevo en la api-suite)
+está por evaluar y decidir. Lo decide el propietario, y cualquier opción
+necesita autorización expresa. Cualquier run futuro contra
+`roomly-validation-3` se lanza con `apply_migrations=false`.
+
 ## Resultado de la Fase 3: validación estructural (2026-10-09)
 
 | Run | Id | Commit | Parámetros | Resultado |
