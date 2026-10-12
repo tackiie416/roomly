@@ -213,6 +213,10 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
 describe("E1 (local, simulado) y E2 (real, manual) separados", () => {
   const e1 = read("playwright.config.ts");
   const e2 = code("playwright.real.config.ts");
+  // D1 busca la clave service_role ficticia y el nombre de su variable en el
+  // build de E1, así que es el único spec que los contiene. Queda fuera de la
+  // regla general y tiene la suya, más estricta (más abajo).
+  const D1_SPEC = "tests/e2e/local/no-service-key-in-client.spec.ts";
 
   it("directorios distintos y npm run test:e2e = solo E1", () => {
     expect(e1).toContain('testDir: "./tests/e2e/local"');
@@ -252,14 +256,54 @@ describe("E1 (local, simulado) y E2 (real, manual) separados", () => {
   });
 
   it("ningún archivo de Playwright ni del E2E usa la clave service_role ni la API admin", () => {
+    const local = readdirSync("tests/e2e/local").map((f) => `tests/e2e/local/${f}`);
+    // La excepción es solo para D1, y D1 tiene que seguir en E1.
+    expect(local).toContain(D1_SPEC);
     const files = [
       "playwright.real.config.ts",
-      ...readdirSync("tests/e2e/local").map((f) => `tests/e2e/local/${f}`),
+      ...local.filter((f) => f !== D1_SPEC),
       "tests/e2e/real/student-real.spec.ts",
       "tests/e2e/real/e2e-real-lib.mjs",
     ];
     for (const file of files)
       expect(code(file), file).not.toMatch(/SERVICE_ROLE_KEY|serviceKey|auth\.admin/);
+  });
+
+  it("D1, la única excepción: solo lee el build en disco y busca la clave ficticia y el nombre de su variable; no los usa, no hace peticiones ni abre un navegador", () => {
+    const spec = code(D1_SPEC);
+    // Lo único de service_role: importar la clave ficticia, usarla como aguja y
+    // el nombre de la variable como aguja. Nunca la clave escrita en el spec.
+    expect([...spec.matchAll(/\w*service[-_]?role\w*/gi)].map((m) => m[0])).toEqual([
+      "MOCK_SERVICE_ROLE_KEY",
+      "MOCK_SERVICE_ROLE_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "MOCK_SERVICE_ROLE_KEY",
+    ]);
+    // Importaciones fijas: fs solo de lectura, path, Playwright y, de
+    // mock-config.mjs, solo la clave ficticia (ni la URL del mock ni nada más).
+    expect([...spec.matchAll(/^import .*$/gm)].map((m) => m[0])).toEqual([
+      'import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";',
+      'import path from "node:path";',
+      'import { expect, test } from "@playwright/test";',
+      'import { MOCK_SERVICE_ROLE_KEY } from "../support/mock-config.mjs";',
+    ]);
+    expect(spec.match(/\bimport\b/g)).toHaveLength(4);
+    for (const forbidden of [
+      // Credenciales y entorno.
+      /\bprocess\b/,
+      /auth\.admin|serviceKey|@supabase|createClient/,
+      /apikey|authorization|bearer/i,
+      // Red.
+      /\bfetch\b|https?:|XMLHttpRequest|WebSocket|EventSource/,
+      /\b(?:require|eval|Function|globalThis)\b/,
+      // Navegador y fixtures de Playwright.
+      /\b(?:page|browser|context|request)\b|\.goto\(|newPage|newContext/,
+      // Escritura y salida.
+      /\b(?:writeFile|appendFile|rmSync|unlink|rename|mkdir|copyFile|cpSync|truncate|symlink|chmod)/,
+      /console\./,
+    ]) {
+      expect(spec, String(forbidden)).not.toMatch(forbidden);
+    }
   });
 
   it("E1 (playwright.config.ts) solo pasa a la app la clave service_role FICTICIA del mock", () => {

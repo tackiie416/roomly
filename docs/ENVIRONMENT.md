@@ -8,7 +8,7 @@ variables de entorno de Vercel para producción/preview.
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Sí | Supabase → Project Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Sí | Supabase → Project Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | **No — server-only** | Supabase → Project Settings → API. Nunca en un componente cliente. Desde la Fase 3 la necesita el servidor de la app en ejecución (`/explorar` y guardar el test); solo la leen `lib/env.ts` y `lib/supabase/admin.ts`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **No — server-only** | Supabase → Project Settings → API. Nunca en un componente cliente. Desde la Fase 3 la necesita el servidor de la app en ejecución (`/explorar` y guardar el test); solo la leen `lib/env.server.ts` (`server-only`) y `lib/supabase/admin.ts`. `lib/env.ts` solo tiene la configuración pública, porque también lo importa el cliente. |
 | `NEXT_PUBLIC_SITE_URL` | Sí | URL de producción/preview; afecta redirects OAuth y canonical SEO |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Sí | Cuenta Mapbox → tokens (pendiente de confirmar Mapbox vs. Google Maps) |
 | `RESEND_API_KEY` | No | Dashboard de Resend |

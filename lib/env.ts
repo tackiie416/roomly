@@ -5,9 +5,14 @@ import { z } from "zod";
  * CLAUDE.md: nunca confiar en datos sin validar, tampoco los propios).
  *
  * Deliberadamente PEREZOSA: no se ejecuta al importar el módulo, solo
- * cuando alguien llama a getPublicEnv()/getServiceRoleKey(). Así, páginas
- * que no tocan Supabase compilan y hacen build aunque no existan
- * credenciales reales todavía — ver docs/ENVIRONMENT.md.
+ * cuando alguien llama a getPublicEnv(). Así, páginas que no tocan Supabase
+ * compilan y hacen build aunque no existan credenciales reales todavía — ver
+ * docs/ENVIRONMENT.md.
+ *
+ * Solo configuración pública: este módulo lo importan también componentes de
+ * cliente (lib/supabase/client.ts) y su contenido puede llegar a los bundles
+ * del navegador. La clave service_role se valida en lib/env.server.ts
+ * (server-only).
  */
 
 const publicEnvSchema = z.object({
@@ -16,11 +21,8 @@ const publicEnvSchema = z.object({
   NEXT_PUBLIC_SITE_URL: z.string().url().default("http://localhost:3000"),
 });
 
-const serviceRoleEnvSchema = z.object({
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-});
-
-function formatIssues(error: z.ZodError): string {
+/** Una línea por error: la variable y el mensaje de Zod, sin el valor recibido. */
+export function formatEnvIssues(error: z.ZodError): string {
   return error.issues
     .map((issue) => `  - ${issue.path.join(".") || "(raíz)"}: ${issue.message}`)
     .join("\n");
@@ -36,29 +38,11 @@ export function getPublicEnv() {
 
   if (!parsed.success) {
     throw new Error(
-      `Configuración de entorno pública incompleta o inválida:\n${formatIssues(
+      `Configuración de entorno pública incompleta o inválida:\n${formatEnvIssues(
         parsed.error
       )}\n\nRevisa .env.local contra .env.example (ver docs/ENVIRONMENT.md).`
     );
   }
 
   return parsed.data;
-}
-
-/**
- * SUPABASE_SERVICE_ROLE_KEY — server-only, nunca debe llegar al cliente.
- * Solo lib/supabase/admin.ts debería llamar a esto.
- */
-export function getServiceRoleKey() {
-  const parsed = serviceRoleEnvSchema.safeParse({
-    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  });
-
-  if (!parsed.success) {
-    throw new Error(
-      `SUPABASE_SERVICE_ROLE_KEY falta o es inválida:\n${formatIssues(parsed.error)}`
-    );
-  }
-
-  return parsed.data.SUPABASE_SERVICE_ROLE_KEY;
 }
