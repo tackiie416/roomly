@@ -6,6 +6,222 @@ próximos pasos.**
 
 ---
 
+## 2026-10-12 — Sesión 38: sincronización documental tras los PR #14–#19 (Fase 3 NO cerrada)
+
+**Contexto**
+- La sesión 37 se escribió antes del commit de la v2 del cuestionario. Su
+  pendiente «commit, push, PR y CI de la v2» se cumplió con el PR #13
+  (merge `7550d71`), que `CLAUDE.md` y `docs/ROADMAP.md` ya recogían.
+- Después se integraron los PR #14–#19. `CLAUDE.md` y `docs/ROADMAP.md`
+  seguían en el estado posterior al PR #13 (última CI citada: `38089079771`,
+  1013/1013) y no mencionaban SVC/GC, el run real 19 ni D1.
+- Esta entrada registra esos PR sin reescribir las sesiones anteriores.
+- **Estado de Git al empezar:** `master` = `origin/master` = `d4618cf`
+  (merge del PR #19), con el árbol limpio.
+
+**Estado verificado** (API de GitHub y git, 2026-10-12)
+- **Integración en `master`.** La tabla recoge el último head de cada PR.
+  Todas las CI terminaron en verde y al primer intento:
+
+  | PR | Contenido | Head | CI del head | Merge | CI del merge |
+  |---|---|---|---|---|---|
+  | #14 | Estado de la v2 en `CLAUDE.md` y `docs/ROADMAP.md` | `af05f3b` | CI #30 (`38089510066`) | `83d9687` | CI #31 (`38100362367`) |
+  | #15 | `docs/TESTING.md` tras la v2 | `5fb72ff` | CI #32 (`38100845853`) | `fed61a8` | CI #33 (`38101880347`) |
+  | #16 | Evaluación de la validación real de la v2 | `5a1fa1e` | CI #35 (`38103526320`) | `07f7d23` | CI #36 (`38103833777`) |
+  | #17 | SVC1–SVC5 y GC1–GC4 en la api-suite | `f8d39c3` | CI #38 (`38106135419`) | `92fb757` | CI #39 (`38106349851`) |
+  | #18 | Resultados del run 19 | `19cf09b` | CI #41 (`38109617548`) | `5b9f2f8` | CI #42 (`38110579813`) |
+  | #19 | `lib/env.server.ts` y D1 | `f8c5bbb` | CI #43 (`38194786210`) | `d4618cf` | CI #44 (`38204349293`) |
+
+  - Los PR #16, #17 y #18 tuvieron un head anterior, corregido tras su
+    revisión: `607f302` (CI #34), `c9a6187` (CI #37) y `34fb946` (CI #40),
+    los tres en verde.
+- **Recuentos sacados de los logs:**
+
+  | CI | Unitarios | E1 |
+  |---|---|---|
+  | CI #31 | 1013/1013 (ya en `docs/TESTING.md`) | 30/30 |
+  | CI #42 | 1025/1025 (los 12 nuevos son `integration-test-users`, del PR #17) | 30/30 |
+  | CI #44 | 1030/1030 | 32/32 (los 2 nuevos son D1) |
+
+  - En `db-security`, la API da todos los pasos en verde. El recuento de
+    aserciones no se extrajo de los logs.
+  - De las CI #33, #36 y #39 solo se comprobó el resultado de los jobs.
+- **Validación real:** el único run nuevo es el 19. No hay ninguno
+  posterior.
+
+**Qué aportó cada PR**
+- **#14 y #15:** documentación del estado de la v2 tras el PR #13, en
+  `CLAUDE.md`, `docs/ROADMAP.md` y `docs/TESTING.md`.
+- **#16:** evaluación documental en `docs/SUPABASE_VALIDATION.md`. No fue un
+  run.
+  - Decisión: **no se ejecuta un run real solo por los cambios de la v2.**
+    La v2 no toca migraciones, servicios, workflows ni tests reales.
+  - La v2 sigue sin validación real propia del cuestionario.
+  - Corregida tras su revisión (`5a1fa1e`).
+- **#17:** los casos SVC1–SVC5 y GC1–GC4 en
+  `tests/integration/supabase-validation.test.ts`. SVC5 tiene dos casos.
+  - `tests/integration/test-users.ts` añade `createTestUser`. El id de cada
+    usuario de prueba queda apuntado para el teardown antes del login. Es la
+    corrección tras la revisión (`f8d39c3`), con su regresión en
+    `tests/unit/integration-test-users.test.ts` (12 tests).
+  - Alias de `server-only` en `vitest.integration.config.ts`.
+  - La CI ordinaria no ejecuta la api-suite: solo el workflow manual.
+- **#18:** documentación del run 19 en `docs/SUPABASE_VALIDATION.md` y
+  `docs/TESTING.md`. Tras la revisión se separaron los recuentos
+  (`19cf09b`): SVC 6/6 y GC 4/4 dentro de una api-suite 62/62.
+- **#19:** la configuración privada separada y D1 (ver abajo).
+
+**Run real 19** (detalle en `docs/SUPABASE_VALIDATION.md`, «Resultado: run
+19, servicios del servidor (SVC/GC)»)
+
+| Dato | Valor |
+|---|---|
+| URL | https://github.com/tackiie416/roomly/actions/runs/38106687478 |
+| Commit validado | `92fb757948e1cf9cc53321da1cc6efb5a596c59a` (`master`, merge del PR #17) |
+| Parámetros | `confirm_project=roomly-validation-3`, `apply_migrations=false`, `run_e2e_real=false` |
+| Lanzamiento | Manual (`workflow_dispatch`), una sola vez, con autorización expresa del propietario. Del 2026-10-11 02:54:57 a 02:58:05 UTC, primer intento |
+
+- **Jobs:**
+  - guard: en verde.
+  - migrate: omitido, como debía.
+  - preflight: P0–P6 en verde.
+  - sql-suite: `tests/db/01`–`14` completados en Supabase real.
+    - Las 305 aserciones son las de la suite y el código revisado.
+    - **No** se contaron en el log, porque no se pudo descargar entero.
+  - api-suite: **62/62**. Son las 52 anteriores más 10 nuevas:
+    - **SVC 6/6:** SVC1–SVC4 y los dos casos de SVC5;
+    - **GC 4/4.**
+  - auth-redirects: AU3/AU5 16/16.
+  - e2e-real: omitido, como debía. No se abrió el registro ni se enviaron
+    emails.
+- **Qué se probó de verdad:**
+  - los servicios `saveQuestionnaireAnswers` y `getCandidates`;
+  - llamados desde el runner, con el JWT real del usuario y service_role
+    inyectado en el runner;
+  - SVC1–SVC4 guardan respuestas de la v2 y el paso de la v1 a la v2;
+  - GC4 comprobó en la respuesta cruda de PostgREST los filtros reales
+    (`!inner`, versión y test completado).
+- **Limpieza:**
+  - el teardown terminó sin errores, sin «Teardown incompleto»;
+  - no quedaron filas de los usuarios de prueba en `profiles`,
+    `housing_preferences` ni `compatibility_responses`.
+  - Lo comprueba **el propio workflow**: no hubo inspección remota
+    independiente del proyecto.
+- **Qué no cubre:**
+  - el runtime completo de Next.js;
+  - el recorrido en el navegador, porque E2 se omitió. El último E2 real es
+    el del run 18, con la v1 y hasta `/test`;
+  - la combinación «Next.js en ejecución + cliente admin», que sigue siendo
+    un riesgo aceptado (`docs/SECURITY.md`).
+- `uwxb…` (`roomly-validation-2`) no se tocó.
+
+**Configuración privada aparte y D1** (PR #19)
+- **Problema:** `lib/env.ts` lo importa también el cliente del navegador
+  (`lib/supabase/client.ts`). Tenía, a nivel de módulo, el esquema Zod de
+  `SUPABASE_SERVICE_ROLE_KEY`, y el build de E1 metía el **nombre** de la
+  variable en un chunk público de `.next/static`. El valor no llegaba.
+- **Cambio:**
+  - `lib/env.server.ts` (nuevo, `import "server-only"`) con el esquema y
+    `getServiceRoleKey()`;
+  - `lib/env.ts`, solo con la configuración pública;
+  - `lib/supabase/admin.ts` importa del módulo privado.
+
+  No cambian el comportamiento del cliente admin ni los mensajes de error.
+- **Tests estáticos:**
+  - `admin-client-usage`:
+    - la clave solo la leen `lib/env.server.ts` y `lib/supabase/admin.ts`;
+    - solo el cliente admin importa el módulo privado, y ningún componente
+      de cliente lo hace;
+    - `lib/env.server.ts` empieza por `server-only`.
+  - `env`: `lib/env.ts` solo exporta `getPublicEnv` y `formatEnvIssues`.
+  - `validation-infra`: la regla que prohíbe la clave en los specs de E1 no
+    cambia, salvo para D1. Esa excepción es la opción A, autorizada por el
+    propietario. D1 tiene su propia regla, más estricta:
+    - importaciones fijas;
+    - sin `process`, red, fixtures de navegador ni escritura.
+- **D1** (`tests/e2e/local/no-service-key-in-client.spec.ts`, 2 tests dentro
+  de E1):
+  - comprueba que el build esté completo (`BUILD_ID`, `build-manifest.json`,
+    chunks y HTML prerenderizado);
+  - después lee byte a byte `.next/static` y el HTML y los RSC
+    prerenderizados;
+  - busca el valor ficticio de la clave y el nombre de la variable;
+  - solo informa del tipo de coincidencia y de la ruta relativa.
+- **Resultados:**
+  - en CI #43 y #44: 1030/1030 y E1 32/32, con D1 en verde;
+  - los controles negativos fueron **locales** (sesión de Claude Code,
+    detalle en `docs/TESTING.md`, «D1»). La CI solo ejecuta el caso
+    positivo.
+    - D1 falló en 13 de 13 casos sobre una copia del build.
+    - Con el esquema de vuelta en `lib/env.ts`, D1 falló en el build real.
+    - Importar el módulo privado desde el cliente hizo fallar el build.
+    - `validation-infra` falló en 17 de 17 casos, y `admin-client-usage` y
+      `env` en 8 de 8.
+- **Límites:**
+  - D1 es un control estático de exposición accidental sobre el build de E1,
+    con una clave ficticia;
+  - no inspecciona el HTML que se genera en cada petición, ni otros
+    entornos, ni la clave real.
+- **Observaciones menores de la revisión, sin corregir:**
+  - D1 no inspecciona los `.body` prerenderizados;
+  - `code()` quita lo que va después de `//` también dentro de cadenas;
+  - la regla de importaciones no ve un `import()` con plantilla de texto;
+  - `docs/TESTING.md` dice «CI, en el PR» en las filas de 1030/1030 y 32/32.
+
+**Qué demuestra cada cosa** (no confundirlas)
+- **CI (`ci.yml`):** local y simulada. Ejecuta los unitarios y el build, E1
+  contra el Supabase simulado y `db-security` contra PostgreSQL local. No
+  toca Supabase real.
+- **Run 19:** validación real **de servicios** (SVC/GC) desde el runner. No
+  es una validación del producto completo.
+- **Runtime completo de Next.js con la clave real (staging): pendiente.**
+  No hay ningún entorno desplegado.
+- **D1:** el build de E1 con una clave ficticia. No demuestra la seguridad
+  de todos los entornos.
+- **Limpieza del run 19:** verificada por el propio workflow, sin
+  inspección remota independiente.
+
+**Qué se hizo** (solo documentación, sin commit al escribir esta entrada)
+- `PROGRESS.md`: esta entrada. Las anteriores no se tocan.
+- `CLAUDE.md`: el resumen del estado actual de la Fase 3, «Testing»,
+  «Funcionalidades terminadas» y «Pendiente de decisión humana». No cambian
+  las reglas de seguridad, D6 = B ni las reglas de avance entre fases.
+- `docs/ROADMAP.md`: el estado de la Fase 3, lo hecho después de la
+  implementación y la lista de pendientes. El orden de las fases no cambia.
+- No se tocó código, tests, workflows, migraciones ni otros documentos.
+
+**Pendiente (Fase 3 NO cerrada)**
+- **Decisiones funcionales del propietario** (sin cambios):
+  - mejoras del test que necesitan código: paginación, señalar las preguntas
+    sin responder y una confirmación al terminar;
+  - el texto «Por qué encajáis»;
+  - revisión legal de los datos de tabaco y del acceso operativo a las
+    respuestas.
+- **Validación:**
+  - el runtime de Next.js en staging con la clave real, antes del primer
+    despliegue. Lo decide y lo autoriza el propietario;
+  - sin E2 real desde el run 18 (v1, hasta `/test`): cualquier E2 nuevo,
+    con autorización expresa.
+- **Trabajo técnico, con autorización:**
+  - la comprobación de `compatibility_responses` en `cleanup.mjs`;
+  - las observaciones menores de D1.
+- **Hallazgos de la sesión 37, sin corregir.** Ningún PR #14–#19 tocó esos
+  archivos:
+  - la pestaña de `/test` abierta antes de la v2;
+  - `getCandidates` omite en silencio los `not_comparable`
+    (`lib/services/matching.ts:323`);
+  - la cabecera de `questionnaire.ts` sigue diciendo «borrador».
+- **Tareas operativas:**
+  - `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción;
+  - rotar las claves de `uwxb…` y pausarlo;
+  - cualquier run nuevo contra `roomly-validation-3`, siempre con
+    `apply_migrations=false` y con autorización expresa.
+- Marcar `NEXT_PHASE_AUDIT.md` como histórico (sesión 36): sigue sin hacer.
+- No se avanza a la Fase 4 ni se adelanta la Fase 5a: el orden de las fases
+  y su cierre los decide el propietario.
+
+---
+
 ## 2026-10-10 — Sesión 37: versión 2 del cuestionario, S1–S4 (Fase 3 NO cerrada)
 
 **Contexto**

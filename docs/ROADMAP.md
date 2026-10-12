@@ -298,9 +298,9 @@ Cumplimiento de los criterios de aceptación:
   los runs, `6dae75f` y `de68ef1`), PR #11 (textos editoriales, `83654eb`) y
   PR #13 (cuestionario v2, `7550d71`).
 - **CI de GitHub** (`lint-typecheck-test-build`, `db-security`, `e2e-local`):
-  en verde en el head de cada uno de esos PR y después de cada merge. La
-  última, el run `38089079771` sobre `7550d71`: 1013/1013 unitarios y E1
-  30/30.
+  en verde en el head de cada uno de esos PR y después de cada merge. Tras el
+  PR #13, el run `38089079771` sobre `7550d71`: 1013/1013 unitarios y E1
+  30/30. Las CI posteriores están en «Hecho después de la v2».
 - **Validación real** en el proyecto nuevo `roomly-validation-3`; `uwxb…`
   (`roomly-validation-2`) no se toca y la guarda lo rechaza. Detalle en
   `docs/SUPABASE_VALIDATION.md`.
@@ -334,17 +334,55 @@ Cumplimiento de los criterios de aceptación:
     `noise_tolerance`: sale del cuestionario de cada versión, y sin esa
     pregunta el motor devuelve `invalid_questionnaire`.
 
+**Hecho después de la v2** (2026-10-11 y 2026-10-12, PR #14–#19; detalle en
+`PROGRESS.md`, sesión 38):
+- **Documentación** (PR #14–#16): el estado de la v2, `docs/TESTING.md` y la
+  evaluación de un run real de la v2.
+  - Decisión del 2026-10-11: no se lanza un run real solo por la v2, que no
+    toca migraciones, servicios, workflows ni tests reales.
+  - La v2 sigue sin un run real propio del cuestionario.
+- **Implementado e integrado:**
+  - PR #17 (`92fb757`): SVC1–SVC5 y GC1–GC4 en la api-suite, y el registro
+    de cada usuario de prueba para la limpieza antes del login.
+  - PR #19 (`d4618cf`): `SUPABASE_SERVICE_ROLE_KEY` se valida y se lee en
+    `lib/env.server.ts` (`server-only`), y `lib/env.ts` queda solo con la
+    configuración pública. Antes, el nombre de la variable llegaba a un
+    chunk público del build de E1.
+    - D1 lo comprueba dentro de E1, también en la CI.
+- **Validado en real, solo los servicios:** el run 19 (`38106687478`,
+  `92fb757`, `apply_migrations=false`, `run_e2e_real=false`), documentado en
+  el PR #18 (`5b9f2f8`).
+  - Guarda, P0–P6, SQL 01–14 y AU3/AU5 16/16 en verde.
+  - api-suite 62/62, con SVC 6/6 y GC 4/4.
+  - `migrate` y E2 omitidos, como debían.
+  - Valida `saveQuestionnaireAnswers` y `getCandidates`, llamados desde el
+    runner.
+  - La limpieza la verificó el propio workflow, sin inspección remota
+    independiente.
+- **Integrado, sin una validación propia:**
+  - D1 comprueba el build de E1 con la clave ficticia del mock. No valida el
+    runtime desplegado, otros entornos ni la clave real.
+  - El runtime completo de Next.js con la clave real no se ha validado: no
+    hay entorno desplegado. La combinación «Next.js en ejecución + cliente
+    admin» sigue siendo un riesgo aceptado (`docs/SECURITY.md`).
+- **CI:** en verde en el head de cada PR y después de cada merge. La última,
+  el run `38204349293` sobre `d4618cf`: 1030/1030 unitarios, build, E1 32/32
+  (con los 2 de D1) y `db-security`.
+
 **Pendiente** (cada punto con su decisión o autorización; qué bloquea el
 cierre lo decide el propietario):
-- **La v2 del cuestionario (S1–S4):** decidir si necesita un run real, con
-  autorización. El E2 real llega hasta `/test`, y la suite SQL 14 y CRA1–CRA6
-  no dependen del cuestionario.
 - Mejoras del test que necesitan código: paginación, señalar las preguntas
   sin responder y una confirmación al terminar.
 - El texto «Por qué encajáis» de `/explorar`.
 - Revisión legal de los datos de tabaco y del acceso operativo a las
   respuestas.
 - Si se añade a `cleanup.mjs` la comprobación de `compatibility_responses`.
+- Validar el runtime completo de Next.js con la clave real en staging antes
+  del primer despliegue. Cómo y cuándo, lo decide el propietario, con
+  autorización.
+- Sin E2 real desde el run 18 (v1, hasta `/test`): cualquier E2 nuevo, con
+  autorización expresa.
+- Las observaciones menores de la revisión de D1 (`PROGRESS.md`, sesión 38).
 - `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción, antes de
   desplegar.
 - Registro de Auth de `roomly-validation-3`: el propietario declaró el

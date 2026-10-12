@@ -136,7 +136,7 @@ Supabase real, pero NO CERRADA.**
     2026-10-09 que está cerrado. Claude no lo ha verificado; la limpieza del
     run 18 avisó de que seguía abierto.
 - **Versión 2 del cuestionario (S1–S4): integrada en `master` (PR #13,
-  merge `7550d71`, 2026-10-10), sin validación real contra Supabase.** El
+  merge `7550d71`, 2026-10-10), sin un run real propio del cuestionario.** El
   propietario eligió la opción A de la auditoría de impacto, con la lectura
   estricta de D15a.
   - La v1 queda como histórica, sin cambios. La v2 es la vigente
@@ -155,8 +155,41 @@ Supabase real, pero NO CERRADA.**
     del merge (run `38089079771`, sobre `7550d71`): 1013/1013 unitarios,
     build, E1 30/30 y `db-security`. En local, antes del commit, también
     `test:db` 305/305 y `test:infra`. Detalle: `PROGRESS.md`, sesión 37.
-  - Sin validación real contra Supabase: los runs 16 y 18 son anteriores a
-    la v2. Si hace falta un run nuevo, lo decide el propietario.
+  - Sin run real propio: los runs 16 y 18 son anteriores a la v2.
+    - El 2026-10-11 se decidió no lanzar un run real solo por ella (PR #16,
+      `07f7d23`, `docs/SUPABASE_VALIDATION.md`).
+    - El guardado de respuestas de la v2 sí pasó en real por el servicio en
+      el run 19 (SVC1–SVC4, ver abajo).
+    - El recorrido de la v2 en el navegador no se ha ejecutado en real.
+- **Después de la v2: PR #14–#19 (2026-10-11 y 2026-10-12).**
+  - PR #14–#16 (`83d9687`, `fed61a8`, `07f7d23`): solo documentación. Son el
+    estado de la v2, `docs/TESTING.md` y la evaluación de un run real de la
+    v2.
+  - PR #17 (`92fb757`): SVC1–SVC5 y GC1–GC4 en la api-suite
+    (`tests/integration/`), que solo ejecuta el workflow manual.
+    `createTestUser` apunta cada usuario de prueba para la limpieza antes del
+    login.
+  - **Run 19** (`38106687478`, `92fb757`, `apply_migrations=false`,
+    `run_e2e_real=false`). El PR #18 (`5b9f2f8`) lo documenta.
+    - Guarda, P0–P6, SQL 01–14 y AU3/AU5 16/16 en verde.
+    - api-suite 62/62, con SVC 6/6 y GC 4/4.
+    - `migrate` y E2 omitidos, como debían.
+    - Valida en real `saveQuestionnaireAnswers` y `getCandidates`, llamados
+      desde el runner. **No valida el runtime completo de Next.js**, y la
+      combinación «Next.js en ejecución + cliente admin» sigue siendo un
+      riesgo aceptado.
+    - La limpieza la verificó el propio workflow, sin inspección remota
+      independiente.
+  - PR #19 (`d4618cf`): la configuración privada pasa a `lib/env.server.ts`
+    (`server-only`); `lib/env.ts` queda solo con la pública. Antes, el nombre
+    `SUPABASE_SERVICE_ROLE_KEY` llegaba a un chunk público del build de E1.
+    - **D1** (`tests/e2e/local/no-service-key-in-client.spec.ts`) corre
+      dentro de E1, también en la CI.
+    - Comprueba el build de E1 con la clave ficticia del mock. No valida el
+      runtime desplegado ni otros entornos, ni la clave real.
+  - CI de `master` tras el PR #19 (run `38204349293`): 1030/1030 unitarios,
+    build, E1 32/32 (con los 2 de D1) y `db-security` en verde.
+  - Evidencia verificada: `PROGRESS.md`, sesión 38.
 - **Decisiones funcionales pendientes (del propietario):**
   - Mejoras del test que necesitan código: paginación, señalar las preguntas
     sin responder y una confirmación al terminar.
@@ -165,8 +198,11 @@ Supabase real, pero NO CERRADA.**
     respuestas (el servidor las lee para calcular, y quien opere la base de
     datos podría verlas).
 - **Trabajo técnico pendiente, con su autorización:**
-  - un run real de la v2 del cuestionario, si el propietario decide que hace
-    falta;
+  - validar el runtime completo de Next.js con la clave real en un entorno
+    de staging antes del primer despliegue. Cómo y cuándo, lo decide el
+    propietario;
+  - las observaciones menores de la revisión de D1 (`PROGRESS.md`, sesión
+    38);
   - si se añade a `cleanup.mjs` la comprobación de
     `compatibility_responses`. Hoy verifica `profiles` y
     `housing_preferences`; esa tabla cae en cascada desde `profiles`.
@@ -391,11 +427,14 @@ casos, propiedades y mutaciones), RLS por rol, y los 3 flujos E2E
 obligatorios (estudiante, room provider, admin). La conexión con
 Supabase real se verificó en la Fase 1 (`roomly-validation`, histórico), la
 de Fase 2 en `roomly-validation-2b` (`uwxb…`), runs 13 y 15, y la de Fase 3
-en `roomly-validation-3`, runs 16 y 18 (`docs/SUPABASE_VALIDATION.md`). E2E:
-E1 (`npm run test:e2e`, Supabase simulado) corre en local y en CI; el
-entorno cloud de Claude Code no puede descargar el navegador de Playwright
-1.63 y usa el Chromium preinstalado con `PLAYWRIGHT_CHROMIUM_EXECUTABLE`
-(resultado orientativo; el de CI es el de referencia). E2 (real) solo se
+en `roomly-validation-3`, runs 16 y 18. Los servicios del servidor (SVC/GC)
+se validaron en el run 19, sin el runtime completo de Next.js
+(`docs/SUPABASE_VALIDATION.md`). E2E: E1 (`npm run test:e2e`, Supabase
+simulado; desde el PR #19 incluye D1 sobre el build de E1) corre en local y
+en CI; el entorno cloud de Claude Code no puede descargar el navegador de
+Playwright 1.63 y usa el Chromium preinstalado con
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE` (resultado orientativo; el de CI es el de
+referencia). E2 (real) solo se
 ejecuta desde el workflow manual; pasó en el run 15 (Fase 2) y en el run 18
 (Fase 3, hasta `/test`), y cada ejecución nueva requiere autorización.
 
@@ -417,11 +456,15 @@ de la 2.9. En Supabase real se validaron la RLS y los triggers (suite SQL
 01–13) y el alta completa (E2); la cuenta desactivada, en E1 y en
 `tests/db/08`.
 
-Fase 3, integrada en `master` y validada en Supabase real (runs 16 y 18),
-**no cerrada**: test de convivencia (`/test`, con guardado parcial y los
-textos editoriales de la v1; la v2 de S1–S4, integrada con el PR #13 y sin
-run real) y candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta `/test`; guardar el test y
-`/explorar` los cubren en real la suite SQL y la api-suite (D6 = B).
+Fase 3, integrada en `master` y validada en Supabase real (runs 16 y 18; los
+servicios del servidor, en el run 19), **no cerrada**: test de convivencia
+(`/test`, con guardado parcial y los textos editoriales de la v1; la v2 de
+S1–S4, integrada con el PR #13 y sin run real propio del cuestionario) y
+candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta
+`/test`. Guardar el test y `/explorar` los cubren en real la suite SQL y la
+api-suite (D6 = B), y desde el run 19 también los servicios
+`saveQuestionnaireAnswers` y `getCandidates` (SVC/GC). El runtime completo
+de Next.js con la clave real no está validado.
 Todavía no hay habitaciones, intereses («Me interesa», Fase 5), «Ver
 perfil» de terceros, chat ni admin real.
 
@@ -444,7 +487,10 @@ borrado de cuenta (H6).
   link vs. contraseña, Mapbox vs. Google Maps.
 - Cuándo retomar Google OAuth y Apple OAuth (diferidos).
 - Las decisiones abiertas de la Fase 3 (mejoras del test, «Por qué
-  encajáis», revisión legal y si la v2 del cuestionario necesita un run
-  real): ver «Estado actual».
+  encajáis» y revisión legal): ver «Estado actual». Si la v2 necesitaba un
+  run real propio se decidió el 2026-10-11 (no:
+  `docs/SUPABASE_VALIDATION.md`).
+- Cómo y cuándo validar el runtime de Next.js con la clave real en staging,
+  antes del primer despliegue.
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.
