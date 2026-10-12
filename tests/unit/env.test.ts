@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { getPublicEnv, getServiceRoleKey } from "@/lib/env";
+import * as publicEnvModule from "@/lib/env";
+import { getPublicEnv } from "@/lib/env";
+import { getServiceRoleKey } from "@/lib/env.server";
 
 describe("getPublicEnv", () => {
   const original = { ...process.env };
@@ -48,5 +50,19 @@ describe("getServiceRoleKey", () => {
   it("la devuelve cuando está presente", () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = "fake-service-role-key-para-test";
     expect(getServiceRoleKey()).toBe("fake-service-role-key-para-test");
+  });
+
+  it("una clave vacía también es un error", () => {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "";
+    expect(() => getServiceRoleKey()).toThrow(
+      /SUPABASE_SERVICE_ROLE_KEY falta o es inválida/
+    );
+  });
+
+  it("vive solo en lib/env.server.ts: lib/env.ts (que importa el cliente) no la exporta", () => {
+    expect(Object.keys(publicEnvModule).sort()).toEqual([
+      "formatEnvIssues",
+      "getPublicEnv",
+    ]);
   });
 });

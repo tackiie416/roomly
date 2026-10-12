@@ -59,7 +59,7 @@
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 1013/1013 con la v2 del cuestionario (S1–S4, integrada con el PR #13), 149 nuevos: motor 86 → 172 (los casos de la especificación con la v1 y con la v2, la lista exacta de cada versión, y v1 frente a v2 en el motor: `version_mismatch`, respuestas de la v1 sin puntuar en la v2), versiones del cuestionario 22 (`questionnaire-versions`, nuevo), dirección de Ruido por versión y cuestionarios rotos 19 (`matching-score-direction`, nuevo), cambio de versión 5 → 16 (paso real v1 → v2, sin `vi.mock`), estado del test y Zod 22 → 26, guards y Server Action 25 → 29, candidatos 25 → 27, filtros 33 → 34. Antes: ✅ 864/864 (2 de aislamiento de la marca `roomly-validation-3` en `validation-infra.test.ts`, PR #8; antes 862, Fase 3, 245 nuevos: motor 86 (`matching-score`: cuestionario exacto, pesos, similitud, conducta/tolerancia con `min`, presupuesto 0/75/150/151, barrios, renormalización, r6, umbrales, dirección, 500 pares de simetría, determinismo, entradas inválidas sin excepción, textos sin cifras), filtros 33, estado del test y Zod 22, servicio del test 36 + 5 de cambio de versión, servicio de candidatos 25 (consulta única, filtros SQL, defensa en profundidad, orden, paginación, lista blanca del DTO), guards y Server Action 25, test estático de service_role 6, proxy +3, infraestructura +2, shell +2; antes 617: 20 del adaptador de Mailtrap del E2 real, Fase 2.8; 65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local (1013/1013 con la v2 antes de su commit, 2026-10-10; 864/864 sobre `83654eb`, 2026-10-09); en CI (`lint-typecheck-test-build`), 1013/1013 con la v2: en el head del PR #13 (run `38088753365`), después de su merge (run `38089079771`, `7550d71`) y después del merge del PR #14 (run `38100362367`, `83d9687`). Antes de la v2, 864/864 sobre `83654eb` (run `38003093188`, después del merge del PR #11) y, en el PR #6, CI #11 (`f9f08ad`, 597) y CI #12 (`ec7c3fc`, 617) |
+| `npm run test` | ✅ 1030/1030 en local con la configuración privada en `lib/env.server.ts` y D1 (5 nuevos sobre los 1025 de `master`; ver «D1» abajo; CI, en el PR). Antes: ✅ 1013/1013 con la v2 del cuestionario (S1–S4, integrada con el PR #13), 149 nuevos: motor 86 → 172 (los casos de la especificación con la v1 y con la v2, la lista exacta de cada versión, y v1 frente a v2 en el motor: `version_mismatch`, respuestas de la v1 sin puntuar en la v2), versiones del cuestionario 22 (`questionnaire-versions`, nuevo), dirección de Ruido por versión y cuestionarios rotos 19 (`matching-score-direction`, nuevo), cambio de versión 5 → 16 (paso real v1 → v2, sin `vi.mock`), estado del test y Zod 22 → 26, guards y Server Action 25 → 29, candidatos 25 → 27, filtros 33 → 34. Antes: ✅ 864/864 (2 de aislamiento de la marca `roomly-validation-3` en `validation-infra.test.ts`, PR #8; antes 862, Fase 3, 245 nuevos: motor 86 (`matching-score`: cuestionario exacto, pesos, similitud, conducta/tolerancia con `min`, presupuesto 0/75/150/151, barrios, renormalización, r6, umbrales, dirección, 500 pares de simetría, determinismo, entradas inválidas sin excepción, textos sin cifras), filtros 33, estado del test y Zod 22, servicio del test 36 + 5 de cambio de versión, servicio de candidatos 25 (consulta única, filtros SQL, defensa en profundidad, orden, paginación, lista blanca del DTO), guards y Server Action 25, test estático de service_role 6, proxy +3, infraestructura +2, shell +2; antes 617: 20 del adaptador de Mailtrap del E2 real, Fase 2.8; 65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local (1013/1013 con la v2 antes de su commit, 2026-10-10; 864/864 sobre `83654eb`, 2026-10-09); en CI (`lint-typecheck-test-build`), 1013/1013 con la v2: en el head del PR #13 (run `38088753365`), después de su merge (run `38089079771`, `7550d71`) y después del merge del PR #14 (run `38100362367`, `83d9687`). Antes de la v2, 864/864 sobre `83654eb` (run `38003093188`, después del merge del PR #11) y, en el PR #6, CI #11 (`f9f08ad`, 597) y CI #12 (`ec7c3fc`, 617) |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
 | Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
@@ -67,7 +67,7 @@
 | Flujo de `/ajustes` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript: sin sesión, sin perfil, eliminada, estado actual, desactivar/activar y recargar, mismo valor en `/perfil`, `full_name` inyectado, `?profile_id=` en la URL, eliminada con la página abierta, logout) + `/perfil` otra vez 24/24 | local con `next start` y Supabase simulado con estado (Fase 2.6); no es la suite E2E |
 | Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E |
 | `npm run test:db` (PostgreSQL local con shim) | ✅ 305/305, también con la v2 del cuestionario (2026-10-10, sin cambios en la base de datos) (Fase 3.1: `14_compatibility_responses`, 40 aserciones CR1–CR20; antes 265, incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3 y del punto A de la 2.9, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5, `11` de ownership aislado, `12` de Fase 2.6 y `13` de H4, Fase 2.9) | local; en CI (`db-security`, paso `tests/db/run.sh`) en verde sobre `83654eb` (run `38003093188`) y en los PR #7–#11; antes, sobre `f9f08ad` (PR #6, run `37231766834`) |
-| `npm run test:e2e` (E1, Playwright) | ✅ 30/30 con la v2 del cuestionario (S1–S4, integrada con el PR #13), en local y en CI: candidatos sembrados con la versión vigente, una candidata solo con el test v1 que no aparece, un escenario nuevo (test v1 completado → aviso en `/test`, las 21 respuestas comunes marcadas y las 8 nuevas sin responder, borrador de la v2 con una pendiente y completado en la v2) y la regresión de la versión de las siembras del mock (`mock-seed-version`, 2 tests: 13 versiones no válidas → 400 sin sembrar ni cambiar nada; 1, 2 y 2147483647 se siembran). Antes: ✅ 27/27 en local (Fase 3: `compatibility-flow`: onboarding → `/test`, guardar a medias y retomar, `/explorar` → `/test` sin test, completar → `/explorar` con candidatos solo del DTO (sin admin, eliminada ni presupuesto lejano, sin fecha de nacimiento ni presupuesto exacto), paginación, editar sin cambiar la fecha, service_role solo para candidatos y escritura del test; y el test sin JavaScript; los demás specs, con el destino `/test`). Antes: ✅ 25/25 (también tras H4 de la 2.9, con el mock devolviendo solo la fila propia de `profiles`): rutas protegidas sin sesión (con y sin JavaScript, y 307 sin contenido), alta de estudiante por magic link → `/callback` PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout (sesión anterior inservible), enlace en otro navegador o reutilizado, `/callback` con código inventado o error, `next` tras el login, cuenta eliminada (rutas, formulario abierto, nuevo login), `profile_id`/`id` ajenos en URL y formularios, formularios sin JavaScript, smoke | local con el Chromium preinstalado **1194** vía `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (Playwright 1.63 espera 1243: combinación no soportada oficialmente); en CI (`e2e-local`), con el Chromium que instala el workflow, 30/30 con la v2: en el head del PR #13 (run `38088753365`), después de su merge (run `38089079771`) y después del merge del PR #14 (run `38100362367`). Antes de la v2, 27/27 sobre `83654eb` (run `38003093188`) y 25/25 sobre `f9f08ad` con el Chromium oficial v1243 (PR #6, run `37231766834`) |
+| `npm run test:e2e` (E1, Playwright) | ✅ 32/32 en local con D1 (`no-service-key-in-client`, 2 tests; ver «D1» abajo; CI, en el PR). Antes: ✅ 30/30 con la v2 del cuestionario (S1–S4, integrada con el PR #13), en local y en CI: candidatos sembrados con la versión vigente, una candidata solo con el test v1 que no aparece, un escenario nuevo (test v1 completado → aviso en `/test`, las 21 respuestas comunes marcadas y las 8 nuevas sin responder, borrador de la v2 con una pendiente y completado en la v2) y la regresión de la versión de las siembras del mock (`mock-seed-version`, 2 tests: 13 versiones no válidas → 400 sin sembrar ni cambiar nada; 1, 2 y 2147483647 se siembran). Antes: ✅ 27/27 en local (Fase 3: `compatibility-flow`: onboarding → `/test`, guardar a medias y retomar, `/explorar` → `/test` sin test, completar → `/explorar` con candidatos solo del DTO (sin admin, eliminada ni presupuesto lejano, sin fecha de nacimiento ni presupuesto exacto), paginación, editar sin cambiar la fecha, service_role solo para candidatos y escritura del test; y el test sin JavaScript; los demás specs, con el destino `/test`). Antes: ✅ 25/25 (también tras H4 de la 2.9, con el mock devolviendo solo la fila propia de `profiles`): rutas protegidas sin sesión (con y sin JavaScript, y 307 sin contenido), alta de estudiante por magic link → `/callback` PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout (sesión anterior inservible), enlace en otro navegador o reutilizado, `/callback` con código inventado o error, `next` tras el login, cuenta eliminada (rutas, formulario abierto, nuevo login), `profile_id`/`id` ajenos en URL y formularios, formularios sin JavaScript, smoke | local con el Chromium preinstalado **1194** vía `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (Playwright 1.63 espera 1243: combinación no soportada oficialmente); en CI (`e2e-local`), con el Chromium que instala el workflow, 30/30 con la v2: en el head del PR #13 (run `38088753365`), después de su merge (run `38089079771`) y después del merge del PR #14 (run `38100362367`). Antes de la v2, 27/27 sobre `83654eb` (run `38003093188`) y 25/25 sobre `f9f08ad` con el Chromium oficial v1243 (PR #6, run `37231766834`) |
 | Mutaciones de la app contra E1 | ✅ 4/4 detectadas (cuenta eliminada → home, ajustes sin esquema estricto, logout sin `signOut`, `/preferencias` sin ciudad obligatoria) | local, restauradas por hash |
 | `tests/supabase/guard-selftest.sh` | ✅ 28/28 (marca `roomly-validation-3`; las anteriores y variantes no pasan; aislamiento: con la marca `roomly-validation-2` la guarda, migraciones, P0 y suite SQL abortan) | local; en CI (`db-security`) desde 2.8 |
 | `tests/supabase/sql-suite-selftest.sh` | ✅ 78/78: `run-sql-suite.sh` real 01–14 con las mismas aserciones que `run.sh` (305 desde la Fase 3.1; 265 tras H4 de la 2.9; 240 tras el punto A; eran 218), una sesión aislada por archivo (14; el número se cuenta), sin restos, rollback de bloque, sin fugas de rol/GUC, 31 formas de control de transacción rechazadas antes de conectar, 16 identificadores `"..."`/cadenas `E'...'` que intentan ocultar un control (incluido el caso de la auditoría final) rechazados y los legítimos aceptados, WARNING → fallo, fallo a mitad sin restos, 11 sin reescribir falla, marcas anteriores (`roomly-validation` y `roomly-validation-2`) rechazadas | local; en CI (`db-security`) desde 2.8 |
@@ -140,6 +140,79 @@ con los runs 16–19 es de la Fase 3 y el resto, de las Fases 1 y 2.
 
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
+
+## D1 — la clave service_role fuera de los bundles públicos (2026-10-12, en local)
+
+- **Por qué**: `lib/env.ts` lo importa también el cliente del navegador
+  (`lib/supabase/client.ts`) y tenía, a nivel de módulo, el esquema Zod de
+  `SUPABASE_SERVICE_ROLE_KEY`. El build de E1 lo metía en un chunk de
+  `.next/static`: el **nombre** de la variable, no su valor.
+- **Separación**: la validación y `getServiceRoleKey()` pasan a
+  `lib/env.server.ts` (`import "server-only"`). Solo lo importa
+  `lib/supabase/admin.ts`, y `lib/env.ts` queda solo con la configuración
+  pública. El comportamiento del cliente admin y los mensajes de error no
+  cambian.
+- **Tests estáticos**:
+  - `admin-client-usage`: la clave solo la leen `lib/env.server.ts` y
+    `lib/supabase/admin.ts`; `lib/env.ts` no la menciona; solo el cliente
+    admin importa `lib/env.server`, de cualquier forma; ningún componente de
+    cliente lo importa; `lib/env.server.ts` empieza por `server-only`.
+  - `env`: `lib/env.ts` solo exporta `getPublicEnv` y `formatEnvIssues`.
+  - `validation-infra`: la regla que prohíbe la clave en los specs de E1
+    sigue igual para todos menos D1. D1, la única excepción, tiene la suya,
+    más estricta:
+    - solo puede mencionar service_role en la importación de la clave
+      ficticia, su uso como aguja y el nombre de la variable;
+    - importaciones fijas: `fs` de solo lectura, `path`, Playwright y, de
+      `mock-config.mjs`, solo esa clave;
+    - sin `process`, red, fixtures de navegador, escritura en disco ni
+      consola.
+- **D1** (`tests/e2e/local/no-service-key-in-client.spec.ts`, 2 tests): corre
+  dentro de E1, sobre el build que hace el `webServer` con las variables
+  ficticias. Comprueba la estructura del build:
+  - `.next/BUILD_ID` válido y citado por `build-manifest.json`
+    (`static/<BUILD_ID>/_buildManifest.js`);
+  - `.next/static` con archivos y chunks de JavaScript, y todo lo que lista
+    el manifiesto entre lo inspeccionado;
+  - HTML prerenderizado;
+  - nada comprimido ni enlaces simbólicos.
+
+  Después lee byte a byte, sin decodificar, todo `.next/static` y el HTML y
+  los RSC prerenderizados de `.next/server/{app,pages}`. Busca el valor
+  ficticio de la clave y el nombre de la variable, en UTF-8 y en UTF-16 (LE y
+  BE), y solo informa del tipo de coincidencia y de la ruta relativa.
+- **Qué no es**: un control estático de exposición accidental sobre el build
+  de E1. No mira el HTML que se genera en cada petición, ni otros entornos,
+  ni la clave real, ni Supabase. La validación con la clave real en un
+  entorno desplegado (staging) sigue pendiente.
+- **Resultados en local** (cloud de Claude Code, Chromium 1194; orientativo):
+  - `format:check`, `lint` y `typecheck` limpios; `npm run test` 1030/1030;
+  - E1 32/32, con los 2 de D1;
+  - en el build de E1, ni el valor ni el nombre aparecen en los 24 archivos
+    de `.next/static` ni en los 22 HTML y RSC prerenderizados. El nombre sí
+    está en el código de servidor (`.next/server/chunks`), como debe.
+- **Controles negativos** (temporales y restaurados):
+  - D1 sobre una copia del build: falla con el valor o el nombre en un chunk,
+    en el HTML, en un RSC anidado, en UTF-16 en un binario de media o en un
+    manifiesto, y con un archivo nuevo. También falla con `.next/static`
+    vacío, sin `BUILD_ID` o con el de otro build, sin un chunk del
+    manifiesto, con un archivo comprimido o con un enlace simbólico. En
+    ninguno de esos casos la salida ni `test-results` contienen el valor.
+  - D1 sobre el build real: con el esquema de la clave de vuelta en
+    `lib/env.ts`, falla y señala el chunk.
+  - Build: importar `lib/env.server` desde `lib/supabase/client.ts` lo hace
+    fallar (`server-only`).
+  - `validation-infra` falla en 17 casos: el spec de D1 con `process.env`,
+    `fetch`, las fixtures `page` o `request`, la URL del mock importada,
+    `import()`, `require`, `node:net`, la clave en `Authorization: Bearer`,
+    `auth.admin`, `@supabase/supabase-js`, la clave escrita en el spec, una
+    mención más, `writeFileSync` o `console`; otro spec de E1 con la clave; y
+    D1 con otro nombre de archivo.
+  - `admin-client-usage` y `env` fallan en 8 casos: el esquema de vuelta en
+    `lib/env.ts`, `lib/env.ts` reexportando la configuración privada, el
+    cliente del navegador importándola (con `from`, solo por efecto o con
+    `import()`), `lib/env.server.ts` sin `server-only`, el cliente admin
+    leyendo `process.env` y otro módulo leyendo la clave.
 
 ## Fase 3 — versión 2 del cuestionario (S1–S4, 2026-10-10, en local)
 

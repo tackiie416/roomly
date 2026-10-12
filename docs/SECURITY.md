@@ -254,9 +254,25 @@ nuevo (ver `docs/SUPABASE_VALIDATION.md`).
 
   `tests/unit/admin-client-usage.test.ts` lo comprueba: ningún otro archivo
   importa `lib/supabase/admin` ni usa `createAdminClient()`; la clave solo la
-  leen `lib/env.ts` y `lib/supabase/admin.ts`; ningún componente de cliente
-  importa servicios; ninguna variable `NEXT_PUBLIC_*` lleva service_role. El
-  estado propio se lee siempre con el cliente del usuario.
+  leen `lib/env.server.ts` y `lib/supabase/admin.ts`; ningún componente de
+  cliente importa servicios ni `lib/env.server`; ninguna variable
+  `NEXT_PUBLIC_*` lleva service_role. El estado propio se lee siempre con el
+  cliente del usuario.
+- **Configuración privada aparte (`lib/env.server.ts`)**: la validación y la
+  lectura de `SUPABASE_SERVICE_ROLE_KEY` (`getServiceRoleKey()`) viven en un
+  módulo `server-only`, y solo lo importa `lib/supabase/admin.ts`.
+  `lib/env.ts` queda solo con la configuración pública (`getPublicEnv()`).
+  - Por qué: `lib/env.ts` lo importa también el cliente del navegador
+    (`lib/supabase/client.ts`). Antes de la separación tenía además el
+    esquema Zod de la clave, a nivel de módulo, y el build lo metía en un
+    chunk público de `.next/static`: llegaba el **nombre** de la variable,
+    no su valor (las variables sin `NEXT_PUBLIC_` no se incrustan en el
+    cliente).
+  - Ahora un import desde el cliente hace fallar el build (`server-only`).
+  - **D1** (`tests/e2e/local/no-service-key-in-client.spec.ts`, dentro de
+    E1) busca en el build de E1 la clave ficticia del mock y el nombre de la
+    variable (ver `docs/TESTING.md`). Es un control de exposición accidental
+    sobre ese build: no valida otros entornos ni la clave real.
 - **Fallo cerrado**: si falta `SUPABASE_SERVICE_ROLE_KEY`, `getServiceRoleKey()`
   lanza y `/explorar` o el guardado del test muestran el error genérico de
   la 2.7 (`app/error.tsx`), sin datos ni mensaje técnico. `/test` se abre
@@ -571,7 +587,9 @@ Ninguna capa se usa sola:
   `match` tras verificar interés mutuo) — nunca expuesto a un endpoint
   público sin más comprobaciones. Desde la Fase 3, solo
   `lib/services/matching.ts` y `lib/services/compatibility.ts` lo usan (test
-  estático en `tests/unit/admin-client-usage.test.ts`).
+  estático en `tests/unit/admin-client-usage.test.ts`). La clave la valida y
+  la lee `lib/env.server.ts` (`server-only`), nunca `lib/env.ts`, que también
+  llega al cliente.
 - Variables de entorno de producción gestionadas en Vercel, no en
   archivos.
 
