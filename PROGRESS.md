@@ -54,9 +54,12 @@ próximos pasos.**
   `CLAUDE.md`, `docs/ROADMAP.md` y `docs/TESTING.md`.
 - **#16:** evaluación documental en `docs/SUPABASE_VALIDATION.md`. No fue un
   run.
-  - Decisión: **no se ejecuta un run real solo por los cambios de la v2.**
-    La v2 no toca migraciones, servicios, workflows ni tests reales.
-  - La v2 sigue sin validación real propia del cuestionario.
+  - Decisión del 2026-10-11, anterior al run 19: **no se ejecuta un run real
+    solo por los cambios de la v2.** La v2 no toca migraciones, servicios,
+    workflows ni tests reales.
+  - En ese momento, la v2 no tenía ninguna prueba contra Supabase real.
+    Después, el run 19 validó sus servicios (SVC 6/6 y GC 4/4, ver abajo).
+    La v2 no ha tenido un run real dedicado solo a ella.
   - Corregida tras su revisión (`5a1fa1e`).
 - **#17:** los casos SVC1–SVC5 y GC1–GC4 en
   `tests/integration/supabase-validation.test.ts`. SVC5 tiene dos casos.
@@ -98,9 +101,17 @@ próximos pasos.**
   - los servicios `saveQuestionnaireAnswers` y `getCandidates`;
   - llamados desde el runner, con el JWT real del usuario y service_role
     inyectado en el runner;
-  - SVC1–SVC4 guardan respuestas de la v2 y el paso de la v1 a la v2;
+  - son los casos de servicio de la v2:
+    - SVC1–SVC4 guardan respuestas de la v2, incluido el paso de la v1 a la
+      v2;
+    - SVC5 rechaza, sin escribir, un id de la v1 y una respuesta fuera de
+      escala;
+    - GC1–GC4 trabajan con candidatos de la v2 y los filtros reales de
+      versión. GC2 excluye el test v1 y el borrador v2;
   - GC4 comprobó en la respuesta cruda de PostgREST los filtros reales
     (`!inner`, versión y test completado).
+  - No valida el runtime completo de Next.js ni una aplicación desplegada
+    con la clave real.
 - **Limpieza:**
   - el teardown terminó sin errores, sin «Teardown incompleto»;
   - no quedaron filas de los usuarios de prueba en `profiles`,
@@ -175,7 +186,17 @@ próximos pasos.**
 - **Run 19:** validación real **de servicios** (SVC/GC) desde el runner. No
   es una validación del producto completo.
 - **Runtime completo de Next.js con la clave real (staging): pendiente.**
-  No hay ningún entorno desplegado.
+  No se ha validado un entorno de staging con la clave real.
+  - Hecho observado el 2026-10-12 en GitHub: el PR #20 recibió un comentario
+    de Netlify que anunciaba un Deploy Preview listo
+    (`lovely-tulumba-009360`), y tres checks de Netlify.
+  - El repositorio no contiene configuración de Netlify.
+  - Sin verificar:
+    - qué código publica ese preview;
+    - qué variables usa;
+    - cómo se conectó la integración.
+  - No se puede afirmar que ese preview equivalga a un entorno de staging
+    validado.
 - **D1:** el build de E1 con una clave ficticia. No demuestra la seguridad
   de todos los entornos.
 - **Limpieza del run 19:** verificada por el propio workflow, sin
@@ -188,6 +209,12 @@ próximos pasos.**
   las reglas de seguridad, D6 = B ni las reglas de avance entre fases.
 - `docs/ROADMAP.md`: el estado de la Fase 3, lo hecho después de la
   implementación y la lista de pendientes. El orden de las fases no cambia.
+- La revisión del PR #20 encontró dos imprecisiones, ya corregidas en esta
+  misma entrada y en los otros dos archivos:
+  - varias frases daban a entender que la v2 nunca había pasado por
+    Supabase real;
+  - se afirmaba que no había ningún entorno desplegado, sin tener en cuenta
+    el Deploy Preview de Netlify.
 - No se tocó código, tests, workflows, migraciones ni otros documentos.
 
 **Pendiente (Fase 3 NO cerrada)**
@@ -202,6 +229,10 @@ próximos pasos.**
     despliegue. Lo decide y lo autoriza el propietario;
   - sin E2 real desde el run 18 (v1, hasta `/test`): cualquier E2 nuevo,
     con autorización expresa.
+- **Integración de Netlify:** revisar qué publica el Deploy Preview, con qué
+  variables y quién la conectó es una tarea aparte, con su propia
+  autorización. En esta sesión no se abrió la vista previa ni se consultó
+  Netlify.
 - **Trabajo técnico, con autorización:**
   - la comprobación de `compatibility_responses` en `cleanup.mjs`;
   - las observaciones menores de D1.

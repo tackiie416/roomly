@@ -338,9 +338,13 @@ Cumplimiento de los criterios de aceptación:
 `PROGRESS.md`, sesión 38):
 - **Documentación** (PR #14–#16): el estado de la v2, `docs/TESTING.md` y la
   evaluación de un run real de la v2.
-  - Decisión del 2026-10-11: no se lanza un run real solo por la v2, que no
-    toca migraciones, servicios, workflows ni tests reales.
-  - La v2 sigue sin un run real propio del cuestionario.
+  - Decisión del 2026-10-11, anterior al run 19: no se lanza un run real
+    solo por los cambios de la v2, que no tocan migraciones, servicios,
+    workflows ni tests reales.
+  - La v2 no tuvo un run real dedicado solo a ella. Después, el run 19
+    validó sus servicios (SVC 6/6 y GC 4/4, ver abajo).
+  - Sigue pendiente validar en staging el runtime completo de Next.js y el
+    hosting con la clave real.
 - **Implementado e integrado:**
   - PR #17 (`92fb757`): SVC1–SVC5 y GC1–GC4 en la api-suite, y el registro
     de cada usuario de prueba para la limpieza antes del login.
@@ -356,15 +360,28 @@ Cumplimiento de los criterios de aceptación:
   - api-suite 62/62, con SVC 6/6 y GC 4/4.
   - `migrate` y E2 omitidos, como debían.
   - Valida `saveQuestionnaireAnswers` y `getCandidates`, llamados desde el
-    runner.
+    runner. Son los casos de servicio de la v2:
+    - SVC1–SVC4 guardan respuestas de la v2, incluido el paso de la v1 a la
+      v2;
+    - SVC5 rechaza un id de la v1 y una respuesta fuera de escala;
+    - GC1–GC4 prueban candidatos de la v2 y los filtros reales de versión.
+  - No valida el runtime completo de Next.js ni una aplicación desplegada
+    con la clave real.
   - La limpieza la verificó el propio workflow, sin inspección remota
     independiente.
 - **Integrado, sin una validación propia:**
   - D1 comprueba el build de E1 con la clave ficticia del mock. No valida el
     runtime desplegado, otros entornos ni la clave real.
-  - El runtime completo de Next.js con la clave real no se ha validado: no
-    hay entorno desplegado. La combinación «Next.js en ejecución + cliente
-    admin» sigue siendo un riesgo aceptado (`docs/SECURITY.md`).
+  - No se ha validado un entorno de staging con la clave real, y el runtime
+    completo de Next.js con la clave real tampoco.
+    - El 2026-10-12, GitHub mostró en el PR #20 un Deploy Preview de Netlify
+      (`lovely-tulumba-009360`), con un comentario y tres checks de
+      Netlify. El repositorio no contiene configuración de Netlify.
+    - Sin verificar: qué publica ese preview, qué variables usa y cómo se
+      conectó la integración. No se puede afirmar que equivalga a un
+      entorno de staging validado.
+  - La combinación «Next.js en ejecución + cliente admin» sigue siendo un
+    riesgo aceptado (`docs/SECURITY.md`).
 - **CI:** en verde en el head de cada PR y después de cada merge. La última,
   el run `38204349293` sobre `d4618cf`: 1030/1030 unitarios, build, E1 32/32
   (con los 2 de D1) y `db-security`.

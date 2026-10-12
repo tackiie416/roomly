@@ -136,7 +136,8 @@ Supabase real, pero NO CERRADA.**
     2026-10-09 que está cerrado. Claude no lo ha verificado; la limpieza del
     run 18 avisó de que seguía abierto.
 - **Versión 2 del cuestionario (S1–S4): integrada en `master` (PR #13,
-  merge `7550d71`, 2026-10-10), sin un run real propio del cuestionario.** El
+  merge `7550d71`, 2026-10-10). No tuvo un run real dedicado solo a ella;
+  después, el run 19 validó sus servicios (SVC 6/6 y GC 4/4).** El
   propietario eligió la opción A de la auditoría de impacto, con la lectura
   estricta de D15a.
   - La v1 queda como histórica, sin cambios. La v2 es la vigente
@@ -155,12 +156,21 @@ Supabase real, pero NO CERRADA.**
     del merge (run `38089079771`, sobre `7550d71`): 1013/1013 unitarios,
     build, E1 30/30 y `db-security`. En local, antes del commit, también
     `test:db` 305/305 y `test:infra`. Detalle: `PROGRESS.md`, sesión 37.
-  - Sin run real propio: los runs 16 y 18 son anteriores a la v2.
-    - El 2026-10-11 se decidió no lanzar un run real solo por ella (PR #16,
-      `07f7d23`, `docs/SUPABASE_VALIDATION.md`).
-    - El guardado de respuestas de la v2 sí pasó en real por el servicio en
-      el run 19 (SVC1–SVC4, ver abajo).
-    - El recorrido de la v2 en el navegador no se ha ejecutado en real.
+  - Validación real de la v2:
+    - Los runs 16 y 18 son anteriores a la v2.
+    - Decisión del 2026-10-11 (PR #16, `07f7d23`,
+      `docs/SUPABASE_VALIDATION.md`): no lanzar un run real solo por los
+      cambios de la v2.
+    - Después, el run 19 ejecutó en `roomly-validation-3` los casos de
+      servicio de la v2, con la api-suite 62/62 (ver abajo):
+      - SVC1–SVC4 guardan respuestas de la v2, incluido el paso de la v1 a
+        la v2;
+      - SVC5 rechaza un id de la v1 y una respuesta fuera de escala;
+      - GC1–GC4 prueban candidatos de la v2 y los filtros reales de
+        versión.
+    - Sin probar en real: el recorrido de la v2 en el navegador, el runtime
+      completo de Next.js y una aplicación desplegada con la clave real.
+      Siguen pendientes de staging.
 - **Después de la v2: PR #14–#19 (2026-10-11 y 2026-10-12).**
   - PR #14–#16 (`83d9687`, `fed61a8`, `07f7d23`): solo documentación. Son el
     estado de la v2, `docs/TESTING.md` y la evaluación de un run real de la
@@ -459,7 +469,8 @@ de la 2.9. En Supabase real se validaron la RLS y los triggers (suite SQL
 Fase 3, integrada en `master` y validada en Supabase real (runs 16 y 18; los
 servicios del servidor, en el run 19), **no cerrada**: test de convivencia
 (`/test`, con guardado parcial y los textos editoriales de la v1; la v2 de
-S1–S4, integrada con el PR #13 y sin run real propio del cuestionario) y
+S1–S4, integrada con el PR #13, sin un run real dedicado solo a ella y con
+sus servicios validados en real en el run 19: SVC 6/6 y GC 4/4) y
 candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta
 `/test`. Guardar el test y `/explorar` los cubren en real la suite SQL y la
 api-suite (D6 = B), y desde el run 19 también los servicios
@@ -487,9 +498,11 @@ borrado de cuenta (H6).
   link vs. contraseña, Mapbox vs. Google Maps.
 - Cuándo retomar Google OAuth y Apple OAuth (diferidos).
 - Las decisiones abiertas de la Fase 3 (mejoras del test, «Por qué
-  encajáis» y revisión legal): ver «Estado actual». Si la v2 necesitaba un
-  run real propio se decidió el 2026-10-11 (no:
-  `docs/SUPABASE_VALIDATION.md`).
+  encajáis» y revisión legal): ver «Estado actual».
+  - Ya no está pendiente si la v2 necesitaba un run real dedicado: el
+    2026-10-11 se decidió que no (`docs/SUPABASE_VALIDATION.md`).
+  - Después, el run 19 ejecutó en real sus casos de servicio (SVC 6/6 y GC
+    4/4), así que no hace falta repetir una validación real solo por la v2.
 - Cómo y cuándo validar el runtime de Next.js con la clave real en staging,
   antes del primer despliegue.
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
