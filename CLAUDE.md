@@ -200,13 +200,29 @@ Supabase real, pero NO CERRADA.**
   - CI de `master` tras el PR #19 (run `38204349293`): 1030/1030 unitarios,
     build, E1 32/32 (con los 2 de D1) y `db-security` en verde.
   - Evidencia verificada: `PROGRESS.md`, sesión 38.
-- **Decisiones funcionales pendientes (del propietario):**
-  - Mejoras del test que necesitan código: paginación, señalar las preguntas
-    sin responder y una confirmación al terminar.
-  - El texto «Por qué encajáis» de `/explorar` (lo comprueba E1).
-  - Revisión legal de los datos de tabaco y del acceso operativo a las
-    respuestas (el servidor las lee para calcular, y quien opere la base de
-    datos podría verlas).
+- **Alcance del cierre** (decisión del propietario, 2026-10-13; detalle en
+  `docs/ROADMAP.md`, «Alcance del cierre», y `PROGRESS.md`, sesión 40):
+  - se puede cerrar con los tres criterios escritos y las subfases 3.1–3.7
+    cumplidos y la documentación de cierre preparada. Esa documentación
+    falta, y la fase sigue NO CERRADA;
+  - no bloquean el cierre (Fase 8 o backlog): la paginación, señalar las
+    preguntas sin responder y una confirmación al terminar. Si se
+    implementan, deben funcionar sin JavaScript y respetar D7;
+  - se acepta el texto actual de «Por qué encajáis» de `/explorar` (lo
+    comprueba E1), mientras cumpla `ROOMLY_MASTER_SPEC.md` §10.
+- **Antes de usar el producto con personas reales o de lanzarlo.** No son
+  condiciones del cierre técnico y siguen sin resolver (`docs/SECURITY.md`,
+  Fase 3):
+  - datos de tabaco y vapeo: **REQUIERE REVISIÓN LEGAL**;
+  - acceso operativo a las respuestas: el servidor las lee para calcular, y
+    quien opere la base de datos podría verlas. Falta revisar quién accede
+    al proyecto de Supabase y a la clave service_role, y con qué
+    procedimientos;
+  - Deploy Previews de Netlify: comprobar a qué proyecto de Supabase se
+    conectan y si permiten registros reales.
+    - Según el propietario, Auto Publishing está bloqueado y el proyecto no
+      muestra variables de entorno.
+    - Las variables compartidas del equipo no se han revisado.
 - **Trabajo técnico pendiente, con su autorización:**
   - validar el runtime completo de Next.js con la clave real en un entorno
     de staging antes del primer despliegue. Cómo y cuándo, lo decide el
@@ -338,7 +354,10 @@ npm run format:check             # Prettier --check
    completo, no solo el SQL — el razonamiento importa tanto como el
    resultado.
 8. No pasar a la siguiente fase del roadmap si la anterior tiene tests
-   rotos o pasos de su checklist sin cerrar.
+   rotos o pasos de su checklist sin cerrar. Un punto de la lista
+   «Pendiente» de una fase que el propietario clasifique como no bloqueante
+   no impide el cierre por aparecer en esa lista (Fase 3: `docs/ROADMAP.md`,
+   «Alcance del cierre»).
 9. Nada de microservicios, colas, Kubernetes, ni bases de datos
    adicionales sin que aparezca una razón de negocio concreta — no
    "por si acaso".
@@ -498,8 +517,13 @@ borrado de cuenta (H6).
 - Confirmar o corregir las recomendaciones técnicas reversibles: magic
   link vs. contraseña, Mapbox vs. Google Maps.
 - Cuándo retomar Google OAuth y Apple OAuth (diferidos).
-- Las decisiones abiertas de la Fase 3 (mejoras del test, «Por qué
-  encajáis» y revisión legal): ver «Estado actual».
+- Fase 3: el alcance del cierre ya está decidido (2026-10-13, ver «Estado
+  actual»). Siguen pendientes, antes de usar el producto con personas
+  reales:
+  - la revisión legal de los datos de tabaco y vapeo (REQUIERE REVISIÓN
+    LEGAL);
+  - la del acceso operativo a las respuestas;
+  - la comprobación de los Deploy Previews de Netlify.
   - Ya no está pendiente si la v2 necesitaba un run real dedicado: el
     2026-10-11 se decidió que no (`docs/SUPABASE_VALIDATION.md`).
   - Después, el run 19 ejecutó en real sus casos de servicio (SVC 6/6 y GC
