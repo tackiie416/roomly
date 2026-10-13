@@ -6,6 +6,135 @@ próximos pasos.**
 
 ---
 
+## 2026-10-13 — Sesión 40: alcance del cierre de la Fase 3 (Fase 3 NO cerrada)
+
+**Contexto**
+- Después del PR #22 (merge `743c93d`, CI #52 en verde: 1030/1030
+  unitarios, E1 32/32 y `db-security`), los tres criterios de aceptación de
+  la Fase 3 constan como cumplidos (`docs/ROADMAP.md`, «Cumplimiento de los
+  criterios de aceptación»).
+- Una auditoría de solo lectura revisó los seis puntos que `CLAUDE.md` y
+  `docs/ROADMAP.md` listaban como «decisiones funcionales pendientes».
+  Hechos que encontró:
+  - ninguno de los seis es un criterio de aceptación
+    (`docs/ROADMAP.md:261-264`);
+  - se añadieron el 2026-10-09 (`ea0afb1`, sesión 36), sin que conste quién
+    los propuso ni que bloqueen el cierre;
+  - la sesión 35 ya dejaba la paginación, las preguntas sin responder y la
+    confirmación «fuera de alcance, porque necesitan cambios funcionales»;
+  - los dos puntos legales no estaban marcados «REQUIERE REVISIÓN LEGAL» en
+    `docs/SECURITY.md` ni en `docs/DATABASE.md`;
+  - `docs/SECURITY.md` decía de la Fase 3 «Todavía sin validar en Supabase
+    real», aunque ya la validaron los runs 16, 18 y 19.
+- Con esa auditoría, el propietario decidió el alcance del cierre.
+- **Estado de Git al empezar:** `master` = `origin/master` = `743c93d`
+  (merge del PR #22), con el árbol limpio.
+
+**Qué hay hoy** (código y tests de `743c93d`)
+- **`/test`:**
+  - las 29 preguntas en un solo formulario, que funciona sin JavaScript;
+  - guardado parcial, con recuentos («Llevas N de 29», «Te faltan N
+    preguntas»), pero sin marcar cuáles faltan;
+  - con las 29 respuestas válidas se completa y lleva a `/explorar`, sin
+    confirmación (D7.1).
+- **`/explorar`:** «Por qué encajáis» (✓) y «Posibles diferencias» (⚠) por
+  categoría y sin cifras; E1 comprueba los dos títulos.
+  - Por cálculo, no por un test: con el cuestionario actual, Fumar solo vale
+    0, 0,5 o 1, así que cada tarjeta tiene al menos una razón.
+- **Tabaco y vapeo:**
+  - `smoke_own` y `smoke_tolerance` son obligatorias y se guardan en claro
+    en `compatibility_responses.answers`;
+  - solo su dueño las lee (CR5, CR7 y CR9) y nunca salen en el DTO;
+  - la frase de Fumar puede dejar intuir la respuesta del otro (D11);
+  - la app no tiene política de privacidad, términos ni consentimiento;
+  - tras un borrado lógico, las respuestas se conservan.
+- **Acceso operativo:**
+  - dentro de la app está acotado y probado: CR5–CR9, `admin-client-usage`
+    y el DTO;
+  - fuera de ella, quien tenga acceso al proyecto de Supabase o a la clave
+    service_role puede leer las respuestas;
+  - no hay cifrado por columna ni registro de lecturas.
+
+**Decisiones del propietario (2026-10-13)**
+- **Condiciones de cierre:** la Fase 3 se puede cerrar con:
+  - los tres criterios escritos;
+  - las subfases 3.1–3.7;
+  - la documentación de cierre preparada.
+
+  Los criterios no cambian.
+- **Regla 8 de `CLAUDE.md`:** un punto de la lista «Pendiente» que el
+  propietario clasifique como no bloqueante no impide el cierre por aparecer
+  en ella.
+- **No bloquean el cierre; Fase 8 o backlog, sin asignar todavía:**
+  1. la paginación del cuestionario;
+  2. señalar las preguntas sin responder;
+  3. una confirmación antes de finalizar. Si se implementa, debe seguir
+     funcionando sin JavaScript y respetar las decisiones D7.
+- **4. Texto «Por qué encajáis»:** el actual se acepta para el alcance de la
+  Fase 3, mientras siga cumpliendo `ROOMLY_MASTER_SPEC.md` §10. No hay
+  redacción nueva.
+- **Antes de usar el producto con personas reales o de lanzarlo.** No son
+  condiciones automáticas del cierre técnico:
+  - **5.** datos de tabaco y vapeo: **REQUIERE REVISIÓN LEGAL**. Sin
+    resolver; ningún test técnico la resuelve;
+  - **6.** acceso operativo: falta revisar quién puede acceder al proyecto y
+    a la clave service_role, y con qué procedimientos. No se ha hecho
+    ninguna auditoría operativa.
+
+**Netlify** (hechos conocidos, sin acceso de Claude al panel)
+- Según el propietario:
+  - Auto Publishing está bloqueado;
+  - el proyecto de Netlify no muestra variables de entorno configuradas.
+- No se han revisado las variables compartidas del equipo. No está
+  verificado que las previews estén aisladas de Supabase.
+- Pendiente antes de usar ese entorno con personas reales: comprobar a qué
+  proyecto de Supabase se conectan las previews y si permiten registros
+  reales.
+
+**Qué se hizo** (solo documentación, sin commit al escribir esta entrada)
+- `docs/ROADMAP.md`, en la Fase 3:
+  - el bloque «Alcance del cierre»;
+  - en «Pendiente», los puntos 1–3 como no bloqueantes y los puntos 5, 6 y
+    Netlify como previos al uso con personas reales. El punto 4 sale de la
+    lista porque está decidido.
+
+  El texto de los criterios no cambia.
+- `CLAUDE.md`:
+  - en «Estado actual», el alcance del cierre y los requisitos previos, en
+    lugar de las «decisiones funcionales pendientes»;
+  - la aclaración de la regla 8;
+  - el punto de la Fase 3 en «Pendiente de decisión humana».
+- `docs/SECURITY.md`:
+  - la Fase 3 distingue lo validado en Supabase real (runs 16 y 18 del
+    2026-10-09, y run 19 del 2026-10-11, con SVC 6/6 y GC 4/4) del runtime
+    de Next.js desplegado con la clave real, que sigue sin validar;
+  - los dos requisitos previos al uso con personas reales;
+  - el tabaco y el vapeo, en la lista de «REQUIERE REVISIÓN LEGAL» del
+    apartado RGPD.
+- `PROGRESS.md`: esta entrada. Las anteriores no se tocan.
+- No se tocó código, tests, migraciones, workflows, configuración de hosting
+  ni otros documentos.
+
+**Pendiente (Fase 3 NO cerrada)**
+- **Para cerrar:** la documentación de cierre, en un PR aparte y con la
+  decisión expresa del propietario.
+- **Antes de usar el producto con personas reales o de lanzarlo:**
+  - la revisión legal de los datos de tabaco y vapeo;
+  - la revisión del acceso operativo;
+  - la comprobación de los Deploy Previews de Netlify;
+  - validar en staging el runtime de Next.js con la clave real;
+  - `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción.
+- El resto de la lista «Pendiente» de `docs/ROADMAP.md` sigue igual:
+  - `cleanup.mjs`;
+  - las observaciones de D1;
+  - un E2 nuevo;
+  - el registro de Auth;
+  - los runs nuevos;
+  - y, fuera de esa lista, rotar las claves de `uwxb…`.
+- No se avanza a la Fase 4.
+
+---
+
 ## 2026-10-13 — Sesión 39: cobertura del motor de matching y aceptación de su criterio (Fase 3 NO cerrada)
 
 **Contexto**

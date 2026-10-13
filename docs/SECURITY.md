@@ -223,9 +223,18 @@ históricas). H4 es la otra parte de la 2.9 (sección siguiente).
 
 ## Fase 3 — compatibilidad: escritura solo en el servidor y service_role acotado (2026-10-07)
 
-Implementación local de la especificación cerrada de la Fase 3 (D17, D18 y
-D6 = B). Todavía **sin validar en Supabase real**: hace falta un proyecto
-nuevo (ver `docs/SUPABASE_VALIDATION.md`).
+Especificación cerrada de la Fase 3 (D17, D18 y D6 = B), integrada en
+`master` con el PR #7 (`f34b2c8`). En Supabase real (`roomly-validation-3`,
+detalle en `docs/SUPABASE_VALIDATION.md`):
+- **Validado:**
+  - la RLS, los triggers y la escritura del test (suite SQL 01–14 y
+    CRA1–CRA6), en los runs 16 (`37994799026`) y 18 (`37999470912`), los
+    dos del 2026-10-09;
+  - los servicios `saveQuestionnaireAnswers` y `getCandidates`, llamados
+    desde el runner con service_role inyectado, en el run 19
+    (`38106687478`, 2026-10-11): SVC 6/6 y GC 4/4.
+- **Sin validar:** el runtime de Next.js desplegado con la clave real (ver
+  «Riesgo aceptado», abajo).
 
 **Principio** (decisión 25 de la especificación):
 > Las respuestas del test y su estado solo los escribe el servidor, después
@@ -300,6 +309,24 @@ nuevo (ver `docs/SUPABASE_VALIDATION.md`).
     (`MOCK_SERVICE_ROLE_KEY`); el test estático lo limita a ese valor.
   - **Riesgo aceptado**: la combinación «Next en ejecución + cliente admin»
     contra un Supabase real se verá por primera vez al desplegar.
+- **Pendiente antes de usar el producto con personas reales** (decisión del
+  propietario del 2026-10-13). No son condiciones del cierre técnico de la
+  Fase 3 (`docs/ROADMAP.md`, «Alcance del cierre») y siguen sin resolver:
+  - **Datos de tabaco y vapeo: REQUIERE REVISIÓN LEGAL.**
+    - `smoke_own` («¿Fumas o vapeas?») y `smoke_tolerance` son obligatorias
+      y se guardan en `compatibility_responses.answers`.
+    - Las frases de Fumar de `/explorar` pueden dejar intuir la respuesta
+      del otro (D11).
+    - Falta el criterio legal sobre el tipo de dato, la base jurídica, la
+      información o el consentimiento, la conservación y si la pregunta debe
+      seguir siendo obligatoria. Ningún test técnico lo resuelve.
+  - **Acceso operativo a las respuestas, antes del lanzamiento.**
+    - Dentro de la app, el acceso está acotado y probado: CR5–CR9 de
+      `tests/db/14`, `admin-client-usage` y el DTO con lista blanca.
+    - Fuera de ella, quien tenga acceso al proyecto de Supabase o a la clave
+      service_role puede leer las respuestas en claro.
+    - Falta revisar quién tiene ese acceso y con qué procedimientos. No se
+      ha hecho ninguna auditoría operativa.
 
 ## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
 
@@ -650,4 +677,6 @@ de inventarse.
 Puntos ya marcados así: plazo de borrado/anonimización tras soft-delete,
 edad mínima de 18 años, ubicación/transferencia internacional de datos
 (Supabase, Vercel, Resend, PostHog — todos ofrecen opción de región EU,
-pero confirmar transferencias con legal antes de producción).
+pero confirmar transferencias con legal antes de producción), y los datos
+de tabaco y vapeo del test de compatibilidad (Fase 3, arriba; desde el
+2026-10-13).

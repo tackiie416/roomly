@@ -412,13 +412,54 @@ Cumplimiento de los criterios de aceptación:
   «Cumplimiento de los criterios de aceptación»). La Fase 3 sigue NO
   CERRADA.
 
+**Alcance del cierre** (decisión del propietario, 2026-10-13; detalle en
+`PROGRESS.md`, sesión 40):
+- **Condiciones de cierre:**
+  - los tres criterios escritos (ver «Cumplimiento de los criterios de
+    aceptación»);
+  - las subfases 3.1–3.7;
+  - y la documentación de cierre preparada.
+
+  Los criterios y las subfases constan como cumplidos y los criterios no
+  cambian. Falta la documentación de cierre: la Fase 3 sigue NO CERRADA.
+- **Regla 8 de `CLAUDE.md` y la lista «Pendiente»:** un punto de esta lista
+  que el propietario clasifique como no bloqueante no impide el cierre por
+  aparecer en ella.
+- **No bloquean el cierre** y pasan a la Fase 8 o al backlog (sin asignar
+  todavía):
+  - la paginación del cuestionario;
+  - señalar las preguntas sin responder;
+  - una confirmación antes de finalizar. Si se implementa, debe seguir
+    funcionando sin JavaScript y respetar las decisiones D7.
+- **Texto «Por qué encajáis»:** el actual se acepta para el alcance de la
+  Fase 3, mientras siga cumpliendo la especificación de las explicaciones
+  (`ROOMLY_MASTER_SPEC.md` §10).
+- **Antes de usar el producto con personas reales o de lanzarlo.** No son
+  condiciones del cierre técnico y siguen sin resolver (`docs/SECURITY.md`,
+  Fase 3):
+  - datos de tabaco y vapeo: **REQUIERE REVISIÓN LEGAL**;
+  - acceso operativo a las respuestas: revisar quién puede acceder al
+    proyecto de Supabase y a la clave service_role, y con qué
+    procedimientos;
+  - Deploy Previews de Netlify: comprobar a qué proyecto de Supabase se
+    conectan y si permiten registros reales.
+    - Lo que se sabe, según el propietario: Auto Publishing está bloqueado
+      y el proyecto de Netlify no muestra variables de entorno.
+    - No se han revisado las variables compartidas del equipo, ni está
+      verificado que las previews estén aisladas de Supabase.
+
 **Pendiente** (cada punto con su decisión o autorización; qué bloquea el
 cierre lo decide el propietario):
-- Mejoras del test que necesitan código: paginación, señalar las preguntas
-  sin responder y una confirmación al terminar.
-- El texto «Por qué encajáis» de `/explorar`.
-- Revisión legal de los datos de tabaco y del acceso operativo a las
-  respuestas.
+- Mejoras del test que necesitan código (paginación, señalar las preguntas
+  sin responder y una confirmación al terminar): no bloquean el cierre; Fase
+  8 o backlog.
+- Datos de tabaco y vapeo: **REQUIERE REVISIÓN LEGAL**, antes de usar el
+  producto con personas reales.
+- Acceso operativo a las respuestas: revisar quién accede al proyecto de
+  Supabase y a la clave service_role, y con qué procedimientos, antes del
+  lanzamiento.
+- Deploy Previews de Netlify: a qué proyecto de Supabase se conectan y si
+  permiten registros reales, antes de usarlas con personas reales.
 - Si se añade a `cleanup.mjs` la comprobación de `compatibility_responses`.
 - Validar el runtime completo de Next.js con la clave real en staging antes
   del primer despliegue. Cómo y cuándo, lo decide el propietario, con
