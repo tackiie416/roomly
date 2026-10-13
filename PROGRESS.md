@@ -6,6 +6,114 @@ próximos pasos.**
 
 ---
 
+## 2026-10-13 — Sesión 39: cobertura del motor de matching y aceptación de su criterio (Fase 3 NO cerrada)
+
+**Contexto**
+- Después de la sesión 38 se integraron el PR #20 (la sincronización
+  documental de esa sesión) y el PR #21 (la medición de la cobertura del
+  motor).
+- Uno de los tres criterios de aceptación de la Fase 3 (`docs/ROADMAP.md`)
+  es «el motor de matching tiene cobertura de tests casi total». Hasta el PR
+  #21 no había una medición, y el propietario no había decidido qué cifra
+  bastaba.
+- Esta entrada registra la medición y la decisión del propietario sin
+  reescribir las sesiones anteriores.
+- **Estado de Git al empezar:** `master` = `origin/master` = `9f6d67a`
+  (merge del PR #21), con el árbol limpio.
+
+**Estado verificado** (API de GitHub y git, 2026-10-13)
+
+| PR | Contenido | Head | CI del head | Merge | CI del merge |
+|---|---|---|---|---|---|
+| #20 | Sincronización tras los PR #14–#19 (sesión 38) | `c53d9e1` | CI #46 (`38310180659`) | `c90f9f1` | CI #47 (`38319934344`) |
+| #21 | `npm run test:coverage:matching` | `efc4542` | CI #48 (`38337063312`) | `9f6d67a` | CI #49 (`38338233233`) |
+
+- Todas las CI terminaron en verde y al primer intento. El PR #20 tuvo un
+  head anterior, corregido tras su revisión: `37ede7d` (CI #45,
+  `38307105971`), también en verde.
+- Recuentos sacados de los logs de las CI #47, #48 y #49: 1030/1030
+  unitarios y E1 32/32. En `db-security`, la API da los jobs en verde; el
+  recuento no se extrajo.
+- **Netlify:**
+  - El PR #21 recibió, como el #20, un Deploy Preview de
+    `lovely-tulumba-009360`: un comentario, el estado `deploy-preview` y tres
+    checks. No se abrió.
+  - Tras los merges de los PR #20 y #21, `master` no muestra estados ni
+    checks de Netlify.
+  - El propietario comprobó a mano que Auto Publishing está bloqueado.
+    Claude no ha accedido a Netlify ni lo ha verificado.
+  - Sigue sin verificar qué publica el Deploy Preview, con qué variables y
+    cómo se conectó la integración (sesión 38).
+- **Validación real:** ninguna desde el run 19.
+
+**Medición de la cobertura** (PR #21; el detalle por archivo, las ramas sin
+cubrir y los límites están en `docs/TESTING.md`, «Cobertura del motor de
+matching»)
+- **Comando:** `npm run test:coverage:matching` (`vitest.coverage.config.ts`,
+  con `@vitest/coverage-v8` 5.0.2).
+  - Ejecuta los 1030 tests unitarios de `npm run test` y mide con V8 solo
+    `lib/matching/`.
+  - No tiene umbrales. La CI no lo ejecuta ni falla por un porcentaje.
+- **Resultado:** medido en local (nube de Claude Code), con las mismas cifras
+  desde un clon limpio con `npm ci`.
+
+  | Métrica | Resultado |
+  |---|---|
+  | Líneas | 100 % (212/212) |
+  | Funciones | 100 % (58/58) |
+  | Ramas | 98,38 % (244/248) |
+  | Sentencias | 99,61 % (258/259) |
+
+- **Sin cubrir:** cuatro ramas de `score.ts` (`:141-142`, `:252` y `:348`).
+  Son casos defensivos que los cuestionarios actuales no producen.
+- **Evidencia complementaria:** las mutaciones del motor, 7/7 detectadas
+  (sesión 31, en local, antes de la v2; `docs/TESTING.md`).
+
+**Decisión del propietario (2026-10-13)**
+- **La evidencia actual satisface el criterio de aceptación «cobertura de
+  tests casi total» de la Fase 3.** Las cifras:
+  - líneas 100 % (212/212);
+  - funciones 100 % (58/58);
+  - ramas 98,38 % (244/248);
+  - sentencias 99,61 % (258/259);
+  - mutaciones del motor 7/7 detectadas;
+  - tests unitarios 1030/1030.
+- No se exige el 100 % de ramas. Las cuatro restantes son casos defensivos
+  de `score.ts`, y no se añaden tests artificiales para cubrirlas.
+- **Alcance: solo resuelve ese criterio.**
+  - No cierra la Fase 3, que sigue NO CERRADA.
+  - No cambia el texto de los criterios ni el estado de los otros dos
+    (determinismo y pesos en un único archivo) en `docs/ROADMAP.md`.
+  - No añade ni quita pendientes, ni convierte en bloqueante ninguna mejora
+    que no lo fuera. Qué bloquea el cierre lo sigue decidiendo el
+    propietario.
+- La medición se puede repetir con `npm run test:coverage:matching`.
+
+**Qué se hizo** (solo documentación, sin commit al escribir esta entrada)
+- `PROGRESS.md`: esta entrada. Las anteriores no se tocan.
+- `docs/ROADMAP.md`, en la Fase 3:
+  - la aceptación, en «Cumplimiento de los criterios de aceptación»;
+  - un bloque con los PR #20 y #21.
+
+  No cambian el texto de los criterios, la lista de pendientes ni el orden
+  de las fases.
+- No se tocó código, tests, configuración, workflows, dependencias ni otros
+  documentos. `docs/TESTING.md` ya tenía las cifras y no cambia.
+
+**Pendiente (Fase 3 NO cerrada)**
+- Igual que en la sesión 38 («Pendiente») y en `docs/ROADMAP.md`
+  («Pendiente»), sin cambios. Entre otros:
+  - las decisiones funcionales del propietario: las mejoras del test, el
+    texto «Por qué encajáis» y la revisión legal;
+  - validar el runtime de Next.js en staging con la clave real antes del
+    primer despliegue;
+  - la revisión de la integración de Netlify, el trabajo técnico autorizable
+    y las tareas operativas.
+- No se avanza a la Fase 4 ni se adelanta la Fase 5a: el orden de las fases
+  y su cierre los decide el propietario.
+
+---
+
 ## 2026-10-12 — Sesión 38: sincronización documental tras los PR #14–#19 (Fase 3 NO cerrada)
 
 **Contexto**
