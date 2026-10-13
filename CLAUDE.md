@@ -88,8 +88,11 @@ roles) y H4 (eliminar `profiles_select_authenticated`). Decisiones en
 `docs/ROADMAP.md`. Claude no toca Supabase remoto, ni hace commit, push o
 PR, sin autorización explícita.
 
-**Fase 3 (Compatibility): implementada, integrada en `master` y validada en
-Supabase real, pero NO CERRADA.**
+**Fase 3 (Compatibility): CERRADA (2026-10-13).** Implementada, integrada
+en `master` y validada en Supabase real. El cierre es técnico: **no** declara
+ROOMLY listo para personas reales ni para el lanzamiento (ver «Antes de usar
+el producto con personas reales o de lanzarlo», abajo). Evidencias y PR del
+cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
 - Especificación cerrada por el propietario: D1–D18, todas con la opción
   recomendada, y D6 = B. Resumen en `ROOMLY_MASTER_SPEC.md` §8–10 y §14;
   detalle en `PROGRESS.md`, sesión 31.
@@ -202,9 +205,9 @@ Supabase real, pero NO CERRADA.**
   - Evidencia verificada: `PROGRESS.md`, sesión 38.
 - **Alcance del cierre** (decisión del propietario, 2026-10-13; detalle en
   `docs/ROADMAP.md`, «Alcance del cierre», y `PROGRESS.md`, sesión 40):
-  - se puede cerrar con los tres criterios escritos y las subfases 3.1–3.7
-    cumplidos y la documentación de cierre preparada. Esa documentación
-    falta, y la fase sigue NO CERRADA;
+  - se cierra con los tres criterios escritos y las subfases 3.1–3.7
+    cumplidos y la documentación de cierre preparada (`PROGRESS.md`, sesión
+    41). No se añadieron criterios;
   - no bloquean el cierre (Fase 8 o backlog): la paginación, señalar las
     preguntas sin responder y una confirmación al terminar. Si se
     implementan, deben funcionar sin JavaScript y respetar D7;
@@ -223,6 +226,12 @@ Supabase real, pero NO CERRADA.**
     - Según el propietario, Auto Publishing está bloqueado y el proyecto no
       muestra variables de entorno.
     - Las variables compartidas del equipo no se han revisado.
+  - el runtime de Next.js desplegado con la clave real de Supabase, sin
+    validar (staging; ver «Trabajo técnico pendiente», abajo);
+  - `SUPABASE_SERVICE_ROLE_KEY` solo en el servidor, cuando se prepare el
+    entorno de lanzamiento (ver «Tareas operativas», abajo);
+  - la política de privacidad, los términos y las demás cuestiones marcadas
+    REQUIERE REVISIÓN LEGAL (ver «Pendiente de decisión humana»).
 - **Trabajo técnico pendiente, con su autorización:**
   - validar el runtime completo de Next.js con la clave real en un entorno
     de staging antes del primer despliegue. Cómo y cuándo, lo decide el
@@ -241,7 +250,9 @@ Supabase real, pero NO CERRADA.**
   - Runs nuevos contra `roomly-validation-3`: siempre con
     `apply_migrations=false`, y cada run, E2 o apertura del registro, con
     autorización explícita.
-- No se avanza a la Fase 4.
+- **Fase 4: no empezada.** El cierre de la Fase 3 no la inicia: empieza solo
+  cuando el propietario lo confirme expresamente («Cómo trabajar por
+  fases»).
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -487,7 +498,8 @@ de la 2.9. En Supabase real se validaron la RLS y los triggers (suite SQL
 `tests/db/08`.
 
 Fase 3, integrada en `master` y validada en Supabase real (runs 16 y 18; los
-servicios del servidor, en el run 19), **no cerrada**: test de convivencia
+servicios del servidor, en el run 19), **cerrada el 2026-10-13** (cierre
+técnico, no de lanzamiento): test de convivencia
 (`/test`, con guardado parcial y los textos editoriales de la v1; la v2 de
 S1–S4, integrada con el PR #13, sin un run real dedicado solo a ella y con
 sus servicios validados en real en el run 19: SVC 6/6 y GC 4/4) y
@@ -501,8 +513,9 @@ perfil» de terceros, chat ni admin real.
 
 ## Funcionalidades pendientes
 
-El cierre de la Fase 3 (ver «Estado actual») y las Fases 4 a 9 — ver
-`docs/ROADMAP.md`. Siguen fuera de alcance, por decisión
+Las Fases 4 a 9 — ver `docs/ROADMAP.md` — y los pendientes que deja la
+Fase 3 (ver «Estado actual»): sus requisitos previos al uso con personas
+reales y su backlog. Siguen fuera de alcance, por decisión
 del usuario: Google y Apple OAuth (diferidos), foto de perfil (M3) y
 borrado de cuenta (H6).
 
@@ -517,9 +530,8 @@ borrado de cuenta (H6).
 - Confirmar o corregir las recomendaciones técnicas reversibles: magic
   link vs. contraseña, Mapbox vs. Google Maps.
 - Cuándo retomar Google OAuth y Apple OAuth (diferidos).
-- Fase 3: el alcance del cierre ya está decidido (2026-10-13, ver «Estado
-  actual»). Siguen pendientes, antes de usar el producto con personas
-  reales:
+- Fase 3: cerrada el 2026-10-13 (ver «Estado actual»). Siguen pendientes,
+  antes de usar el producto con personas reales:
   - la revisión legal de los datos de tabaco y vapeo (REQUIERE REVISIÓN
     LEGAL);
   - la del acceso operativo a las respuestas;
