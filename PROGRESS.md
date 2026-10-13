@@ -6,6 +6,144 @@ próximos pasos.**
 
 ---
 
+## 2026-10-13 — Sesión 41: cierre de la Fase 3 (Fase 3 CERRADA; cierre técnico, no de lanzamiento)
+
+**Contexto**
+- Decisión del propietario: cerrar formalmente la Fase 3 con el alcance de
+  la sesión 40 (PR #23), si una comprobación previa confirmaba los requisitos
+  de cierre del repositorio.
+- **Estado de Git al empezar:** `master` = `origin/master` = `d237993`
+  (merge del PR #23), con el árbol limpio y sin PR abiertos.
+
+**Comprobación previa** (git, código, tests y API de GitHub, 2026-10-13)
+- **Condiciones de cierre** (`docs/ROADMAP.md`, «Alcance del cierre»): los
+  tres criterios escritos, las subfases 3.1–3.7 y la documentación de
+  cierre.
+- **Criterios de aceptación** (`docs/ROADMAP.md:261-264`, sin cambios):
+
+  | Criterio | Evidencia |
+  |---|---|
+  | Cobertura casi total | Aceptada el 2026-10-13 (sesión 39): líneas 100 % (212/212), funciones 100 % (58/58), ramas 98,38 % (244/248), sentencias 99,61 % (258/259) y mutaciones del motor 7/7 (`docs/TESTING.md`) |
+  | Determinismo | `tests/unit/matching-score.test.ts`: «determinismo» (`:828`) y «simetría» con 500 pares (`:808`), más las mutaciones del motor (sesión 31) |
+  | Pesos en un único archivo | `lib/matching/weights.ts` (`MATCH_WEIGHTS`), comprobado en `describe("pesos")` (`:275`). `score.ts` recibe los pesos como parámetro, y `filters.ts` y `lib/services/matching.ts` los importan de `weights.ts` |
+
+- **Subfases 3.1–3.7:** existen todos sus artefactos en `master`:
+  - la migración `20261007120000`, `lib/services/compatibility.ts` y
+    `admin-client-usage` (3.1);
+  - `lib/matching/{questionnaire,score,weights,explanations,types}.ts`
+    (3.2) y `filters.ts` (3.3);
+  - `lib/services/matching.ts` (3.4);
+  - `questionnaire-status.ts`, los guards `requireQuestionnaire` y
+    `requireCompletedQuestionnaire`, `/test` y `/explorar` como rutas
+    protegidas y el onboarding terminando en `/test` (3.5);
+  - `tests/db/14`, los selftests, el spec `compatibility-flow` de E1, D1 y
+    CRA/SVC/GC en la api-suite (3.6);
+  - la documentación (3.7).
+- **Tests:** ninguno roto. CI de `master` tras el PR #23 (CI #54, run
+  `38470161549`, sobre `d237993`): 1030/1030 unitarios y build, E1 32/32 y
+  `db-security` en verde.
+- **Hallazgos de la sesión 37 sin corregir:** ninguno es un fallo crítico.
+  - Uno es un mensaje de UX ante una pestaña antigua.
+  - Otro está protegido por un test en CI (`questionnaire-versions`).
+  - El tercero es un comentario.
+
+  No son condiciones de cierre y pasan al backlog.
+- **Contradicciones con el cierre:**
+  - la sección «Estado actual» de `docs/TESTING.md` decía que la Fase 3
+    seguía abierta. Se corrige;
+  - las frases «La Fase 3 sigue abierta» de `docs/SUPABASE_VALIDATION.md`
+    están en registros fechados (run 19 y evaluación de la v2, 2026-10-11).
+    Son históricas y no se tocan.
+- **Resultado:** se cumplen las condiciones. Ninguna discrepancia impide el
+  cierre.
+
+**PR de la Fase 3** (todas las CI en verde)
+- Implementación y validación real:
+  - PR #7 (`f34b2c8`): implementación;
+  - PR #8 (`f619812`): marca `roomly-validation-3`;
+  - PR #9 y #10: runs 16 y 18;
+  - PR #11: textos;
+  - PR #13 (`7550d71`): v2.
+- PR #14–#19: documentación de la v2; SVC/GC y run 19 (PR #17 y #18);
+  `lib/env.server.ts` y D1 (PR #19).
+- PR #20 (`c90f9f1`): sincronización documental.
+- PR #21 (`9f6d67a`): medición de la cobertura.
+- PR #22 (`743c93d`): aceptación del criterio de cobertura.
+- PR #23 (`d237993`, head `c9310ac`, CI #53 `38345072125` y CI #54
+  `38470161549`): alcance del cierre.
+
+**Decisión** (2026-10-13)
+- **La Fase 3 queda CERRADA.**
+  - Los tres criterios escritos se cumplen, sin cambios ni criterios nuevos.
+  - Las subfases 3.1–3.7 están implementadas.
+  - La documentación de cierre es este PR.
+- **Alcance aplicado** (sesión 40):
+  - la paginación, señalar las preguntas sin responder y la confirmación al
+    terminar no bloquean y pasan a la Fase 8 o al backlog. Si se implementan,
+    deben funcionar sin JavaScript y respetar D7;
+  - se acepta el texto actual de «Por qué encajáis», mientras cumpla
+    `ROOMLY_MASTER_SPEC.md` §10.
+- **Backlog de seguridad y rendimiento**, decidido por el propietario el
+  2026-10-12 y registrado ahora:
+  - el limitador de `getCandidates`, sin implementar. Sus cifras, sujetas a
+    revisión: 60 consultas cada 10 minutos y 10 ediciones del test al día;
+  - llevar a SQL los filtros de candidatos, pospuesto.
+- **Es un cierre técnico.** No declara ROOMLY listo para personas reales ni
+  para el lanzamiento.
+- **La Fase 4 no empieza** hasta que el propietario lo confirme
+  expresamente.
+
+**Qué se hizo** (solo documentación, sin commit al escribir esta entrada)
+- `docs/ROADMAP.md`:
+  - la Fase 3 pasa a «✅ CERRADA (2026-10-13)», con el bloque «Cierre de la
+    Fase 3». Los criterios y «Cumplimiento» no cambian;
+  - «Alcance del cierre» ya no dice que falte la documentación;
+  - «Pendiente» pasa a «Pendiente tras el cierre», con el backlog de
+    seguridad y rendimiento, los hallazgos de la sesión 37 y la política de
+    privacidad y los términos.
+- `CLAUDE.md`:
+  - en «Estado actual», la Fase 3 como cerrada (cierre técnico), los
+    requisitos previos completos y la Fase 4 como no empezada;
+  - «Funcionalidades terminadas», «Funcionalidades pendientes» y el punto de
+    la Fase 3 de «Pendiente de decisión humana».
+
+  Las reglas de desarrollo y «Cómo trabajar por fases» no cambian.
+- `docs/TESTING.md`: solo el título y una frase de «Estado actual», que
+  decían que la Fase 3 seguía abierta.
+- `PROGRESS.md`: esta entrada. Las anteriores no se tocan.
+- No se tocó código, tests, migraciones, dependencias, workflows ni hosting.
+  `docs/SECURITY.md` no cambia.
+- Sin validaciones contra Supabase real, despliegues ni accesos a Netlify.
+
+**Pendiente antes de usar el producto con personas reales o de lanzarlo**
+(sin resolver; no se ha hecho ninguna de estas revisiones ni está validado
+ningún staging)
+1. Datos de tabaco y vapeo: **REQUIERE REVISIÓN LEGAL**.
+2. Accesos operativos al proyecto de Supabase y a la clave service_role, y
+   sus procedimientos.
+3. Deploy Previews de Netlify: a qué proyecto de Supabase se conectan y si
+   permiten registros reales.
+   - Según el propietario, Auto Publishing está bloqueado y el proyecto no
+     muestra variables de entorno.
+   - Las variables compartidas del equipo no se han revisado.
+4. El runtime de Next.js desplegado con la clave real de Supabase (staging).
+5. `SUPABASE_SERVICE_ROLE_KEY` solo en el servidor, cuando se prepare el
+   entorno de lanzamiento.
+6. La política de privacidad, los términos y las demás cuestiones marcadas
+   REQUIERE REVISIÓN LEGAL: plazo de borrado, edad mínima y transferencias.
+
+**Otros pendientes, sin bloqueo** (`docs/ROADMAP.md`, «Pendiente tras el
+cierre»)
+- Las mejoras del test.
+- El backlog de seguridad y rendimiento.
+- Los hallazgos de la sesión 37.
+- `cleanup.mjs` y las observaciones de D1.
+- Un E2 nuevo, el registro de Auth y los runs nuevos, con autorización.
+- Rotar las claves de `uwxb…` y pausarlo.
+- Marcar `NEXT_PHASE_AUDIT.md` como histórico.
+
+---
+
 ## 2026-10-13 — Sesión 40: alcance del cierre de la Fase 3 (Fase 3 NO cerrada)
 
 **Contexto**

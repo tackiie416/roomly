@@ -12,7 +12,7 @@
 - **E2E (Playwright)**: los 3 flujos completos que pide el brief
   (sección 39).
 
-## Estado actual (2026-10-11, Fase 3 integrada en `master` con la v2 del cuestionario; validada en Supabase real antes de la v2 y, en el run 19, los servicios SVC/GC; no cerrada)
+## Estado actual (2026-10-11, Fase 3 integrada en `master` con la v2 del cuestionario; validada en Supabase real antes de la v2 y, en el run 19, los servicios SVC/GC; cerrada el 2026-10-13)
 
 **Qué demuestra cada capa** (no confundirlas):
 - `npm run test` (Vitest): lógica de la aplicación con un cliente Supabase
@@ -135,8 +135,10 @@ servidor (SVC/GC)»). Los tests unitarios y E1 siguen corriendo contra el
 Supabase simulado en la CI; la api-suite real solo corre en el workflow
 manual.
 
-**La Fase 3 sigue abierta** por pendientes ajenos a la validación real (ver
-`docs/ROADMAP.md`). En las filas de Supabase real de esta tabla, lo marcado
+**La Fase 3 se cerró el 2026-10-13** (`docs/ROADMAP.md`, «Cierre de la
+Fase 3»). Es un cierre técnico: el runtime de Next.js desplegado con la
+clave real sigue sin validar, y quedan pendientes otros requisitos antes de
+usar el producto con personas reales. En las filas de Supabase real de esta tabla, lo marcado
 con los runs 16–19 es de la Fase 3 y el resto, de las Fases 1 y 2.
 
 Las secciones siguientes son el registro histórico de cada sesión; lo que

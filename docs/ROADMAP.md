@@ -250,7 +250,7 @@ verde en local, en CI y en Supabase real. Siguen fuera de alcance por
 decisión del usuario: Google y Apple OAuth (diferidos), foto de perfil y
 Storage (M3) y borrado de cuenta (H6).
 
-## Fase 3 — Compatibility — 🟡 INTEGRADA EN `master` Y VALIDADA EN SUPABASE REAL (2026-10-09), NO CERRADA
+## Fase 3 — Compatibility — ✅ CERRADA (2026-10-13)
 
 Cuestionario de 25-30 preguntas (con guardado de progreso parcial —
 mitiga el abandono a mitad, ver riesgos), almacenamiento en
@@ -303,6 +303,31 @@ Cumplimiento de los criterios de aceptación:
     añaden tests artificiales para cubrirlas.
   - Esta aceptación solo resuelve el criterio de cobertura. No cierra la
     Fase 3 ni cambia los otros criterios ni la lista de «Pendiente».
+
+**Cierre de la Fase 3 (2026-10-13)** (detalle y evidencias en `PROGRESS.md`,
+sesión 41). Es un cierre técnico: **no** declara ROOMLY listo para personas
+reales ni para el lanzamiento (ver «Pendiente tras el cierre», abajo).
+- **Criterios de aceptación** (el texto de arriba no cambia; no se añaden
+  criterios):
+  - cobertura casi total: aceptada el 2026-10-13. Líneas 100 % (212/212),
+    funciones 100 % (58/58), ramas 98,38 % (244/248) y mutaciones del motor
+    7/7 (`docs/TESTING.md`);
+  - determinismo: `tests/unit/matching-score.test.ts`, con las propiedades
+    de determinismo y simetría y las mutaciones del motor;
+  - pesos en un único archivo: `lib/matching/weights.ts`, comprobado en
+    `describe("pesos")` del mismo test. El motor recibe los pesos como
+    parámetro y los servicios importan `MATCH_WEIGHTS`.
+- **Subfases 3.1–3.7:** implementadas e integradas en `master` desde el PR #7
+  (`f34b2c8`), con la v2 del cuestionario (PR #13) y lo hecho después (PR
+  #14–#23).
+- **Pruebas:**
+  - CI de `master` tras el PR #23 (run `38470161549`, CI #54, sobre
+    `d237993`): 1030/1030 unitarios, build, E1 32/32 y `db-security`;
+  - validación en Supabase real: los runs 16 y 18 (2026-10-09) y el 19
+    (servicios, 2026-10-11).
+- **Alcance aplicado:** el que fija «Alcance del cierre», abajo.
+- **Fase 4:** no empieza con este cierre, sino cuando el propietario lo
+  confirme expresamente.
 
 **Hecho después de la implementación local** (2026-10-08 a 2026-10-10):
 - **Integración en `master`:** PR #7 (implementación, `f34b2c8`), PR #8
@@ -420,8 +445,8 @@ Cumplimiento de los criterios de aceptación:
   - las subfases 3.1–3.7;
   - y la documentación de cierre preparada.
 
-  Los criterios y las subfases constan como cumplidos y los criterios no
-  cambian. Falta la documentación de cierre: la Fase 3 sigue NO CERRADA.
+  Las tres se cumplen y los criterios no cambian (ver «Cierre de la Fase
+  3», arriba).
 - **Regla 8 de `CLAUDE.md` y la lista «Pendiente»:** un punto de esta lista
   que el propietario clasifique como no bloqueante no impide el cierre por
   aparecer en ella.
@@ -448,11 +473,21 @@ Cumplimiento de los criterios de aceptación:
     - No se han revisado las variables compartidas del equipo, ni está
       verificado que las previews estén aisladas de Supabase.
 
-**Pendiente** (cada punto con su decisión o autorización; qué bloquea el
-cierre lo decide el propietario):
+**Pendiente tras el cierre** (ninguno bloqueó el cierre; cada punto, con su
+decisión o autorización):
 - Mejoras del test que necesitan código (paginación, señalar las preguntas
   sin responder y una confirmación al terminar): no bloquean el cierre; Fase
   8 o backlog.
+- Backlog de seguridad y rendimiento (decisión del propietario del
+  2026-10-12, que no se había registrado):
+  - no se implementa ahora el limitador de `getCandidates`. Quedan en el
+    backlog sus cifras, sujetas a revisión: 60 consultas cada 10 minutos y
+    10 ediciones del test al día;
+  - se pospone llevar a SQL los filtros de candidatos.
+- Hallazgos de la sesión 37 sin corregir (`PROGRESS.md`, sesión 38):
+  - el mensaje de una pestaña de `/test` abierta antes de la v2;
+  - `getCandidates` omite en silencio los `not_comparable`;
+  - la cabecera «borrador» de `questionnaire.ts`.
 - Datos de tabaco y vapeo: **REQUIERE REVISIÓN LEGAL**, antes de usar el
   producto con personas reales.
 - Acceso operativo a las respuestas: revisar quién accede al proyecto de
@@ -469,6 +504,9 @@ cierre lo decide el propietario):
 - Las observaciones menores de la revisión de D1 (`PROGRESS.md`, sesión 38).
 - `SUPABASE_SERVICE_ROLE_KEY` en el servidor de producción, antes de
   desplegar.
+- Política de privacidad, términos y las demás cuestiones marcadas
+  REQUIERE REVISIÓN LEGAL (`docs/SECURITY.md`, RGPD; Fase 9), antes de usar
+  el producto con personas reales.
 - Registro de Auth de `roomly-validation-3`: el propietario declaró el
   2026-10-09 que está cerrado; no está verificado de forma independiente.
 - Cualquier run nuevo contra `roomly-validation-3`, siempre con
