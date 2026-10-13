@@ -5,7 +5,7 @@
 #   - el esquema actual pasa P0–P6;
 #   - cada mutación (política que falta, sobra, cambia de comando o de nombre;
 #     tabla sin RLS; GRANT de más en housing_preferences; trigger que falta,
-#     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); función con otra seguridad o search_path;
+#     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); escrituras de habitaciones sin la comprobación de cuenta activa (Fase 4.0); función con otra seguridad o search_path;
 #     función de más; EXECUTE concedido; marcas anteriores) hace fallar la
 #     comprobación que corresponde. Cada mutación va en su propia
 #     transacción y se deshace.
@@ -74,10 +74,16 @@ P0|marca con espacio final|do $$ begin execute format('comment on database %I is
 P3|falta profiles_update_own|drop policy profiles_update_own on public.profiles;
 P3|falta housing_preferences_delete_own|drop policy housing_preferences_delete_own on public.housing_preferences;
 P3|sobra una política (aunque el total cambie)|create policy zz_extra on public.cities for select using (true);
-P3|misma cantidad, otra política (37 = 37)|drop policy cities_select_all on public.cities; create policy cities_select_everything on public.cities for select using (true);
+P3|misma cantidad, otra política (44 = 44)|drop policy cities_select_all on public.cities; create policy cities_select_everything on public.cities for select using (true);
 P3|mismo nombre, otro comando|drop policy housing_preferences_select_own on public.housing_preferences; create policy housing_preferences_select_own on public.housing_preferences for all to authenticated using (auth.uid() = profile_id);
 P3|vuelve la política antigua housing_preferences_own|create policy housing_preferences_own on public.housing_preferences for all to authenticated using (auth.uid() = profile_id);
 P3|tabla sin RLS|alter table public.housing_preferences disable row level security;
+P3|vuelve la política antigua rooms_owner_write|create policy rooms_owner_write on public.rooms for all using (auth.uid() = owner_id);
+P3|falta room_addresses_select_own|drop policy room_addresses_select_own on public.room_addresses;
+P3|rooms_update_own sin la comprobación de cuenta activa|drop policy rooms_update_own on public.rooms; create policy rooms_update_own on public.rooms for update to authenticated using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
+P3|room_addresses_insert_own sin la comprobación de cuenta activa|drop policy room_addresses_insert_own on public.room_addresses; create policy room_addresses_insert_own on public.room_addresses for insert to authenticated with check (exists (select 1 from public.rooms r where r.id = room_addresses.room_id and r.owner_id = auth.uid()));
+P3|room_images_delete_own sin la comprobación de cuenta activa|drop policy room_images_delete_own on public.room_images; create policy room_images_delete_own on public.room_images for delete to authenticated using (exists (select 1 from public.rooms r where r.id = room_images.room_id and r.owner_id = auth.uid()));
+P3|room_images_update_own con la comprobación solo en WITH CHECK|drop policy room_images_update_own on public.room_images; create policy room_images_update_own on public.room_images for update to authenticated using (exists (select 1 from public.rooms r where r.id = room_images.room_id and r.owner_id = auth.uid())) with check (exists (select 1 from public.rooms r join public.profiles p on p.id = r.owner_id where r.id = room_images.room_id and r.owner_id = auth.uid() and p.deleted_at is null));
 P4|anon con SELECT en housing_preferences|grant select on public.housing_preferences to anon;
 P4|authenticated con UPDATE de profile_id|grant update (profile_id) on public.housing_preferences to authenticated;
 P4|authenticated con UPDATE de updated_at|grant update (updated_at) on public.housing_preferences to authenticated;
@@ -109,8 +115,8 @@ CASES
 echo "== el preflight no deja nada creado"
 if "${P[@]}" -At -c "select count(*) from pg_class where relpersistence = 't'" | grep -qx 0 \
   && run_with "select 1;" \
-  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "37" ]; then
-  echo "   ok - sin tablas temporales ni cambios; siguen 37 políticas"
+  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "44" ]; then
+  echo "   ok - sin tablas temporales ni cambios; siguen 44 políticas"
 else
   echo "   FALLO: el preflight dejó restos"
   failed=1

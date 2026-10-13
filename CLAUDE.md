@@ -250,9 +250,13 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
   - Runs nuevos contra `roomly-validation-3`: siempre con
     `apply_migrations=false`, y cada run, E2 o apertura del registro, con
     autorización explícita.
-- **Fase 4: no empezada.** El cierre de la Fase 3 no la inicia: empieza solo
-  cuando el propietario lo confirme expresamente («Cómo trabajar por
-  fases»).
+- **Fase 4 (Rooms): en curso desde el 2026-10-13**, con la autorización
+  expresa del propietario. Iniciarla no autoriza el lanzamiento.
+  - La 4.0 (escrituras de habitaciones bloqueadas para cuentas
+    desactivadas) está hecha en local y en la CI, sin validar en Supabase
+    real (R8).
+  - Las subfases siguientes necesitan las decisiones R1–R9 del propietario
+    (`docs/ROADMAP.md`, Fase 4) y cada una su autorización.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.

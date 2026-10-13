@@ -6,7 +6,7 @@ borra en duro o se conserva sin restricción (ver "Soft delete vs. GDPR" abajo).
 
 El SQL real vive en `supabase/migrations/` (el esquema, las políticas RLS, las
 correcciones de la auditoría inicial y las migraciones incrementales de las
-Fases 2 y 3) y `supabase/seed.sql`. Este documento explica las decisiones; el código fuente
+Fases 2, 3 y 4) y `supabase/seed.sql`. Este documento explica las decisiones; el código fuente
 de la verdad es el SQL.
 
 ## Revisión crítica (lo que se encontró y se corrigió)
@@ -423,6 +423,60 @@ UPDATE`)
 - **Sin índices nuevos** (Fase 3.3): la consulta de candidatos filtra por
   ciudad con `idx_housing_preferences_city` y por las PK; fechas,
   presupuesto y compañeros se evalúan en TypeScript.
+
+## Fase 4.0 — habitaciones: escrituras bloqueadas para cuentas desactivadas (2026-10-13)
+
+Migración incremental
+`supabase/migrations/20261013120000_rooms_deleted_account_writes.sql`. No
+modifica migraciones históricas ni añade tablas, columnas, GRANT, funciones
+ni triggers.
+
+**Origen:** la regla de la decisión B («Cuentas eliminadas: escrituras
+bloqueadas», arriba) se aplicó en `profiles` y `housing_preferences`. Quedó
+pendiente aplicarla al resto de tablas que escribe un usuario cuando
+tuvieran flujo (`docs/SECURITY.md`). `rooms`, `room_addresses` y
+`room_images` lo tienen en la Fase 4.
+
+**Mismo patrón que `housing_preferences`:** cada política FOR ALL del
+propietario se divide por comando, con `to authenticated`.
+
+| Tabla | Antes | Ahora |
+|---|---|---|
+| `rooms` | `rooms_owner_write` (ALL): `auth.uid() = owner_id` | `rooms_{insert,update,delete}_own`: la misma propiedad y, además, el perfil de `owner_id` sin `deleted_at` |
+| `room_addresses` | `room_addresses_owner_only` (ALL): la habitación es de `auth.uid()` | `room_addresses_select_own`, con la misma condición que antes, y `room_addresses_{insert,update,delete}_own`, con la propiedad y la cuenta activa |
+| `room_images` | `room_images_owner_write` (ALL): la habitación es de `auth.uid()` | `room_images_{insert,update,delete}_own`, con la propiedad y la cuenta activa |
+
+- El UPDATE exige la condición en USING y en WITH CHECK: una cuenta
+  desactivada obtiene 0 filas, y nadie puede mover una fila a una
+  habitación ajena.
+- **La lectura no cambia:** `rooms_select_active_public`,
+  `rooms_select_own` y `room_images_select` no se tocan.
+  `room_addresses_select_own` mantiene la condición de antes. El propietario
+  desactivado sigue viendo sus filas, como en `profiles` y
+  `housing_preferences`.
+- **Tampoco cambian:**
+  - `rooms_admin_all` (el admin activo sigue moderando);
+  - el trigger `trg_rooms_moderation`;
+  - `service_role`, que tiene BYPASSRLS;
+  - los borrados en cascada (las acciones de las FK no pasan por la RLS).
+- **No oculta** las habitaciones activas de una cuenta desactivada: siguen
+  siendo públicas. Esa visibilidad es la decisión R7, pendiente.
+- **Sin recursión:**
+  - las políticas nuevas leen `profiles` y `rooms`;
+  - ninguna política de `profiles` consulta tablas de habitaciones, y las de
+    `rooms` no consultan `room_addresses` ni `room_images`;
+  - el usuario lee su propio perfil aunque esté eliminado
+    (`profiles_select_own_even_if_deleted`). Si esa lectura se quitara, la
+    condición fallaría cerrada (sin escrituras), nunca abierta.
+- **Totales:** pasan a ser 18 tablas, **44 políticas** (37 − 3 + 10), 13
+  triggers y 11 funciones.
+- **Validación:**
+  - tests en `tests/db/15_rooms_integrity.sql` y en P3 del preflight
+    (ver `docs/TESTING.md`);
+  - `migration-upgrade-selftest.sh` aplica la migración sobre habitaciones
+    ya existentes y las conserva;
+  - **sin validar en Supabase real** (R8, pendiente: `roomly-validation-3`
+    no admite aplicar migraciones a un esquema que ya existe).
 
 ## Diagrama de entidades (simplificado)
 

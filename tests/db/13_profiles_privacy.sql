@@ -139,5 +139,5 @@ select roomly_test.ok(
    where schemaname = 'public' and tablename = 'profiles' and cmd in ('SELECT', 'ALL')),
   'PV10: las únicas que dan lectura son la propia y la de admin');
 select roomly_test.ok(
-  (select count(*) = 37 from pg_policies where schemaname = 'public'),
-  'PV10: 37 políticas en public');
+  (select count(*) = 44 from pg_policies where schemaname = 'public'),
+  'PV10: 44 políticas en public (37 hasta la 4.0)');

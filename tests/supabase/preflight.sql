@@ -99,15 +99,21 @@ end $$;
 -- cuatro políticas (select/insert/update/delete_own) y en 20261004120100
 -- (Fase 2.9, H4) se elimina `profiles_select_authenticated`. En 20261007120000
 -- (Fase 3.1) `compatibility_responses_own` (ALL) se sustituye por
--- `compatibility_responses_select_own` (SELECT). Total: 37 en 18 tablas.
+-- `compatibility_responses_select_own` (SELECT). En 20261013120000 (Fase
+-- 4.0) `rooms_owner_write`, `room_addresses_owner_only` y
+-- `room_images_owner_write` (ALL) se dividen por comando: −3 +10. Total: 44 en
+-- 18 tablas.
 -- Se compara (tabla, política, comando) en los dos sentidos: falta o sobra
--- cualquiera → fallo, con el nombre.
+-- cualquiera → fallo, con el nombre. Además (Fase 4.0), cada política de
+-- escritura de rooms, room_addresses y room_images exige la cuenta activa
+-- (`deleted_at IS NULL`) en todas sus expresiones.
 do $$
 declare
   no_rls text;
   missing text;
   unexpected text;
   n_expected int;
+  writes_without_account text;
 begin
   select string_agg(tablename, ', ') into no_rls
   from pg_tables where schemaname = 'public' and not rowsecurity;
@@ -144,13 +150,20 @@ begin
     ('reports', 'reports_admin_all', 'ALL'),
     ('reports', 'reports_insert_own', 'INSERT'),
     ('reports', 'reports_select_own', 'SELECT'),
-    ('room_addresses', 'room_addresses_owner_only', 'ALL'),
-    ('room_images', 'room_images_owner_write', 'ALL'),
+    ('room_addresses', 'room_addresses_delete_own', 'DELETE'),
+    ('room_addresses', 'room_addresses_insert_own', 'INSERT'),
+    ('room_addresses', 'room_addresses_select_own', 'SELECT'),
+    ('room_addresses', 'room_addresses_update_own', 'UPDATE'),
+    ('room_images', 'room_images_delete_own', 'DELETE'),
+    ('room_images', 'room_images_insert_own', 'INSERT'),
     ('room_images', 'room_images_select', 'SELECT'),
+    ('room_images', 'room_images_update_own', 'UPDATE'),
     ('rooms', 'rooms_admin_all', 'ALL'),
-    ('rooms', 'rooms_owner_write', 'ALL'),
+    ('rooms', 'rooms_delete_own', 'DELETE'),
+    ('rooms', 'rooms_insert_own', 'INSERT'),
     ('rooms', 'rooms_select_active_public', 'SELECT'),
     ('rooms', 'rooms_select_own', 'SELECT'),
+    ('rooms', 'rooms_update_own', 'UPDATE'),
     ('universities', 'universities_admin_write', 'ALL'),
     ('universities', 'universities_select_all', 'SELECT')
   ),
@@ -167,15 +180,33 @@ begin
      from (select * from actual except select * from expected) a)
   into n_expected, missing, unexpected;
 
-  if n_expected <> 37 then
-    raise exception 'FALLO P3: la lista esperada no tiene 37 entradas (error del propio preflight)';
+  if n_expected <> 44 then
+    raise exception 'FALLO P3: la lista esperada no tiene 44 entradas (error del propio preflight)';
   end if;
   if missing is not null or unexpected is not null then
     raise exception 'FALLO P3: políticas distintas de las esperadas. Faltan: %. Sobran: %',
       coalesce(missing, 'ninguna'), coalesce(unexpected, 'ninguna');
   end if;
 
-  raise notice 'ok - P3: RLS activa en las 18 tablas y exactamente las 37 políticas esperadas';
+  -- Fase 4.0: WITH CHECK en INSERT, USING y WITH CHECK en UPDATE, USING en
+  -- DELETE. `rooms_admin_all` (ALL) no entra: es la capacidad del admin.
+  select string_agg(format('%s.%s (%s)', p.tablename, p.policyname, p.cmd), ', '
+                    order by p.tablename, p.policyname)
+  into writes_without_account
+  from pg_policies p
+  where p.schemaname = 'public'
+    and p.tablename in ('rooms', 'room_addresses', 'room_images')
+    and p.cmd in ('INSERT', 'UPDATE', 'DELETE')
+    and not (
+      (p.cmd = 'INSERT' or coalesce(p.qual, '') like '%deleted_at IS NULL%')
+      and (p.cmd = 'DELETE' or coalesce(p.with_check, '') like '%deleted_at IS NULL%')
+    );
+  if writes_without_account is not null then
+    raise exception 'FALLO P3: políticas de escritura de habitaciones sin la comprobación de cuenta activa: %',
+      writes_without_account;
+  end if;
+
+  raise notice 'ok - P3: RLS activa en las 18 tablas, exactamente las 44 políticas esperadas y las escrituras de habitaciones exigen cuenta activa';
 end $$;
 
 -- ============================================================

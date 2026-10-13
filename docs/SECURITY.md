@@ -10,7 +10,7 @@ corregidas están en `docs/DATABASE.md`.
 |---|---|
 | Usuarios solo modifican sus propios datos | `profiles_update_own`, `housing_preferences_{insert,update,delete}_own` (las dos, solo con la cuenta activa desde `20260930130000`), `favorites_own`, `interests_insert_own`/`interests_delete_own`, `participants_update_own` |
 | Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations`, todas vía `is_conversation_participant()` — un tercero no puede leer ni escribir aunque conozca el UUID de la conversación. **Hasta la migración `20260926120000_security_fixes.sql` esto NO era cierto** (ver "Correcciones de la auditoría inicial" abajo) |
-| Habitaciones editables solo por su propietario | `rooms_owner_write`. La dirección exacta va un paso más allá: `room_addresses_owner_only`, ni siquiera visible para otros usuarios autenticados |
+| Habitaciones editables solo por su propietario | `rooms_{insert,update,delete}_own`, `room_addresses_{insert,update,delete}_own` y `room_images_{insert,update,delete}_own`, solo con la cuenta activa desde la Fase 4.0 (antes, `rooms_owner_write`, `room_addresses_owner_only` y `room_images_owner_write`, FOR ALL). La dirección exacta va un paso más allá: `room_addresses_select_own`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
 | Respuestas del test (Fase 3.1) | `compatibility_responses_select_own`: `authenticated` solo **lee** su fila; no tiene INSERT, UPDATE ni DELETE (GRANT). `anon`, ningún privilegio. Solo escribe el servidor (service_role, `lib/services/compatibility.ts`), y el trigger `trg_compatibility_responses_integrity` aplica S1–S6 y el bloqueo de cuentas eliminadas a todos los roles |
 | Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); los datos públicos de otros, en la vista `public_profile_previews`; `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
@@ -328,6 +328,52 @@ detalle en `docs/SUPABASE_VALIDATION.md`):
     - Falta revisar quién tiene ese acceso y con qué procedimientos. No se
       ha hecho ninguna auditoría operativa.
 
+## Fase 4.0 — habitaciones: escrituras bloqueadas para cuentas desactivadas (2026-10-13)
+
+Migración `20261013120000_rooms_deleted_account_writes.sql`. Aplica a
+`rooms`, `room_addresses` y `room_images` la regla de las cuentas
+eliminadas («Cuentas eliminadas: escrituras bloqueadas en RLS», abajo):
+`deleted_at IS NOT NULL` es una cuenta desactivada, y la base de datos le
+impide escribir, no solo la aplicación.
+
+- **Qué cambia:** cada política FOR ALL del propietario
+  (`rooms_owner_write`, `room_addresses_owner_only` y
+  `room_images_owner_write`) se divide por comando, `to authenticated`.
+  - Las de INSERT, UPDATE y DELETE exigen la misma propiedad que antes y,
+    además, que el perfil del propietario exista y no tenga `deleted_at`.
+    El UPDATE lo exige en USING y en WITH CHECK.
+  - El INSERT de una cuenta desactivada se rechaza con `42501` («new row
+    violates row-level security policy»). Su UPDATE y su DELETE afectan a 0
+    filas.
+- **No depende del JWT:** la RLS lee `deleted_at` en cada consulta. Un token
+  emitido antes de desactivar la cuenta ya no escribe (RD2–RD4, sin volver a
+  hacer login).
+- **Sin cambios:**
+  - la lectura: `rooms_select_active_public`, `rooms_select_own`,
+    `room_images_select`, y `room_addresses_select_own` con la condición de
+    antes. El propietario desactivado sigue viendo sus filas;
+  - `rooms_admin_all` (un admin activo sigue moderando) y el trigger de
+    moderación;
+  - GRANT, funciones y triggers;
+  - `service_role` (BYPASSRLS), que conserva sus escrituras. Esta tarea no
+    añade ningún uso del cliente admin (D17 sigue en dos servicios).
+- **Pendiente, a propósito:** las habitaciones activas de una cuenta
+  desactivada siguen siendo públicas. Ocultarlas es la decisión R7.
+- **Sin recursión:** las políticas leen `profiles` (el usuario lee su propia
+  fila aunque esté eliminada) y `rooms`. Ninguna política de `profiles`
+  consulta tablas de habitaciones, ni las de `rooms` consultan
+  `room_addresses` o `room_images`. Si la lectura del propio perfil se
+  quitara, la condición fallaría cerrada. Todas las columnas van
+  cualificadas.
+- **Tests:**
+  - `tests/db/15_rooms_integrity.sql`, con estructura, comportamiento y un
+    control negativo que reintroduce la condición antigua de forma temporal;
+  - P3 del preflight;
+  - el camino incremental, en `migration-upgrade-selftest.sh`.
+
+  Detalle en `docs/TESTING.md`. **Sin validar en Supabase real** (R8,
+  pendiente).
+
 ## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
 
 Migración incremental `20261004120100_profiles_privacy.sql` (decisión D2,
@@ -517,6 +563,10 @@ NULL` = cuenta completamente desactivada. Migración
   (`compatibility_responses`, `favorites`, `interests`, mensajes, rooms...)
   no se ha tocado: cuando tengan flujo (Fase 3 en adelante) habrá que
   aplicarles la misma regla.
+  - **Actualización:** `compatibility_responses` la aplica con un trigger
+    desde la Fase 3.1, y `rooms`, `room_addresses` y `room_images` con RLS
+    desde la Fase 4.0 (ver «Fase 4.0», arriba). Quedan `favorites`,
+    `interests` y los mensajes, que todavía no tienen flujo.
 
 ## Fase 2.5 — preferencias de vivienda (2026-09-30)
 

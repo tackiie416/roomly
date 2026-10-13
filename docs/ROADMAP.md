@@ -515,13 +515,54 @@ decisión o autorización):
 Fuera de la Fase 3, pendiente operativo: rotar las claves de `uwxb…` y
 pausarlo.
 
-## Fase 4 — Rooms
+## Fase 4 — Rooms — 🟡 EN CURSO (desde el 2026-10-13)
 
 CRUD de habitaciones, subida de fotos a Storage, búsqueda con filtros,
 página de detalle (con dirección aproximada, nunca exacta, hasta match).
 
 **Criterios de aceptación**: búsqueda paginada, sin N+1 verificado con
 tests, `room_addresses` nunca se serializa en ninguna respuesta pública.
+
+**Inicio** (2026-10-13): el propietario autorizó expresamente iniciar la Fase
+4, tras una auditoría de su alcance (`PROGRESS.md`, sesión 42). El roadmap
+original no define subfases; se añaden a medida que el propietario las
+autoriza. Iniciar la Fase 4 no autoriza el lanzamiento: los requisitos
+previos de la Fase 3 siguen pendientes.
+
+Subfases:
+- **4.0 Escrituras de habitaciones bloqueadas para cuentas desactivadas**:
+  hecha en local y en la CI.
+  - Migración `20261013120000_rooms_deleted_account_writes.sql`: la regla de
+    las cuentas eliminadas de la Fase 2 (decisión B), que quedó pendiente
+    para el resto de tablas, se aplica a `rooms`, `room_addresses` y
+    `room_images`.
+  - Tests: `tests/db/15_rooms_integrity.sql` y P3 del preflight (44
+    políticas).
+  - Sin CRUD, Storage ni búsqueda.
+  - **Sin validar en Supabase real** (ver R8).
+
+**Decisiones pendientes del propietario** (auditoría del 2026-10-13; no
+están tomadas y no bloquean la 4.0):
+- **R1.** Barrios de referencia: qué lista y de qué fuente. El seed no tiene
+  barrios.
+- **R2.** Ubicación aproximada: solo el barrio, o coordenadas difuminadas con
+  mapa; el proveedor (Mapbox está recomendado, sin confirmar) y la
+  distancia a la universidad, que no tiene coordenadas.
+- **R3.** Qué órdenes entran en la búsqueda. «Relevancia» no está definida, y
+  «compatibilidad» exigiría usar service_role fuera de los dos servicios de
+  D17.
+- **R4.** Búsqueda con sesión o pública.
+- **R5.** Fotos: número máximo, tamaño, tipos MIME y compresión. Además, cómo
+  probar las políticas de Storage, que `test:db` no cubre.
+- **R6.** Catálogo de `features`, cerrado o libre.
+- **R7.** Si las habitaciones de una cuenta desactivada dejan de ser
+  públicas, y qué exige pasar de `draft` a `active`. Hoy siguen siendo
+  públicas, y la 4.0 no lo cambia.
+- **R8.** Cómo validar en Supabase real las migraciones de la Fase 4.
+  `roomly-validation-3` ya tiene el esquema y el workflow no aplica
+  migraciones sobre uno existente. Mientras no se decida, un run nuevo
+  fallaría en P3.
+- **R9.** Qué significa `total_roommates`, que el esquema marca como ambigua.
 
 ## Fase 5 — Interest
 
