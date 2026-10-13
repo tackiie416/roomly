@@ -153,8 +153,11 @@ dicen como "pendiente" puede estar ya superado por esta tabla.
   - Saca una tabla en la consola y `coverage/matching/coverage-summary.json`,
     que no se versiona.
 - **Sin umbrales:** solo mide. La CI no lo ejecuta ni falla por un
-  porcentaje. Qué nivel cuenta como «casi total» (criterio de la Fase 3) lo
-  decide el propietario.
+  porcentaje. El propietario aceptó el 2026-10-13 la cobertura medida (abajo),
+  junto con las mutaciones del motor 7/7, como suficiente para el criterio
+  «cobertura de tests casi total» de la Fase 3, sin exigir el 100 % de ramas.
+  Solo resuelve ese criterio: la Fase 3 sigue NO CERRADA (`PROGRESS.md`,
+  sesión 39, y `docs/ROADMAP.md`).
 - **Resultado** (2026-10-13, sobre `c90f9f1` más este comando; igual desde
   un `npm ci` limpio):
 

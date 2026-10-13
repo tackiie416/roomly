@@ -290,7 +290,19 @@ con el PR #7 (`f34b2c8`):
 Cumplimiento de los criterios de aceptación:
 - el motor tiene tests de casos, de propiedades (simetría, determinismo) y de
   mutaciones;
-- los pesos y las constantes están en `lib/matching/weights.ts`.
+- los pesos y las constantes están en `lib/matching/weights.ts`;
+- **cobertura «casi total»: aceptada por el propietario el 2026-10-13**
+  (`PROGRESS.md`, sesión 39), con la medición de
+  `npm run test:coverage:matching` (PR #21, merge `9f6d67a`). El detalle por
+  archivo está en `docs/TESTING.md`, «Cobertura del motor de matching».
+  - Cifras: líneas 100 % (212/212), funciones 100 % (58/58), ramas 98,38 %
+    (244/248) y sentencias 99,61 % (258/259), con mutaciones del motor 7/7
+    detectadas y 1030/1030 tests unitarios.
+  - Las cuatro ramas sin cubrir son casos defensivos de `score.ts` que los
+    cuestionarios actuales no producen. No se exige el 100 % de ramas ni se
+    añaden tests artificiales para cubrirlas.
+  - Esta aceptación solo resuelve el criterio de cobertura. No cierra la
+    Fase 3 ni cambia los otros criterios ni la lista de «Pendiente».
 
 **Hecho después de la implementación local** (2026-10-08 a 2026-10-10):
 - **Integración en `master`:** PR #7 (implementación, `f34b2c8`), PR #8
@@ -385,6 +397,20 @@ Cumplimiento de los criterios de aceptación:
 - **CI:** en verde en el head de cada PR y después de cada merge. La última,
   el run `38204349293` sobre `d4618cf`: 1030/1030 unitarios, build, E1 32/32
   (con los 2 de D1) y `db-security`.
+
+**Hecho después del PR #19** (2026-10-12 y 2026-10-13; detalle en
+`PROGRESS.md`, sesión 39):
+- PR #20 (`c90f9f1`): la sincronización de `PROGRESS.md`, `CLAUDE.md` y este
+  archivo tras los PR #14–#19 (sesión 38).
+- PR #21 (`9f6d67a`): `npm run test:coverage:matching`, la cobertura V8 de
+  `lib/matching/` con los tests unitarios, sin umbral y fuera de la CI. Los
+  resultados están en `docs/TESTING.md`.
+- **CI:** en verde en el head y después del merge de los dos. La última, el
+  run `38338233233` sobre `9f6d67a`: 1030/1030 unitarios, build, E1 32/32 y
+  `db-security`.
+- Decisión del 2026-10-13: el criterio de cobertura queda aceptado (ver
+  «Cumplimiento de los criterios de aceptación»). La Fase 3 sigue NO
+  CERRADA.
 
 **Pendiente** (cada punto con su decisión o autorización; qué bloquea el
 cierre lo decide el propietario):
