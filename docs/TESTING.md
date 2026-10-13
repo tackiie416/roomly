@@ -79,6 +79,7 @@
 | `tests/supabase/migration-upgrade-selftest.sh` (Fase 3.1) | ✅ 6/6: migraciones de la Fase 2 con datos y después las nuevas; filas conservadas y sujetas a S4/S5 y al bloqueo de cuentas eliminadas | local; en CI (`db-security`) en verde desde el PR #7; el último, sobre `83654eb` (run `38003093188`) |
 | Mutaciones de la Fase 3.1 contra `test:db` | ✅ 5/5 detectadas (sin S4, UPDATE devuelto a `authenticated`, sin bloqueo de cuentas eliminadas, SELECT para `anon`, bajar de versión permitido) | local, sobre una copia de la migración en el scratchpad |
 | Mutaciones del motor (Fase 3.2) | ✅ 7/7 detectadas (media en vez de `min`, Jaccard, dato ausente como neutro, sin r6, dirección por suma en vez de signos concordantes, sin tope de diferencias, umbral de fortaleza exclusivo) | local, `score.ts` restaurado y comprobado con `diff` |
+| `npm run test:coverage:matching` (cobertura V8 de `lib/matching/`) | ✅ medida, sin umbral: líneas 100 % (212/212), funciones 100 % (58/58), ramas 98,38 % (244/248) y sentencias 99,61 % (258/259), con los 1030 unitarios (ver «Cobertura del motor de matching» abajo) | local (2026-10-13), también desde un `npm ci` limpio; la CI no lo ejecuta |
 | Migraciones + seed en Supabase real | ✅ las 9 migraciones y el seed, en una transacción (run 13) · ✅ las 10 migraciones y el seed, en una transacción (run 16, Fase 3) | `roomly-validation-2b` (`uwxb…`) · `roomly-validation-3` |
 | Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) · ✅ marca `roomly-validation-3`, 18 tablas, 37 políticas, 13 triggers, 11 funciones (run 16; en verde en los runs 17, 18 y 19) | `roomly-validation-2b` · `roomly-validation-3` |
 | Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) · ✅ 305/305 en `01`–`14` (los 14 archivos, cada uno revertido; las 15 comprobaciones del runner, sin restos; runs 16 y 18) · ✅ los 14 archivos completados con el mensaje de éxito y la comprobación final sin restos (run 19; el runner aborta ante cualquier aserción fallida, y las 305 son las de la suite, no un recuento sacado del log) | `roomly-validation` (Fase 1) · `roomly-validation-2b` · `roomly-validation-3` |
@@ -140,6 +141,55 @@ con los runs 16–19 es de la Fase 3 y el resto, de las Fases 1 y 2.
 
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
+
+## Cobertura del motor de matching (2026-10-13, en local)
+
+- **Comando:** `npm run test:coverage:matching` (`vitest.coverage.config.ts`).
+  - Ejecuta los mismos tests que `npm run test`: los 37 archivos de
+    `tests/unit/`, 1030 tests.
+  - Mide con V8 (`@vitest/coverage-v8` 5.0.2, la misma versión que
+    `vitest`) solo `lib/matching/`, con todos sus archivos, también los que
+    ningún test carga.
+  - Saca una tabla en la consola y `coverage/matching/coverage-summary.json`,
+    que no se versiona.
+- **Sin umbrales:** solo mide. La CI no lo ejecuta ni falla por un
+  porcentaje. Qué nivel cuenta como «casi total» (criterio de la Fase 3) lo
+  decide el propietario.
+- **Resultado** (2026-10-13, sobre `c90f9f1` más este comando; igual desde
+  un `npm ci` limpio):
+
+  | Archivo | Líneas | Funciones | Ramas | Sentencias |
+  |---|---|---|---|---|
+  | **`lib/matching/` (total)** | **100 % (212/212)** | **100 % (58/58)** | **98,38 % (244/248)** | **99,61 % (258/259)** |
+  | `explanations.ts` | 100 % (10/10) | 100 % (3/3) | 100 % (12/12) | 100 % (12/12) |
+  | `filters.ts` | 100 % (20/20) | 100 % (10/10) | 100 % (44/44) | 100 % (30/30) |
+  | `questionnaire-status.ts` | 100 % (14/14) | 100 % (4/4) | 100 % (15/15) | 100 % (18/18) |
+  | `questionnaire.ts` | 100 % (17/17) | 100 % (4/4) | 100 % (8/8) | 100 % (17/17) |
+  | `score.ts` | 100 % (148/148) | 100 % (37/37) | 97,63 % (165/169) | 99,44 % (178/179) |
+  | `types.ts` | 0/0 | 0/0 | 0/0 | 0/0 |
+  | `weights.ts` | 100 % (3/3) | 0/0 | 0/0 | 100 % (3/3) |
+
+- **Lo que queda sin cubrir** (`score.ts`): cuatro ramas defensivas que los
+  cuestionarios registrados no alcanzan (lo comprueba
+  `questionnaire-versions`).
+  - `:141-142`: una pregunta de conducta sin su pareja y su `continue`, la
+    única sentencia sin cubrir.
+  - `:252`: una tolerancia sin `toleranceOf`.
+  - `:348`: peso total 0.
+
+  No se han añadido tests para cubrirlas.
+- **Límites de la medición:**
+  - Solo cuenta los tests unitarios. No instrumenta E1 (la app compilada
+    contra el mock), `test:db` ni la api-suite real.
+  - V8 mide lo que se ejecuta, no lo que se comprueba: una línea cubierta
+    puede no tener ninguna aserción. La otra evidencia son las mutaciones
+    del motor (7/7, arriba).
+  - Los tests de servicios y de rutas también ejecutan el motor y suman a
+    la cobertura. La medición no separa qué parte viene de los tests propios
+    del motor.
+  - `types.ts` solo tiene tipos (0/0): la tabla de la consola lo muestra
+    como 0 y el JSON como 100 %.
+  - Medido en la nube de Claude Code (Node 22.22.2), no en la CI.
 
 ## D1 — la clave service_role fuera de los bundles públicos (2026-10-12, en local)
 

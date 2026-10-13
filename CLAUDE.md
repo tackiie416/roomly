@@ -305,6 +305,7 @@ npm run lint            # ESLint
 npm run typecheck        # tsc --noEmit
 npm run test               # Vitest, una vez
 npm run test:watch          # Vitest, modo watch
+npm run test:coverage:matching # cobertura V8 de lib/matching/ con los tests unitarios (sin umbral; ver docs/TESTING.md)
 npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (ver docs/TESTING.md)
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
