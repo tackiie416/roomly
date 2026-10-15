@@ -48,7 +48,52 @@ begin
     raise exception 'FALLO P1: seed no aplicado (falta la ciudad barcelona activa)';
   end if;
 
-  raise notice 'ok - P1: 18 tablas, funciones y trigger de la migración de seguridad presentes, seed aplicado';
+  -- Fase 4.1 (20261015120000): las restricciones de integridad de rooms
+  -- existen y están validadas, la FK compuesta une (barrio, ciudad) y el
+  -- catálogo de características es exactamente el aprobado (R6).
+  declare
+    missing text;
+    catalog text[];
+  begin
+    select string_agg(v.conname, ', ' order by v.conname) into missing
+    from (values ('chk_rooms_features_catalog'), ('chk_rooms_features_unique'),
+                 ('chk_rooms_total_roommates'), ('chk_rooms_total_rooms'),
+                 ('chk_rooms_publishable'), ('fk_rooms_neighborhood_city')) as v(conname)
+    where not exists (
+      select 1 from pg_constraint c
+      where c.conrelid = 'public.rooms'::regclass and c.conname = v.conname and c.convalidated
+    );
+    if missing is not null then
+      raise exception 'FALLO P1: faltan o no están validadas restricciones de rooms de la Fase 4.1 (migración 20261015120000): %', missing;
+    end if;
+    if not exists (
+      select 1 from pg_constraint c
+      where c.conrelid = 'public.rooms'::regclass and c.conname = 'fk_rooms_neighborhood_city'
+        and c.contype = 'f' and c.confrelid = 'public.neighborhoods'::regclass
+        and (select array_agg(a.attname::text order by k.ord)
+             from unnest(c.conkey) with ordinality as k(attnum, ord)
+             join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+            = array['neighborhood_id', 'city_id']
+        and (select array_agg(a.attname::text order by k.ord)
+             from unnest(c.confkey) with ordinality as k(attnum, ord)
+             join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
+            = array['id', 'city_id']
+    ) then
+      raise exception 'FALLO P1: fk_rooms_neighborhood_city no une (neighborhood_id, city_id) con neighborhoods(id, city_id)';
+    end if;
+    select array_agg(m[1] order by m[1]) into catalog
+    from pg_constraint c,
+         regexp_matches(pg_get_constraintdef(c.oid), '''([a-z_]+)''::text', 'g') as m
+    where c.conrelid = 'public.rooms'::regclass and c.conname = 'chk_rooms_features_catalog';
+    if catalog is distinct from array[
+      'air_conditioning', 'balcony', 'desk', 'dishwasher', 'double_bed', 'elevator',
+      'exterior', 'furnished', 'heating', 'private_bathroom', 'washing_machine', 'wifi'
+    ] then
+      raise exception 'FALLO P1: el catálogo de características de chk_rooms_features_catalog no es el aprobado: %', catalog;
+    end if;
+  end;
+
+  raise notice 'ok - P1: 18 tablas, funciones y trigger de la migración de seguridad presentes, seed aplicado, restricciones de rooms de la Fase 4.1 presentes';
 end $$;
 
 -- ============================================================
@@ -339,10 +384,55 @@ begin
     failures := failures || 'authenticated NO tiene SELECT en compatibility_responses (no podría leer su estado)'::text;
   end if;
 
+  -- rooms (20261015120000, Fase 4.1): authenticated escribe por columnas
+  -- (sin status al crear; sin deleted_at, created_at, updated_at, approx_lat
+  -- ni approx_lng; id y owner_id fuera del UPDATE), conserva SELECT y DELETE
+  -- (RLS); anon solo SELECT; service_role, tabla completa.
+  if has_table_privilege('authenticated', 'public.rooms', 'INSERT')
+     or has_table_privilege('authenticated', 'public.rooms', 'UPDATE') then
+    failures := failures || 'authenticated tiene INSERT/UPDATE de tabla completa en rooms'::text;
+  end if;
+  if not has_table_privilege('authenticated', 'public.rooms', 'SELECT')
+     or not has_table_privilege('authenticated', 'public.rooms', 'DELETE') then
+    failures := failures || 'authenticated NO tiene SELECT/DELETE en rooms (fix demasiado restrictivo)'::text;
+  end if;
+  if has_any_column_privilege('anon', 'public.rooms', 'INSERT')
+     or has_any_column_privilege('anon', 'public.rooms', 'UPDATE')
+     or has_table_privilege('anon', 'public.rooms', 'DELETE') then
+    failures := failures || 'anon tiene escritura en rooms'::text;
+  end if;
+  if not has_table_privilege('anon', 'public.rooms', 'SELECT') then
+    failures := failures || 'anon NO tiene SELECT en rooms (rompería la lectura pública)'::text;
+  end if;
+  if not has_table_privilege('service_role', 'public.rooms', 'INSERT')
+     or not has_table_privilege('service_role', 'public.rooms', 'UPDATE')
+     or not has_table_privilege('service_role', 'public.rooms', 'DELETE') then
+    failures := failures || 'service_role sin INSERT/UPDATE/DELETE de tabla completa en rooms'::text;
+  end if;
+  declare
+    got_insert text;
+    got_update text;
+  begin
+    select string_agg(a.attname, ',' order by a.attname) into got_insert
+    from pg_attribute a
+    where a.attrelid = 'public.rooms'::regclass and a.attnum > 0 and not a.attisdropped
+      and has_column_privilege('authenticated', a.attrelid, a.attnum, 'INSERT');
+    select string_agg(a.attname, ',' order by a.attname) into got_update
+    from pg_attribute a
+    where a.attrelid = 'public.rooms'::regclass and a.attnum > 0 and not a.attisdropped
+      and has_column_privilege('authenticated', a.attrelid, a.attnum, 'UPDATE');
+    if got_insert is distinct from 'available_from,city_id,deposit_amount,description,expenses_included,features,house_rules,id,max_stay_months,min_stay_months,neighborhood_id,owner_id,pets_allowed,price_month,roommate_preferences,smoking_allowed,students_only,title,total_roommates,total_rooms' then
+      failures := failures || format('INSERT de authenticated en rooms: columnas inesperadas (%s)', got_insert);
+    end if;
+    if got_update is distinct from 'available_from,city_id,deposit_amount,description,expenses_included,features,house_rules,max_stay_months,min_stay_months,neighborhood_id,pets_allowed,price_month,roommate_preferences,smoking_allowed,status,students_only,title,total_roommates,total_rooms' then
+      failures := failures || format('UPDATE de authenticated en rooms: columnas inesperadas (%s)', got_update);
+    end if;
+  end;
+
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences y compatibility_responses)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses y rooms)';
 end $$;
 
 -- ============================================================

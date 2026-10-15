@@ -716,22 +716,50 @@ describe("Chat (CH)", () => {
 // ROOMS — O propietario, D admin
 // ===========================================================================
 describe("Rooms (RO)", () => {
-  const roomRow = (status: string) => ({
+  // Desde la Fase 4.1 una habitación `active` necesita un barrio de su ciudad y
+  // la ocupación. La suite no crea datos de referencia en el proyecto: usa un
+  // barrio de Barcelona ya cargado (catálogo oficial de R1).
+  let neighborhoodId = "";
+  beforeAll(async () => {
+    const { data, error } = await service
+      .from("neighborhoods")
+      .select("id")
+      .eq("city_id", cityId)
+      .order("slug")
+      .limit(1);
+    if (error) throw new Error(`neighborhoods: ${error.message}`);
+    if (!data?.[0])
+      throw new Error(
+        "No hay barrios de Barcelona en el proyecto de validación: falta la migración de datos de R1 (Fase 4.1)"
+      );
+    neighborhoodId = data[0].id;
+  });
+
+  // Sin `status`: desde la 4.1 no está en el INSERT de authenticated y la
+  // habitación nace `draft`.
+  const roomRow = () => ({
     id: roomId,
     owner_id: O().id,
     title: "Habitación de validación",
     city_id: cityId,
+    neighborhood_id: neighborhoodId,
     price_month: 450,
     available_from: "2026-10-01",
-    status,
+    total_roommates: 2,
+    total_rooms: 3,
   });
   const setStatus = (client: Client, status: string) =>
     client.from("rooms").update({ status }).eq("id", roomId).select("status");
 
-  it("RO1: el propietario publica y edita su habitación", async () => {
-    const insert = await O().client.from("rooms").insert(roomRow("active")).select("id");
+  it("RO1: el propietario crea su habitación en borrador, la publica y la edita", async () => {
+    const insert = await O().client.from("rooms").insert(roomRow()).select("id, status");
     expectOk(insert.error);
     expect(insert.data).toHaveLength(1);
+    expect(insert.data?.[0]?.status).toBe("draft");
+
+    const publish = await setStatus(O().client, "active");
+    expectOk(publish.error);
+    expect(publish.data?.[0]?.status).toBe("active");
 
     const edit = await O()
       .client.from("rooms")
@@ -769,11 +797,16 @@ describe("Rooms (RO)", () => {
   });
 
   it("RO6: el propietario NO puede reactivar vía upsert (INSERT ... ON CONFLICT DO UPDATE)", async () => {
-    const { error } = await O().client.from("rooms").upsert(roomRow("active"));
+    // Desde la 4.1 `status` no está en el INSERT de authenticated, y el upsert
+    // de supabase-js reescribe además `id` y `owner_id`, que no están en su
+    // UPDATE: lo rechaza el GRANT (42501) antes de llegar al trigger.
+    const { error } = await O()
+      .client.from("rooms")
+      .upsert({ ...roomRow(), status: "active" });
     record(
       `RO6: upsert de room removed → ${error ? `${error.code} — ${error.message}` : "ACEPTADO"}`
     );
-    expectModerationRejection(error);
+    expectPgError(error, "42501");
     const { data } = await service
       .from("rooms")
       .select("status")

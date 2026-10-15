@@ -478,6 +478,128 @@ propietario se divide por comando, con `to authenticated`.
   - **sin validar en Supabase real** (R8, pendiente: `roomly-validation-3`
     no admite aplicar migraciones a un esquema que ya existe).
 
+## Fase 4.1 — habitaciones: integridad, catálogo, ocupación y publicación (2026-10-15)
+
+Migración incremental
+`supabase/migrations/20261015120000_rooms_integrity_publication.sql`, con
+las decisiones R1, R2 (alcance mínimo), R6, R7 (publicación) y R9 del
+propietario (2026-10-15; ver `docs/ROADMAP.md`). Sin interfaz. Todo es
+declarativo (FK, CHECK y GRANT): no añade tablas, columnas, políticas,
+triggers ni funciones. Siguen 18 tablas, **44 políticas, 13 triggers y 11
+funciones**.
+
+**Barrio ↔ ciudad (R1).** FK compuesta `fk_rooms_neighborhood_city`:
+`(neighborhood_id, city_id)` → `neighborhoods (id, city_id)`, con la clave
+única nueva `neighborhoods_id_city_id_key`.
+- Cubre INSERT y UPDATE, también cambiar solo la ciudad o solo el barrio
+  (`23503`).
+- Con NO ACTION, impide mover de ciudad o borrar un barrio que use una
+  habitación. Renombrarlo sí se permite.
+- Con `neighborhood_id` nulo no se comprueba (MATCH SIMPLE): un borrador
+  puede no tener barrio.
+- Por qué una FK y no un trigger, como en las preferencias: aquí la columna
+  es escalar; en `housing_preferences` los barrios son un array, y no hay FK
+  sobre elementos de un array (Fase 2.0).
+- Se conserva la FK simple `rooms_neighborhood_id_fkey`.
+
+**Catálogo de barrios oficiales (R1): pendiente.** La fuente aprobada es Open
+Data BCN, pero desde el entorno de esta sesión no se pudo acceder al portal
+(política de red), así que no se han verificado la licencia, la versión ni
+los barrios, y **no se ha cargado ninguno**. Irá en una migración de datos
+idempotente aparte (`on conflict (city_id, slug) do nothing`), con las
+coordenadas vacías (R2). Hay que resolver al escribirla que, en un proyecto
+nuevo, las migraciones se aplican antes que `supabase/seed.sql`, que es quien
+crea Barcelona.
+
+**Catálogo cerrado de características (R6).**
+- Fuente única en el código: `ROOM_FEATURES` en `lib/validation/rooms.ts`
+  (clave guardada y etiqueta de la interfaz): `wifi`, `heating`,
+  `air_conditioning`, `elevator`, `washing_machine`, `dishwasher`, `balcony`,
+  `furnished`, `private_bathroom`, `double_bed`, `desk` y `exterior`.
+- En la base de datos, para todos los roles:
+  - `chk_rooms_features_catalog`: solo claves del catálogo. Rechaza también
+    otras mayúsculas (`WiFi`) y un `NULL` dentro del array;
+  - `chk_rooms_features_unique`: sin repetidas (con `array_positions`, sin
+    funciones);
+  - el array vacío (el default) se acepta.
+- Zod quita las repetidas, como hace con los barrios de las preferencias; la
+  base de datos las rechaza.
+- Mascotas, tabaco y «solo estudiantes» siguen siendo las columnas booleanas
+  propias, fuera del catálogo.
+- Añadir una característica exige una migración que cambie los dos CHECK, el
+  código, P1 del preflight y `tests/db/16`. `validation-infra` falla si no
+  coinciden.
+
+**Ocupación (R9).** No se renombran las columnas.
+- `total_roommates`: número de personas con las que convivirá quien entre en
+  la habitación, sin contarse a sí mismo. `chk_rooms_total_roommates`: ≥ 0
+  si tiene valor.
+- `total_rooms`: número total de dormitorios de la vivienda.
+  `chk_rooms_total_rooms`: ≥ 1 si tiene valor.
+- Cada anuncio es una habitación: dos dormitorios libres son dos anuncios.
+- Los comentarios de columna (`comment on column`) sustituyen al de
+  `20260925120000` («plazas que se buscan», marcado como ambiguo), que no se
+  edita porque las migraciones commiteadas no se reescriben.
+
+**Requisitos para publicar (R7).** `chk_rooms_publishable`: una habitación
+`active` necesita `neighborhood_id`, `total_roommates` y `total_rooms`.
+- Se suman a lo que el esquema ya exige siempre: título, ciudad, precio > 0
+  y fecha de disponibilidad no nulos, y características del catálogo. El
+  barrio tiene que ser de la ciudad por la FK compuesta.
+- Es un CHECK de fila: publicar una habitación incompleta falla (`23514`), y
+  una activa no puede quedarse incompleta después.
+- Los borradores, y `paused`, `rented` y `removed`, pueden estar incompletos.
+  Reactivar exige volver a cumplirlo.
+- Se aplica a todos los roles, también a un admin y a service_role.
+- No exige fotos: Storage es una subfase posterior.
+- No se añadieron otros requisitos. Por ejemplo, un título solo con espacios
+  cumple `NOT NULL`; ponerle una longitud mínima sería una decisión de
+  producto.
+- No cambia la visibilidad pública de las habitaciones de cuentas
+  desactivadas: esa parte de R7 queda para antes de la búsqueda.
+
+**Columnas reservadas al servidor.** GRANT por columnas, con el patrón de
+`profiles` y `housing_preferences`. Revocar una columna no quita el privilegio
+de tabla, así que se revoca el de tabla y se conceden las columnas.
+
+| Rol | INSERT | UPDATE |
+|---|---|---|
+| `authenticated` | los datos del anuncio, más `id` y `owner_id`. Fuera: `status` (toda habitación nace `draft`), `deleted_at`, `created_at`, `updated_at`, `approx_lat` y `approx_lng` | los mismos datos y `status`. Fuera además: `id` y `owner_id` |
+| `anon` | ninguno (antes, de tabla; la RLS ya lo frenaba) | ninguno |
+| `service_role` | tabla completa, sin cambios | tabla completa, sin cambios |
+
+- SELECT y DELETE de `authenticated`, sin cambios (RLS). `anon` conserva
+  SELECT para la lectura pública.
+- `status` se queda en el UPDATE a propósito. Publicar, pausar o marcar como
+  alquilada son acciones del propietario, y moderar, del admin. Las acotan
+  mecanismos que ya existían: la RLS de la 4.0, el trigger de moderación (H5)
+  y, ahora, `chk_rooms_publishable`. Quitarlo exigiría una operación
+  privilegiada nueva, que no se ha diseñado.
+- `updated_at` la sigue poniendo `trg_rooms_updated_at` en cada UPDATE.
+- Consecuencias:
+  - como en `profiles`, el GRANT es por rol de Postgres: un admin desde el
+    cliente sigue moderando con `status`, pero el borrado lógico
+    (`deleted_at`) y las coordenadas se harán desde el servidor;
+  - el propietario retira su anuncio con `paused` o borrándolo; el borrado
+    lógico ya no es suyo;
+  - `upsert()` de supabase-js no sirve para esta tabla, porque reescribe `id`
+    y `owner_id`: el CRUD hará INSERT y UPDATE por separado.
+
+**Datos existentes.** Antes de añadir nada, la migración cuenta las
+habitaciones que incumplirían alguna regla nueva. Si hay alguna, se detiene
+(`23514`, `rooms_4_1_precheck:`) con cuántas y por qué, sin borrar ni
+transformar nada: quien opere la base de datos decide antes de reintentar.
+Ninguna habitación existente se toca (no hay interfaz de habitaciones; las
+suites reales borran las suyas).
+
+**Validación.**
+- Tests en `tests/db/16_rooms_publication.sql`; ajustes en `03` y `15`, que
+  ahora crean borradores completos y los publican con un UPDATE.
+- P1 y P4 del preflight, y `migration-upgrade-selftest.sh`, que conserva una
+  habitación activa completa y un borrador incompleto, y prueba el rechazo
+  con datos inválidos.
+- Detalle en `docs/TESTING.md`. **Sin validar en Supabase real** (R8).
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid

@@ -10,16 +10,27 @@ insert into public.profiles (id, full_name, date_of_birth, seeking_status) value
 -- El admin se crea como fixture de servidor: un cliente ya no puede darse role=admin (C1).
 insert into public.profiles (id, full_name, date_of_birth, seeking_status, role) values
   ('30000000-0000-0000-0000-00000000000d', 'Admin', '1990-01-01', 'looking_for_room', 'admin');
+-- Barrio de prueba: desde la 4.1 una habitación activa necesita barrio.
+insert into public.neighborhoods (id, city_id, name, slug)
+  select '32000000-0000-0000-0000-000000000001', id, 'Barrio H5 test', 'barrio-h5-test'
+  from public.cities where slug = 'barcelona';
 
 -- ---------- El propietario gestiona su habitación con normalidad ----------
 set role authenticated;
 select roomly_test.login('30000000-0000-0000-0000-00000000000b');
 
+-- Desde la 4.1 `status` no está en el INSERT de authenticated: la habitación
+-- nace `draft` y se publica con un UPDATE.
 select roomly_test.expect_affected(
-  $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from, status)
+  $$insert into public.rooms (id, owner_id, title, city_id, neighborhood_id, price_month,
+                              available_from, total_roommates, total_rooms)
     select '31000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-00000000000b',
-           'Habitación luminosa', c.id, 450, '2026-10-01', 'active'
+           'Habitación luminosa', c.id, '32000000-0000-0000-0000-000000000001', 450,
+           '2026-10-01', 2, 3
     from public.cities c where c.slug = 'barcelona'$$,
+  1, 'H5: el propietario crea su habitación (en borrador)');
+select roomly_test.expect_affected(
+  $$update public.rooms set status = 'active' where id = '31000000-0000-0000-0000-000000000001'$$,
   1, 'H5: el propietario puede publicar su habitación');
 select roomly_test.expect_affected(
   $$update public.rooms set title = 'Habitación muy luminosa', price_month = 430
@@ -50,7 +61,7 @@ select roomly_test.expect_error(
   $$update public.rooms set status = 'paused' where id = '31000000-0000-0000-0000-000000000001'$$,
   '42501', 'H5: ni pasarla a otro estado (paused) para luego activarla');
 select roomly_test.expect_error(
-  $$update public.rooms set status = 'active', deleted_at = null, title = 'x'
+  $$update public.rooms set status = 'active', title = 'x', description = 'otra'
     where id = '31000000-0000-0000-0000-000000000001'$$,
   '42501', 'H5: ni combinando el cambio de status con otros campos');
 select roomly_test.expect_affected(

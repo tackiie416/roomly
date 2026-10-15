@@ -253,10 +253,18 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
 - **Fase 4 (Rooms): en curso desde el 2026-10-13**, con la autorización
   expresa del propietario. Iniciarla no autoriza el lanzamiento.
   - La 4.0 (escrituras de habitaciones bloqueadas para cuentas
-    desactivadas) está hecha en local y en la CI, sin validar en Supabase
-    real (R8).
-  - Las subfases siguientes necesitan las decisiones R1–R9 del propietario
-    (`docs/ROADMAP.md`, Fase 4) y cada una su autorización.
+    desactivadas) está integrada en `master` (PR #25, `7818a15`), sin
+    validar en Supabase real (R8).
+  - La 4.1 (datos e integridad, sin interfaz), autorizada el 2026-10-15 con
+    R1, R2 (alcance mínimo), R6, R7 (publicación) y R9, está implementada y
+    probada en local, pendiente de revisión en su PR y sin validar en real:
+    - migración `20261015120000`: barrio ↔ ciudad, catálogo cerrado de
+      características (`lib/validation/rooms.ts`), ocupación, requisitos para
+      `active` y GRANT por columnas en `rooms`;
+    - falta cargar el catálogo de barrios oficiales (R1): desde el entorno no
+      se pudo acceder a Open Data BCN.
+  - Siguen pendientes R3, R4, R5, R8, la visibilidad de R7 y el resto de R2.
+    Cada subfase necesita su autorización (`docs/ROADMAP.md`, Fase 4).
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -448,6 +456,16 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   `deleted_at` también están fuera del `INSERT` (antes cualquiera podía
   crearse su perfil como admin), y cambiar un rol solo se hace desde el
   servidor con `service_role`, ni siquiera un admin desde el cliente.
+- `rooms` (Fase 4.1): GRANT por columnas para `authenticated`, sin INSERT ni
+  UPDATE de tabla completa.
+  - `status` no está en el INSERT: toda habitación nace `draft`.
+  - `deleted_at`, `created_at`, `updated_at`, `approx_lat` y `approx_lng` no
+    están en ninguno de los dos, e `id` y `owner_id` tampoco en el UPDATE.
+  - `anon` solo tiene SELECT.
+  - Publicar sigue siendo un UPDATE de `status`, acotado por la RLS de la 4.0,
+    el trigger de moderación (H5) y `chk_rooms_publishable`.
+  - No lo reviertas ni añadas una operación privilegiada para `status` sin
+    una decisión explícita (afecta a D17).
 - Las políticas del chat usan `public.is_conversation_participant()`
   (`SECURITY DEFINER`, sin parámetro de usuario). Nunca escribas una
   subconsulta de RLS con columnas sin cualificar: Postgres resuelve el

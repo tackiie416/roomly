@@ -540,14 +540,42 @@ Subfases:
     políticas).
   - Sin CRUD, Storage ni búsqueda.
   - **Sin validar en Supabase real** (ver R8).
+- **4.1 Datos e integridad, sin interfaz**: autorizada el 2026-10-15 con las
+  decisiones R1, R2 (alcance mínimo), R6, R7 (publicación) y R9.
+  Implementada y probada en local, y pendiente de revisión en su PR. Falta la
+  carga del catálogo de barrios (ver R1).
+  - Migración `20261015120000_rooms_integrity_publication.sql`:
+    - FK compuesta barrio ↔ ciudad;
+    - catálogo cerrado de características, con su fuente única en
+      `lib/validation/rooms.ts`;
+    - CHECK de ocupación y de publicación;
+    - GRANT por columnas en `rooms`: `status` fuera del INSERT, y
+      `deleted_at`, las fechas, `approx_*`, `id` y `owner_id` reservados al
+      servidor.
+  - Tests: `tests/db/16_rooms_publication.sql`, P1 y P4 del preflight,
+    `migration-upgrade-selftest` y `validation-infra`.
+  - Sin CRUD, Storage ni búsqueda.
+  - **Sin validar en Supabase real** (ver R8).
 
-**Decisiones pendientes del propietario** (auditoría del 2026-10-13; no
-están tomadas y no bloquean la 4.0):
+**Decisiones del propietario** (auditoría del 2026-10-13). Del 2026-10-15
+son las de R1, R2 (alcance mínimo), R6, R7 (publicación) y R9; las demás
+siguen sin tomar:
 - **R1.** Barrios de referencia: qué lista y de qué fuente. El seed no tiene
   barrios.
+  - **Decidido (2026-10-15):** barrios oficiales de fuentes municipales,
+    empezando por Open Data BCN, cargados con una migración de datos
+    idempotente, sin coordenadas, y sin inventar barrios de otras ciudades.
+  - Hecha en la 4.1: la coherencia barrio ↔ ciudad de `rooms`.
+  - **Pendiente:** la carga. Desde el entorno no se pudo acceder a la fuente
+    para verificar la licencia, la versión y los barrios.
 - **R2.** Ubicación aproximada: solo el barrio, o coordenadas difuminadas con
   mapa; el proveedor (Mapbox está recomendado, sin confirmar) y la
   distancia a la universidad, que no tiene coordenadas.
+  - **Decidido (alcance mínimo, 2026-10-15):** en la Fase 4 solo la zona
+    (barrio y ciudad), sin pedir ni guardar la dirección exacta desde la
+    futura interfaz.
+  - `approx_lat`/`approx_lng` quedan reservadas al servidor desde la 4.1.
+  - **Pendiente:** el mapa, el proveedor y la distancia.
 - **R3.** Qué órdenes entran en la búsqueda. «Relevancia» no está definida, y
   «compatibilidad» exigiría usar service_role fuera de los dos servicios de
   D17.
@@ -555,14 +583,30 @@ están tomadas y no bloquean la 4.0):
 - **R5.** Fotos: número máximo, tamaño, tipos MIME y compresión. Además, cómo
   probar las políticas de Storage, que `test:db` no cubre.
 - **R6.** Catálogo de `features`, cerrado o libre.
+  - **Decidido e implementado (2026-10-15, 4.1):** catálogo cerrado de 12
+    claves (`wifi`, `heating`, `air_conditioning`, `elevator`,
+    `washing_machine`, `dishwasher`, `balcony`, `furnished`,
+    `private_bathroom`, `double_bed`, `desk` y `exterior`), con sus
+    etiquetas.
+  - La base de datos rechaza las claves de fuera y las repetidas.
 - **R7.** Si las habitaciones de una cuenta desactivada dejan de ser
   públicas, y qué exige pasar de `draft` a `active`. Hoy siguen siendo
   públicas, y la 4.0 no lo cambia.
+  - **Publicación, decidida e implementada (2026-10-15, 4.1):** `active`
+    exige, además de los campos obligatorios del esquema, un barrio de su
+    ciudad y la ocupación, sin fotos todavía.
+  - **Pendiente:** la visibilidad de las habitaciones de cuentas
+    desactivadas, que se decidirá antes de la búsqueda.
 - **R8.** Cómo validar en Supabase real las migraciones de la Fase 4.
   `roomly-validation-3` ya tiene el esquema y el workflow no aplica
   migraciones sobre uno existente. Mientras no se decida, un run nuevo
   fallaría en P3.
 - **R9.** Qué significa `total_roommates`, que el esquema marca como ambigua.
+  - **Decidido e implementado (2026-10-15, 4.1):** `total_roommates` es el
+    número de personas con las que convivirá quien entre, sin contarse a sí
+    mismo (≥ 0), y `total_rooms` el de dormitorios de la vivienda (≥ 1).
+  - Cada anuncio es una habitación, y los dos campos son obligatorios para
+    publicar.
 
 ## Fase 5 — Interest
 
