@@ -12,9 +12,12 @@
 --
 -- Por qué las negativas fallan por permisos y no por otra cosa:
 --   - authenticated tiene INSERT, UPDATE y DELETE sobre las tres tablas
---     (RI0), así que un 42501 al insertar es la política (RLS), no el GRANT;
---   - cada INSERT rechazado se repite después, con los mismos datos, como
---     service_role, y entra (los datos son válidos);
+--     (RI0), así que su 42501 al insertar es la política (RLS), no el GRANT.
+--     El GRANT de anon no se comprueba: su 42501 (RI3) puede venir del GRANT
+--     o de la RLS, y en los dos casos anon no escribe;
+--   - cada INSERT rechazado se repite después con los mismos datos y entra
+--     (los datos son válidos): lo repite la dueña si su cuenta está activa
+--     (RI2-control y RI3-control) y, si no, service_role (RX2);
 --   - un UPDATE o DELETE con 0 filas solo prueba algo si la fila es visible
 --     para quien lo intenta: se comprueba antes (como en tests/db/11). La
 --     dirección de A no la ve B; para ese caso se abre la lectura con una
@@ -244,6 +247,17 @@ select roomly_test.expect_error(
     from public.cities c where c.slug = 'barcelona'$$,
   '42501', 'RI3: anon no crea habitaciones');
 
+-- Control: la misma fila entra si la crea su dueña.
+reset role;
+set role authenticated;
+select roomly_test.login('15000000-0000-0000-0000-00000000000a');
+select roomly_test.expect_affected(
+  $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
+    select '15100000-0000-0000-0000-0000000000f1', '15000000-0000-0000-0000-00000000000a',
+           'Anónima', c.id, 300, '2026-11-01'
+    from public.cities c where c.slug = 'barcelona'$$,
+  1, 'RI3-control: A sí crea esa habitación: el rechazo de anon no venía de los datos');
+
 -- Con la dirección visible a la fuerza, B sigue sin poder tocarla.
 reset role;
 begin;
@@ -399,13 +413,20 @@ select roomly_test.expect_affected(
 reset role;
 set role service_role;
 select roomly_test.login(null);
--- Los mismos datos que se rechazaron arriba entran como servidor: eran válidos.
+-- Los mismos datos que se rechazaron a D y a E entran como servidor: eran
+-- válidos (los de B y anon los repitió A arriba).
 select roomly_test.expect_affected(
   $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
     select '15100000-0000-0000-0000-00000000000e', '15000000-0000-0000-0000-00000000000e',
            'Habitación de E', c.id, 380, '2026-11-01'
     from public.cities c where c.slug = 'barcelona'$$,
   1, 'RX2: service_role crea la habitación que E no pudo crear');
+select roomly_test.expect_affected(
+  $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
+    select '15100000-0000-0000-0000-0000000000d3', '15000000-0000-0000-0000-00000000000d',
+           'Nueva de D', c.id, 500, '2026-11-01'
+    from public.cities c where c.slug = 'barcelona'$$,
+  1, 'RX2: la nueva habitación que D no pudo crear');
 select roomly_test.expect_affected(
   $$insert into public.room_addresses (room_id, address_exact)
     values ('15100000-0000-0000-0000-0000000000d2', 'Carrer Exacte de D, 6')$$,

@@ -6,6 +6,70 @@ próximos pasos.**
 
 ---
 
+## 2026-10-15 — Sesión 43: correcciones de la auditoría del PR #25 (Fase 4 EN CURSO)
+
+**Contexto**
+- Auditoría final de solo lectura del PR #25 (4.0) sobre `641e379`: apto
+  para fusionar, sin bloqueantes, con tres discrepancias menores (M3–M5). El
+  propietario pidió corregirlas en la misma rama antes del merge.
+- **Estado de Git al empezar:** PR #25 abierto, HEAD `641e379` en local y en
+  GitHub, base `master` = `f2c12c9`, sin conflictos, sin reviews y CI #57 en
+  verde.
+
+**Qué se hizo**
+- **M3, `tests/db/15_rooms_integrity.sql`:** la sesión 42, el comentario del
+  test y `docs/TESTING.md` decían que cada INSERT rechazado se repite con los
+  mismos datos y entra. No era así en dos casos: el de `anon` en RI3 y el de
+  D en RD2. Además, el comentario atribuía todas las repeticiones a
+  `service_role`, y las de RI2 las hace la dueña.
+  - Se añaden las dos repeticiones: RI3-control (la dueña A crea la misma
+    fila) y, en RX2, `service_role` crea la habitación nueva de D. No se toca
+    ninguna aserción negativa, y todas siguen exigiendo 42501.
+  - El comentario dice ahora quién repite cada caso y que el GRANT de `anon`
+    no se comprueba: su 42501 puede venir del GRANT o de la RLS.
+  - Pasa de 71 a 73 aserciones (`test:db`, 378). Las filas nuevas usan los
+    ids `15…` del propio archivo, y ninguna aserción posterior cuenta
+    habitaciones de A o de D.
+- **M4, `docs/TESTING.md`, tabla «Protege contra»:** la fila del `13` dice 44
+  políticas (37 hasta la 4.0), y hay una fila nueva para el `15`. La del `14`
+  ya faltaba antes y no se añade (queda fuera del alcance pedido).
+- **M5, `docs/SUPABASE_VALIDATION.md`:** el aviso de la Fase 4.0 pasa detrás
+  del bloque histórico de las 35 políticas, cuya última frase había quedado
+  separada. Dice que el esquema esperado tiene 44 políticas, que
+  `roomly-validation-3` sigue con el anterior, que un run actual con
+  `apply_migrations=false` fallaría en P3 y omitiría los jobs posteriores, y
+  que el preflight es de solo lectura.
+- Recuentos vigentes, de 71 a 73 y de 376 a 378: `docs/TESTING.md` y la
+  matriz de `docs/SUPABASE_VALIDATION.md`. La sesión 42 no se toca: registra
+  lo que había en `641e379`.
+
+**Resultados** (en local, PostgreSQL 16 del entorno)
+- Línea base sobre `641e379`: `test:db` 376/376.
+- Con las correcciones:
+  - `test:db` 378/378 (el `15` con 73);
+  - `test:infra` en verde: guard, `sql-suite-selftest` 78/78 («378 = 378»),
+    `preflight-selftest` 50/50 y `migration-upgrade-selftest`, sin cambios;
+  - `npm run test` 1032/1032;
+  - `lint`, `typecheck`, `format:check` y `git diff --check`, sin errores.
+- **Mutaciones contra `test:db`:** 11/11 detectadas, sobre copias en el
+  scratchpad sin tocar el repositorio.
+  - Las 9 de la sesión 42 siguen detectándose.
+  - Dos nuevas simulan un rechazo 42501 que no viene de la RLS (un trigger
+    de INSERT) en la fila de `anon` (RI3) o en la de D (RD2). Con el test de
+    `641e379` pasaban; con el nuevo fallan RI3-control y la repetición de
+    RX2.
+
+**Límites**
+- Sin cambios en la migración, la RLS, el preflight, los workflows, el código
+  de la aplicación ni las dependencias.
+- Sigue sin validarse en Supabase real (R8). No se ha lanzado ningún run.
+
+**Pendiente (Fase 4 EN CURSO)**
+- La CI del nuevo HEAD y la decisión de merge del PR #25.
+- Las decisiones R1–R9 del propietario antes de proponer la 4.1.
+
+---
+
 ## 2026-10-13 — Sesión 42: inicio de la Fase 4 y 4.0, escrituras de habitaciones bloqueadas para cuentas desactivadas (Fase 4 EN CURSO)
 
 **Contexto**

@@ -652,14 +652,21 @@ Las 44 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
 - `20261013120000` (Fase 4.0) divide por comando las tres políticas FOR ALL
   de habitaciones: −3 +10 (44).
 
-**Aviso (Fase 4.0):** `roomly-validation-3` tiene las 37 políticas
-anteriores y el workflow no aplica migraciones a un esquema que ya existe.
-Mientras no se decida cómo validar en real las migraciones de la Fase 4
-(R8, decisión del propietario), un run nuevo contra ese proyecto fallaría
-en P3. No se ha lanzado ninguno.
-
 Nadie actualizó el preflight entonces. Además solo contaba, y no
 comprobaba nada de la Fase 2.
+
+**Aviso (Fase 4.0):**
+- Desde la Fase 4.0 (`20261013120000`), el esquema esperado tiene 44
+  políticas, y P3 exige exactamente esas.
+- `roomly-validation-3` sigue con el esquema anterior (37 políticas): el
+  workflow no aplica migraciones a un esquema que ya existe.
+- Un run actual con `apply_migrations=false` fallaría en P3 y se omitirían
+  los jobs posteriores: `sql-suite`, que depende del preflight, y
+  `api-suite`, `auth-redirects` y `e2e-real`, que dependen de `sql-suite`.
+- El preflight es de solo lectura (solo consulta el catálogo): no modifica
+  el esquema ni los datos.
+- Cómo validar en real las migraciones de la Fase 4 lo decide el
+  propietario (R8). No se ha lanzado ningún run.
 
 **Verificación sin red:**
 - `tests/unit/validation-infra.test.ts` deriva de las migraciones el
@@ -795,7 +802,7 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P0–P6 | `tests/supabase/preflight.sql` | Ver la tabla de arriba |
-| SQL 01–14 | `tests/db/*` vía `run-sql-suite.sh` | Las 305 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real en el run 16 (Fase 3): 305/305**. Desde la Fase 4.0 se añade `15` (habitaciones y cuentas desactivadas, 71 aserciones; 376 en total), **sin ejecutar en real** (R8) |
+| SQL 01–14 | `tests/db/*` vía `run-sql-suite.sh` | Las 305 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real en el run 16 (Fase 3): 305/305**. Desde la Fase 4.0 se añade `15` (habitaciones y cuentas desactivadas, 73 aserciones; 378 en total), **sin ejecutar en real** (R8) |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
 | RO1–RO9 | api-suite | Propietario edita y pausa; no pone ni saca de `removed` (también vía upsert); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario |
