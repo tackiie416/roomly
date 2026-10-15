@@ -554,12 +554,16 @@ Subfases:
       servidor.
   - Tests: `tests/db/16_rooms_publication.sql`, P1 y P4 del preflight,
     `migration-upgrade-selftest` y `validation-infra`.
+  - Decisión R7 sobre `status` (opción A, 2026-10-15): sin cambios en la
+    migración; la fija `tests/db/17_rooms_status_transitions.sql` (ver R7).
   - Sin CRUD, Storage ni búsqueda.
   - **Sin validar en Supabase real** (ver R8).
+  - **No está terminada:** falta la carga de barrios (R1), y el PR no se
+    fusiona sin ella.
 
 **Decisiones del propietario** (auditoría del 2026-10-13). Del 2026-10-15
-son las de R1, R2 (alcance mínimo), R6, R7 (publicación) y R9; las demás
-siguen sin tomar:
+son las de R1, R2 (alcance mínimo), R6, R7 (publicación y estado) y R9; las
+demás siguen sin tomar:
 - **R1.** Barrios de referencia: qué lista y de qué fuente. El seed no tiene
   barrios.
   - **Decidido (2026-10-15):** barrios oficiales de fuentes municipales,
@@ -595,6 +599,18 @@ siguen sin tomar:
   - **Publicación, decidida e implementada (2026-10-15, 4.1):** `active`
     exige, además de los campos obligatorios del esquema, un barrio de su
     ciudad y la ocupación, sin fotos todavía.
+  - **Estado, decidido (opción A, 2026-10-15):** la propietaria actualiza
+    `status`.
+    - Al crear no lo fija: toda habitación nace `draft`.
+    - Después la mueve entre `draft`, `active`, `paused` y `rented`; a
+      `active`, solo completa.
+    - No pone ni quita `removed`, que sigue siendo del admin y del servidor
+      (trigger H5).
+    - Siguen el bloqueo de cuentas desactivadas de la 4.0 y service_role sin
+      cambios.
+    - Sin función privilegiada nueva ni cambios en D17.
+    - Lo fija `tests/db/17_rooms_status_transitions.sql`. No cambia los
+      criterios de aceptación de la Fase 4.
   - **Pendiente:** la visibilidad de las habitaciones de cuentas
     desactivadas, que se decidirá antes de la búsqueda.
 - **R8.** Cómo validar en Supabase real las migraciones de la Fase 4.

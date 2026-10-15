@@ -570,11 +570,7 @@ de tabla, así que se revoca el de tabla y se conceden las columnas.
 
 - SELECT y DELETE de `authenticated`, sin cambios (RLS). `anon` conserva
   SELECT para la lectura pública.
-- `status` se queda en el UPDATE a propósito. Publicar, pausar o marcar como
-  alquilada son acciones del propietario, y moderar, del admin. Las acotan
-  mecanismos que ya existían: la RLS de la 4.0, el trigger de moderación (H5)
-  y, ahora, `chk_rooms_publishable`. Quitarlo exigiría una operación
-  privilegiada nueva, que no se ha diseñado.
+- `status` se queda en el UPDATE a propósito (R7, opción A, abajo).
 - `updated_at` la sigue poniendo `trg_rooms_updated_at` en cada UPDATE.
 - Consecuencias:
   - como en `profiles`, el GRANT es por rol de Postgres: un admin desde el
@@ -584,6 +580,40 @@ de tabla, así que se revoca el de tabla y se conceden las columnas.
     lógico ya no es suyo;
   - `upsert()` de supabase-js no sirve para esta tabla, porque reescribe `id`
     y `owner_id`: el CRUD hará INSERT y UPDATE por separado.
+
+**Estado de la habitación (R7, opción A).** Decisión expresa del propietario
+(2026-10-15): `status` es la única columna del ciclo de vida que escribe el
+cliente, y solo en el UPDATE. Publicar, pausar, reactivar y marcar como
+alquilada son acciones de la propietaria; poner o quitar `removed`, del admin
+o del servidor.
+- No hay función, RPC ni operación privilegiada nueva, ni usos nuevos de
+  service_role. D17 no cambia.
+- Lo acotan capas independientes:
+  - el GRANT de la 4.1: sin `status` al crear;
+  - la RLS de la 4.0: solo la propietaria, con la cuenta activa, o un admin
+    activo;
+  - el trigger de moderación (H5), en `BEFORE UPDATE OF status`: `anon` y
+    `authenticated` no admin no entran ni salen de `removed`;
+  - `chk_rooms_publishable`, para todos los roles.
+- Transiciones efectivas (`tests/db/17`):
+
+| Quién | Qué puede hacer con `status` |
+|---|---|
+| propietaria, cuenta activa | al crear, nada: nace `draft`. Después, cualquier cambio entre `draft`, `active`, `paused` y `rented`; a `active`, solo con la habitación completa. No entra ni sale de `removed` (`42501`, `room_moderation:`) |
+| propietaria, cuenta desactivada | nada: 0 filas, aunque ve su habitación |
+| admin activo | cualquier cambio, también desde o hacia `removed`; a `active`, solo completa |
+| `service_role` | cualquier cambio (tabla completa, sin trigger H5); a `active`, solo completa |
+| `anon` | nada (sin privilegio) |
+
+- **Límite de la moderación (comportamiento actual, sin cambios en la
+  4.1):**
+  - `removed` es el único estado de moderación efectivo. Si un admin «oculta»
+    con `paused`, la propietaria puede reactivarla, aunque
+    `docs/ARCHITECTURE.md` («Habitaciones») describe así ocultar;
+  - H5 solo vigila `status`: con la habitación en `removed`, la propietaria
+    sigue pudiendo editar el resto de columnas de su GRANT y borrarla (RLS
+    de la 4.0);
+  - las dos cosas quedan para la Fase 7 (admin real). No se cambian aquí.
 
 **Datos existentes.** Antes de añadir nada, la migración cuenta las
 habitaciones que incumplirían alguna regla nueva. Si hay alguna, se detiene

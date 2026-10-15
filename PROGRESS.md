@@ -6,6 +6,103 @@ próximos pasos.**
 
 ---
 
+## 2026-10-15 — Sesión 45: decisión R7 sobre `rooms.status` (opción A) y su matriz de tests (Fase 4 EN CURSO; 4.1 NO terminada)
+
+**Contexto**
+- El propietario confirmó de forma expresa la opción A de R7 para
+  `rooms.status`:
+  - la propietaria autenticada lo actualiza;
+  - el INSERT no lo admite, así que toda habitación nace `draft`;
+  - se mueve entre `draft`, `active`, `paused` y `rented`, y `active` exige
+    barrio válido, barrio de su ciudad y ocupación;
+  - la propietaria no pone ni quita `removed`; la moderación sigue protegida
+    por el trigger existente;
+  - siguen el bloqueo de cuentas desactivadas de la 4.0 y service_role sin
+    cambios;
+  - sin ampliar D17 ni añadir una función privilegiada.
+- **Estado de Git al empezar:** rama `claude/phase4-1-rooms-integrity`, HEAD
+  `1045d3e` (PR #26 abierto, base `7818a15`, CI #60 en verde), árbol limpio.
+- R1 sigue bloqueado: el proxy del entorno rechaza
+  `opendata-ajuntament.barcelona.cat` (`connect_rejected`, también en el
+  segundo intento de la sesión anterior). No se ha cargado ningún barrio.
+
+**Qué se hizo**
+- **Sin cambios en la migración** ni en el código de la aplicación. La matriz
+  efectiva, medida antes en una base de datos de prueba, ya coincidía con la
+  opción A, así que no hubo que tocar la lógica.
+- **`tests/db/17_rooms_status_transitions.sql`** (160 aserciones), nuevo:
+  - ST0: permisos efectivos sobre `status`, el trigger y el CHECK, los 5
+    valores de `room_status` y fixtures válidos, con un barrio sintético
+    propio del test (no es un barrio real);
+  - ST1: matriz de 6 casos × 20 transiciones (propietaria con habitación
+    completa e incompleta, admin, propietaria desactivada y `service_role`
+    con las dos);
+  - ST2: flujo persistido de la propietaria (publica, pausa, reactiva, edita
+    y marca como alquilada; no la deja incompleta ni la marca `removed`);
+  - ST3: moderación persistida (el admin retira y devuelve a `paused`; la
+    propietaria no la recupera);
+  - ST4: GRANT al crear y `anon`;
+  - ST5: controles: sin el trigger, la propietaria pondría `removed`;
+    reactivada, D publicaría; completada, I se publica.
+  - Cada rechazo se clasifica por su motivo sin depender del idioma del
+    servidor: el mensaje propio `room_moderation:` (H5), `constraint_name`
+    (`chk_rooms_publishable`), el `42501` del GRANT con su control positivo,
+    y 0 filas sobre una fila visible (RLS de la 4.0).
+- `tests/supabase/run-sql-suite.sh`: comentario 01–17.
+- **Documentación:** `docs/DATABASE.md` («Estado de la habitación», con la
+  tabla de transiciones y el límite de la moderación), `docs/SECURITY.md` (la
+  excepción de `status`, la propiedad y la moderación), `docs/TESTING.md`
+  (sección, filas de resultados, «Protege contra» y mutaciones),
+  `docs/ROADMAP.md` (R7, sin cambiar criterios) y esta entrada. `CLAUDE.md`
+  no se ha tocado: no contradice la decisión.
+- En `docs/TESTING.md`, la fila de `sql-suite-selftest` decía «una sesión
+  aislada por archivo (15)» desde la 4.0; ahora dice 17, el número que cuenta
+  el selftest.
+
+**Problemas encontrados**
+- Primera versión del test: el control de D (5b) falló porque la matriz
+  dejaba cada habitación en el último estado de partida (`removed`). Era un
+  fallo del fixture, no de la lógica: la matriz devuelve cada habitación a
+  `draft` al terminar su caso y una aserción lo comprueba.
+
+**Observaciones** (comportamiento actual, sin cambios; para la Fase 7)
+- La moderación efectiva es solo `removed`. Si un admin «oculta» con
+  `paused`, como describe `docs/ARCHITECTURE.md`, la propietaria puede
+  reactivarla.
+- H5 solo vigila `status`. Comprobado en una base de datos de prueba del
+  scratchpad: con la habitación en `removed`, la propietaria sigue editando
+  sus demás columnas y puede borrarla. El test no lo fija, porque no forma
+  parte de la decisión.
+
+**Resultados** (en local, con el PostgreSQL 16 del entorno)
+- `test:db` 629/629 (antes 469): `17` con 160; `03`, `15` y `16` sin cambios
+  (14, 75 y 88).
+- `test:infra` en verde: guarda; `sql-suite-selftest` 78/78 («629 = 629», 17
+  archivos, también `17` con el runner real); `preflight-selftest` 65/65;
+  `migration-upgrade-selftest`.
+- `npm run test` 1047/1047; `lint`, `typecheck`, `format:check` y
+  `git diff --check`, sin errores.
+- **Mutaciones**, sobre copias en el scratchpad y ejecutando solo `17`: 14/14
+  detectadas (trigger quitado, deshabilitado, que solo bloquee entrar o
+  salir, que bloquee al admin o a `service_role`; sin CHECK o publicar solo
+  con barrio; `status` en el INSERT o fuera del UPDATE; sin el bloqueo de
+  cuentas desactivadas o solo en el `WITH CHECK`; `anon` con UPDATE;
+  `service_role` sin UPDATE). Las 7 que detecta primero ST0 también las
+  detecta el comportamiento si se quita ST0.
+- `build` y E1 no se ejecutaron en local (no cambia código de la aplicación);
+  los ejecuta la CI.
+
+**Pendiente** (la 4.1 no está terminada)
+- **R1:** incorporar el dataset oficial de barrios. Hay que verificar sus
+  campos y su licencia, e implementar la carga idempotente para instalaciones
+  limpias y existentes (con el orden migraciones → seed). La red del entorno
+  lo sigue bloqueando. El PR #26 no es fusionable sin R1.
+- Sin validar en Supabase real (R8).
+- `docs/SUPABASE_VALIDATION.md`, sin actualizar (ver la sesión 44).
+- La visibilidad de R7, R3, R4, R5 y el resto de R2, sin decidir.
+
+---
+
 ## 2026-10-15 — Sesión 44: Fase 4.1, datos e integridad de habitaciones, sin interfaz (Fase 4 EN CURSO)
 
 **Contexto**

@@ -391,17 +391,24 @@ columnas; las dos capas son independientes, como en `profiles` y
   - `anon` pierde INSERT, UPDATE y DELETE, que la RLS ya le impedía, y
     conserva SELECT;
   - comprobado de forma exacta en P4 y en `tests/db/16` (RS4 y RS5).
-- **`status` sigue en el UPDATE de `authenticated`**, sin operaciones
-  privilegiadas nuevas, porque publicar, pausar y moderar son acciones del
-  cliente que ya acotaban:
-  - la RLS de la 4.0: solo la propietaria, con la cuenta activa, o un admin
-    activo;
-  - el trigger de moderación (H5): solo un admin o el servidor entran o salen
-    de `removed`;
-  - desde la 4.1, `chk_rooms_publishable`: `active` solo con barrio y
-    ocupación.
-  Reservar también `status` al servidor exigiría diseñar una operación
-  privilegiada (y revisar D17); no se ha hecho.
+- **`status` sigue en el UPDATE de `authenticated`: excepción aprobada (R7,
+  opción A, decisión expresa del propietario del 2026-10-15).** Es la única
+  columna del ciclo de vida de la habitación que escribe el cliente, y solo
+  al editar. No hay RPC, función `SECURITY DEFINER` ni operación privilegiada
+  nueva, ni usos nuevos de service_role: D17 no cambia.
+  - **Propiedad:** la habitación es de su `owner_id`, que el cliente no puede
+    cambiar (fuera del UPDATE). Solo la propietaria con la cuenta activa, o
+    un admin activo, cambian su estado (RLS de la 4.0). Una cuenta
+    desactivada no lo cambia: 0 filas.
+  - **Lo que puede la propietaria:** al crear, nada (nace `draft`); después,
+    moverla entre `draft`, `active`, `paused` y `rented`. Para `active`,
+    `chk_rooms_publishable` exige barrio y ocupación, para todos los roles.
+  - **Límite de la moderación:** solo un admin activo o el servidor entran o
+    salen de `removed` (trigger H5, `42501` `room_moderation:`). La
+    propietaria no lo pone ni con un UPDATE directo, y no recupera una
+    habitación retirada.
+  - Matriz completa: `docs/DATABASE.md` («Estado de la habitación») y
+    `tests/db/17`.
 - **Invariantes para todos los roles**, también admin y service_role: barrio
   de la ciudad de la habitación (FK compuesta), características del catálogo
   sin repetir, ocupación válida y requisitos de publicación (CHECK).
@@ -416,7 +423,12 @@ columnas; las dos capas son independientes, como en `profiles` y
     moderando (`status`), pero no escribe `deleted_at` ni las coordenadas,
     que serán del servidor (Fase 7 y R2);
   - el propietario ya no hace el borrado lógico (ver H5, arriba);
-  - `upsert()` no sirve en esta tabla.
+  - `upsert()` no sirve en esta tabla;
+  - la moderación efectiva es solo `removed`: si un admin «oculta» con
+    `paused`, como describe `docs/ARCHITECTURE.md`, la propietaria puede
+    reactivarla. Y H5 solo vigila `status`: con la habitación en `removed`,
+    la propietaria aún edita sus demás columnas o la borra. Ninguna de las dos
+    cosas cambia en la 4.1; quedan para la Fase 7 (admin real).
 - **Pendiente:**
   - la visibilidad de las habitaciones de cuentas desactivadas (R7);
   - el catálogo de barrios (R1, sin acceso a la fuente desde el entorno);
@@ -426,6 +438,9 @@ columnas; las dos capas son independientes, como en `profiles` y
 - **Tests:**
   - `tests/db/16_rooms_publication.sql`, con un control negativo que retira
     cada restricción de forma temporal;
+  - `tests/db/17_rooms_status_transitions.sql`: la matriz de transiciones de
+    `status` por actor (R7, opción A), con el motivo exacto de cada rechazo y
+    controles que prueban que los fixtures son válidos;
   - P1 y P4 del preflight y sus mutaciones;
   - `migration-upgrade-selftest.sh`.
 
