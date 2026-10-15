@@ -6,6 +6,208 @@ próximos pasos.**
 
 ---
 
+## 2026-10-15 — Sesión 43: correcciones de la auditoría del PR #25 (Fase 4 EN CURSO)
+
+**Contexto**
+- Auditoría final de solo lectura del PR #25 (4.0) sobre `641e379`: apto
+  para fusionar, sin bloqueantes, con tres discrepancias menores (M3–M5). El
+  propietario pidió corregirlas en la misma rama antes del merge.
+- **Estado de Git al empezar:** PR #25 abierto, HEAD `641e379` en local y en
+  GitHub, base `master` = `f2c12c9`, sin conflictos, sin reviews y CI #57 en
+  verde.
+
+**Qué se hizo**
+- **M3, `tests/db/15_rooms_integrity.sql`:** la sesión 42, el comentario del
+  test y `docs/TESTING.md` decían que cada INSERT rechazado se repite con los
+  mismos datos y entra. No era así en dos casos: el de `anon` en RI3 y el de
+  D en RD2. Además, el comentario atribuía todas las repeticiones a
+  `service_role`, y las de RI2 las hace la dueña.
+  - Se añaden las dos repeticiones: RI3-control (la dueña A crea la misma
+    fila) y, en RX2, `service_role` crea la habitación nueva de D. No se toca
+    ninguna aserción negativa, y todas siguen exigiendo 42501.
+  - El comentario dice ahora quién repite cada caso y que el GRANT de `anon`
+    no se comprueba: su 42501 puede venir del GRANT o de la RLS.
+  - Pasa de 71 a 73 aserciones (`test:db`, 378). Las filas nuevas usan los
+    ids `15…` del propio archivo, y ninguna aserción posterior cuenta
+    habitaciones de A o de D.
+- **M4, `docs/TESTING.md`, tabla «Protege contra»:** la fila del `13` dice 44
+  políticas (37 hasta la 4.0), y hay una fila nueva para el `15`. La del `14`
+  ya faltaba antes y no se añade (queda fuera del alcance pedido).
+- **M5, `docs/SUPABASE_VALIDATION.md`:** el aviso de la Fase 4.0 pasa detrás
+  del bloque histórico de las 35 políticas, cuya última frase había quedado
+  separada. Dice que el esquema esperado tiene 44 políticas, que
+  `roomly-validation-3` sigue con el anterior, que un run actual con
+  `apply_migrations=false` fallaría en P3 y omitiría los jobs posteriores, y
+  que el preflight es de solo lectura.
+- Recuentos vigentes, de 71 a 73 y de 376 a 378: `docs/TESTING.md` y la
+  matriz de `docs/SUPABASE_VALIDATION.md`. La sesión 42 no se toca: registra
+  lo que había en `641e379`.
+
+**Resultados** (en local, PostgreSQL 16 del entorno)
+- Línea base sobre `641e379`: `test:db` 376/376.
+- Con las correcciones:
+  - `test:db` 378/378 (el `15` con 73);
+  - `test:infra` en verde: guard, `sql-suite-selftest` 78/78 («378 = 378»),
+    `preflight-selftest` 50/50 y `migration-upgrade-selftest`, sin cambios;
+  - `npm run test` 1032/1032;
+  - `lint`, `typecheck`, `format:check` y `git diff --check`, sin errores.
+- **Mutaciones contra `test:db`:** 11/11 detectadas, sobre copias en el
+  scratchpad sin tocar el repositorio.
+  - Las 9 de la sesión 42 siguen detectándose.
+  - Dos nuevas simulan un rechazo 42501 que no viene de la RLS (un trigger
+    de INSERT) en la fila de `anon` (RI3) o en la de D (RD2). Con el test de
+    `641e379` pasaban; con el nuevo fallan RI3-control y la repetición de
+    RX2.
+
+**Límites**
+- Sin cambios en la migración, la RLS, el preflight, los workflows, el código
+  de la aplicación ni las dependencias.
+- Sigue sin validarse en Supabase real (R8). No se ha lanzado ningún run.
+
+**Pendiente (Fase 4 EN CURSO)**
+- La CI del nuevo HEAD y la decisión de merge del PR #25.
+- Las decisiones R1–R9 del propietario antes de proponer la 4.1.
+
+---
+
+## 2026-10-13 — Sesión 42: inicio de la Fase 4 y 4.0, escrituras de habitaciones bloqueadas para cuentas desactivadas (Fase 4 EN CURSO)
+
+**Contexto**
+- Tras el cierre técnico de la Fase 3 (PR #24, merge `f2c12c9`, CI #56 en
+  verde), el propietario autorizó expresamente iniciar la Fase 4. Iniciarla
+  no autoriza el lanzamiento: los requisitos previos de la Fase 3 siguen
+  pendientes.
+- **Auditoría de solo lectura del alcance**, sin cambios en el repositorio:
+  - la Fase 4 (`docs/ROADMAP.md`) no tiene subfases;
+  - sus criterios: búsqueda paginada, sin N+1 verificado con tests, y
+    `room_addresses` nunca en una respuesta pública;
+  - ya existen las tablas, la RLS, el trigger de moderación,
+    `tests/db/03` y RO1–RO9;
+  - no hay servicios, UI, Storage, búsqueda ni barrios en el seed;
+  - quedan nueve decisiones del propietario, R1–R9, ahora en
+    `docs/ROADMAP.md`, Fase 4, y ninguna está tomada.
+- Primera tarea recomendada y **autorizada: 4.0**. Aplica una regla ya
+  documentada (`docs/SECURITY.md` y la sesión 13: la misma regla «cuando
+  tengan flujo») y no depende de R1–R9.
+- **Estado de Git al empezar:** `master` = `origin/master` = `f2c12c9`, con
+  el árbol limpio, sin PR abiertos y sin ramas con commits fuera de
+  `master`.
+
+**Estudio previo**
+- `docs/DATABASE.md` leído completo (regla 7).
+- **Patrón a seguir:** `20260930130000` (decisión B). Allí,
+  `housing_preferences_own` (FOR ALL) se dividió en SELECT, con la misma
+  condición, e INSERT, UPDATE y DELETE `to authenticated`, con
+  `exists (... profiles p ... p.deleted_at is null)`.
+- **Sin recursión:**
+  - las políticas de `profiles` no consultan tablas de habitaciones;
+  - las de `rooms` no consultan `room_addresses` ni `room_images`;
+  - `is_admin()` es SECURITY DEFINER;
+  - el usuario lee su propio perfil aunque esté eliminado.
+- **Infraestructura que fija el esquema:**
+  - P3 compara (tabla, política, comando) y el total de 37;
+  - `validation-infra` deriva las políticas de las migraciones con una
+    expresión regular;
+  - el total de 37 también lo fijan `tests/db/10` (PX4), `13` (PV10) y
+    `14` (CR9), `migration-upgrade-selftest` (UP5), `sql-suite-selftest` y
+    `preflight-selftest`.
+- **Lección de `tests/db/11`:** un UPDATE o DELETE con 0 filas solo prueba
+  algo si la fila es visible para quien lo intenta.
+
+**Qué se hizo**
+- **Migración** `supabase/migrations/20261013120000_rooms_deleted_account_writes.sql`
+  (aditiva; no edita ninguna anterior):
+  - `rooms_owner_write`, `room_addresses_owner_only` y
+    `room_images_owner_write` (FOR ALL) se sustituyen por
+    `rooms_{insert,update,delete}_own`, `room_addresses_select_own` (la
+    misma condición de lectura) más `room_addresses_{insert,update,delete}_own`,
+    y `room_images_{insert,update,delete}_own`, todas `to authenticated`;
+  - las de escritura exigen la propiedad de siempre y el perfil del
+    propietario sin `deleted_at`; el UPDATE, en USING y WITH CHECK;
+  - **sin cambios** en la lectura, `rooms_admin_all`, la moderación, GRANT,
+    funciones, triggers y `service_role`. No se añade ningún uso del cliente
+    admin;
+  - **no oculta** las habitaciones de cuentas desactivadas (R7);
+  - pasan a ser 44 políticas (37 − 3 + 10), 13 triggers y 11 funciones.
+- **`tests/db/15_rooms_integrity.sql`** (71 aserciones):
+  - estructura (RI0);
+  - propietario activo (RI1);
+  - otro usuario y `anon`, sin escritura ni lectura de la dirección (RI2–RI4);
+  - cuenta que se desactiva a mitad del test, con el mismo JWT (RD0–RD5);
+  - cuenta desactivada desde el principio (RE1);
+  - admin y `service_role` intactos (RX1–RX3);
+  - lectura sin cambios (RL1–RL2);
+  - control negativo temporal con la condición anterior a la 4.0 (RI9).
+
+  Cada INSERT rechazado se repite con los mismos datos y entra. Cada 0
+  filas va precedido de la comprobación de que la fila es visible.
+- **Recuentos:** PX4, PV10, CR9 y UP5 pasan de 37 a 44, con la nota «37
+  hasta la 4.0».
+- **Infraestructura:**
+  - `preflight.sql` P3: la lista exacta de 44 y una comprobación de que
+    cada escritura de habitaciones exige `deleted_at IS NULL` en todas sus
+    expresiones;
+  - `preflight-selftest.sh`: 6 mutaciones nuevas y el total final de 44;
+  - `sql-suite-selftest.sh`: 44 políticas;
+  - `migration-upgrade-selftest.sh`: UP6–UP7, con habitaciones anteriores
+    a la migración;
+  - `run-sql-suite.sh`: solo el comentario, 01–15;
+  - `validation-infra.test.ts`: 44, las 14 políticas de habitaciones y la
+    comprobación de P3.
+- **Documentación:**
+  - `docs/DATABASE.md`, `docs/SECURITY.md`, `docs/TESTING.md`,
+    `docs/ROADMAP.md` (Fase 4 en curso, 4.0 y R1–R9) y esta entrada;
+  - fuera de la lista pedida, con la explicación dada antes de editar:
+    - `docs/SUPABASE_VALIDATION.md`: la descripción de P3 y el aviso de que
+      un run contra `roomly-validation-3` fallaría en P3 hasta resolver R8;
+    - `CLAUDE.md`: solo la línea «Fase 4: no empezada», que contradecía a
+      `docs/ROADMAP.md`.
+- No se tocó código de la aplicación, el mock de E1, workflows ni
+  dependencias.
+
+**Resultados** (en local, en la nube de Claude Code, con el PostgreSQL 16
+del entorno)
+- Línea base sobre `master`: `test:db` 305/305 y `test:infra` en verde.
+- Con la 4.0:
+  - `test:db` 376/376 (305 + 71);
+  - `test:infra` en verde: guard, `sql-suite-selftest` 78/78 («376 = 376»),
+    `preflight-selftest` 50/50 (42 mutaciones) y
+    `migration-upgrade-selftest` 10/10;
+  - `npm run test` 1032/1032 (2 nuevos en `validation-infra`);
+  - `lint`, `typecheck`, `format:check` y `git diff --check`, sin errores.
+  - `build` y E1 no se ejecutaron en local (no cambia código de la
+    aplicación); los ejecuta la CI.
+- **Mutaciones contra `test:db`:** 9/9 detectadas, sobre copias en el
+  scratchpad sin tocar el repositorio.
+  - Cuatro neutralizan la comprobación de cuenta activa con `or true` sin
+    quitar su texto. Las detecta el comportamiento (RD2, RD3 y RD4), no la
+    guarda estática.
+  - Las otras cinco: vuelve `rooms_owner_write`; UPDATE sin propiedad;
+    dirección legible por todos; UPDATE de imágenes sin la comprobación;
+    sin la migración.
+  - `15_rooms_integrity` falla en las nueve.
+- Entorno: para ejecutar las suites se creó el rol `root` (superusuario) en
+  el PostgreSQL local de la sesión. No forma parte del repositorio.
+
+**Límites y riesgos**
+- **Sin validar en Supabase real.** `roomly-validation-3` tiene las 37
+  políticas anteriores, y su workflow no aplica migraciones a un esquema que
+  ya existe. Un run nuevo fallaría en P3 hasta resolver R8. No se ha lanzado
+  ninguno.
+- Las habitaciones activas de una cuenta desactivada siguen siendo públicas
+  (R7).
+- No cubre Storage, que todavía no existe.
+- El mock de E1 no tiene habitaciones: la aplicación aún no las usa.
+
+**Pendiente (Fase 4 EN CURSO)**
+- La CI y la revisión del PR de la 4.0, sin merge.
+- Las decisiones R1–R9 del propietario (`docs/ROADMAP.md`, Fase 4) antes de
+  proponer la 4.1.
+- Los requisitos previos al uso con personas reales (sesión 41), sin
+  cambios.
+
+---
+
 ## 2026-10-13 — Sesión 41: cierre de la Fase 3 (Fase 3 CERRADA; cierre técnico, no de lanzamiento)
 
 **Contexto**

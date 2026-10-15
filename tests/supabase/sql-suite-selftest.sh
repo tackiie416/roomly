@@ -103,8 +103,8 @@ check "mismas aserciones que tests/db/run.sh (${remote_asserts} = ${local_assert
 check "11 recorre sus dos bloques y OWN4" \
   '[ "$(grep -c "ok - OWN" "$WORK/full.log")" -ge 10 ] && grep -q "OWN4: housing_preferences sigue con sus 4 políticas" "$WORK/full.log"'
 check "sin restos: usuarios @test, roomly_test, políticas zz_test" '[ "$(leftovers)" = "0" ]'
-check "siguen las 37 políticas" \
-  '[ "$("${Q[@]}" -c "select count(*) from pg_policies where schemaname = '"'"'public'"'"'")" = "37" ]'
+check "siguen las 44 políticas" \
+  '[ "$("${Q[@]}" -c "select count(*) from pg_policies where schemaname = '"'"'public'"'"'")" = "44" ]'
 if bash "$ROOT/tests/supabase/run-preflight.sh" >"$WORK/preflight.log" 2>&1; then
   ok "preflight completo sigue pasando después de la suite"
 else

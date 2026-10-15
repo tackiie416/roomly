@@ -11,6 +11,8 @@
 #     trigger (S4) desde ese momento;
 #   - una fila antigua de una cuenta eliminada se conserva (el trigger no se
 #     dispara al crearlo), pero ya no se puede escribir.
+#   - Fase 4.0: las habitaciones anteriores se conservan; la de una cuenta
+#     activa se sigue editando y la de una cuenta desactivada ya no.
 #
 # «Migraciones nuevas» = las posteriores a la última de la Fase 2
 # (20261004120100_profiles_privacy.sql).
@@ -60,9 +62,17 @@ insert into public.housing_preferences (profile_id, city_id, budget_max)
 insert into public.compatibility_responses (profile_id, answers) values
   ('f0000000-0000-0000-0000-00000000000a', '{"clean_frequency": 3}'),
   ('f0000000-0000-0000-0000-00000000000c', '{"clean_frequency": 4}');
+-- Con las políticas de habitaciones anteriores a la Fase 4.0.
+insert into public.rooms (id, owner_id, title, city_id, price_month, available_from, status)
+  select v.id, v.owner_id, v.title, c.id, 500, '2026-11-01', 'active'
+  from public.cities c,
+       (values ('f1000000-0000-0000-0000-00000000000a'::uuid, 'f0000000-0000-0000-0000-00000000000a'::uuid, 'Habitación antigua A'),
+               ('f1000000-0000-0000-0000-00000000000c'::uuid, 'f0000000-0000-0000-0000-00000000000c'::uuid, 'Habitación antigua C'))
+         as v(id, owner_id, title)
+  where c.slug = 'barcelona';
 update public.profiles set deleted_at = now() where id = 'f0000000-0000-0000-0000-00000000000c';
 SQL
-echo "   ok - 2 filas de compatibility_responses con los DEFAULT de la Fase 2"
+echo "   ok - 2 filas de compatibility_responses con los DEFAULT de la Fase 2 y 2 habitaciones"
 
 echo "== migraciones nuevas sobre esos datos"
 for migration in "${new_migrations[@]}"; do
@@ -97,8 +107,27 @@ select roomly_test.expect_error(
   '23514', 'UP4: la fila antigua de una cuenta eliminada ya no se puede escribir');
 reset role;
 select roomly_test.ok(
-  (select count(*) = 37 from pg_policies where schemaname = 'public'),
-  'UP5: siguen siendo 37 políticas');
+  (select count(*) = 44 from pg_policies where schemaname = 'public'),
+  'UP5: 44 políticas (37 hasta la 4.0)');
+select roomly_test.ok(
+  (select count(*) = 2 from public.rooms
+   where id in ('f1000000-0000-0000-0000-00000000000a', 'f1000000-0000-0000-0000-00000000000c')),
+  'UP6: las habitaciones anteriores se conservan');
+set role authenticated;
+select roomly_test.login('f0000000-0000-0000-0000-00000000000a');
+select roomly_test.expect_affected(
+  $$update public.rooms set title = 'Habitación antigua A, editada'
+    where id = 'f1000000-0000-0000-0000-00000000000a'$$,
+  1, 'UP6: su propietaria activa la sigue editando');
+select roomly_test.login('f0000000-0000-0000-0000-00000000000c');
+select roomly_test.expect_rows(
+  $$select 1 from public.rooms where id = 'f1000000-0000-0000-0000-00000000000c'$$,
+  1, 'UP7: la cuenta desactivada sigue viendo su habitación');
+select roomly_test.expect_affected(
+  $$update public.rooms set title = 'Reactivada'
+    where id = 'f1000000-0000-0000-0000-00000000000c'$$,
+  0, 'UP7: pero ya no la escribe');
+reset role;
 SQL
 
 echo "RESULTADO: las migraciones nuevas se aplican sobre datos de la Fase 2 y los conservan"

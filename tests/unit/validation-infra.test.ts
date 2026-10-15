@@ -163,12 +163,44 @@ function preflightValues(block: RegExp) {
 describe("preflight.sql: lista exacta derivada de las migraciones", () => {
   const derived = fromMigrations();
 
-  it("37 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
+  it("44 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
     const expected = preflightValues(
       /-- P3[\s\S]*?with expected\(tablename, policyname, cmd\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.policies.size).toBe(37);
+    expect(derived.policies.size).toBe(44);
     expect([...expected].sort()).toEqual([...derived.policies].sort());
+  });
+
+  it("rooms, room_addresses y room_images: las políticas por comando de 20261013120000, sin las antiguas FOR ALL", () => {
+    const rooms = [...derived.policies].filter((p) =>
+      /^room(s|_addresses|_images)\./.test(p)
+    );
+    expect(rooms.sort()).toEqual([
+      "room_addresses.room_addresses_delete_own",
+      "room_addresses.room_addresses_insert_own",
+      "room_addresses.room_addresses_select_own",
+      "room_addresses.room_addresses_update_own",
+      "room_images.room_images_delete_own",
+      "room_images.room_images_insert_own",
+      "room_images.room_images_select",
+      "room_images.room_images_update_own",
+      "rooms.rooms_admin_all",
+      "rooms.rooms_delete_own",
+      "rooms.rooms_insert_own",
+      "rooms.rooms_select_active_public",
+      "rooms.rooms_select_own",
+      "rooms.rooms_update_own",
+    ]);
+  });
+
+  it("P3 comprueba que las escrituras de habitaciones exigen cuenta activa", () => {
+    const p3 =
+      read("tests/supabase/preflight.sql").match(/-- P3[\s\S]*?-- P4/)?.[0] ?? "";
+    expect(p3).toContain("tablename in ('rooms', 'room_addresses', 'room_images')");
+    expect(p3).toContain("like '%deleted_at IS NULL%'");
+    expect(p3).toMatch(
+      /FALLO P3: políticas de escritura de habitaciones sin la comprobación de cuenta activa/
+    );
   });
 
   it("housing_preferences: las cuatro políticas de 20260930130000, sin la antigua", () => {
