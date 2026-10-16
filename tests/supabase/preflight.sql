@@ -45,8 +45,25 @@ begin
     raise exception 'FALLO P1: falta el trigger trg_rooms_moderation';
   end if;
   if not exists (select 1 from public.cities where slug = 'barcelona' and is_active) then
-    raise exception 'FALLO P1: seed no aplicado (falta la ciudad barcelona activa)';
+    raise exception 'FALLO P1: falta la ciudad barcelona activa (la crean la migración 20261016120000 y el seed)';
   end if;
+
+  -- Fase 4.1, R1 (20261016120000): Barcelona tiene exactamente los 73 barrios
+  -- oficiales del Ajuntament de Barcelona. La huella es el md5 de «slug|nombre»
+  -- ordenados por slug; validation-infra comprueba que es la de la migración.
+  declare
+    n_barcelona int;
+    fingerprint text;
+  begin
+    select count(*), md5(string_agg(n.slug || '|' || n.name, chr(10) order by n.slug collate "C"))
+      into n_barcelona, fingerprint
+    from public.neighborhoods n
+    join public.cities c on c.id = n.city_id
+    where c.slug = 'barcelona';
+    if n_barcelona <> 73 or fingerprint is distinct from '9847876cf9e43791d3ad0a206f28813a' then
+      raise exception 'FALLO P1: los barrios de Barcelona no son los 73 oficiales (migración 20261016120000): hay %, con la huella %', n_barcelona, fingerprint;
+    end if;
+  end;
 
   -- Fase 4.1 (20261015120000): las restricciones de integridad de rooms
   -- existen y están validadas, la FK compuesta une (barrio, ciudad) y el
@@ -93,7 +110,7 @@ begin
     end if;
   end;
 
-  raise notice 'ok - P1: 18 tablas, funciones y trigger de la migración de seguridad presentes, seed aplicado, restricciones de rooms de la Fase 4.1 presentes';
+  raise notice 'ok - P1: 18 tablas, funciones y trigger de la migración de seguridad presentes, Barcelona con sus 73 barrios oficiales, restricciones de rooms de la Fase 4.1 presentes';
 end $$;
 
 -- ============================================================

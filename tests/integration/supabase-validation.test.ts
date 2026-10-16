@@ -730,7 +730,7 @@ describe("Rooms (RO)", () => {
     if (error) throw new Error(`neighborhoods: ${error.message}`);
     if (!data?.[0])
       throw new Error(
-        "No hay barrios de Barcelona en el proyecto de validación: falta la migración de datos de R1 (Fase 4.1)"
+        "No hay barrios de Barcelona en el proyecto de validación: falta la migración 20261016120000 (R1, Fase 4.1)"
       );
     neighborhoodId = data[0].id;
   });

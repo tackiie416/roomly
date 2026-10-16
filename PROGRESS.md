@@ -6,6 +6,120 @@ próximos pasos.**
 
 ---
 
+## 2026-10-16 — Sesión 46: R1, carga de los barrios oficiales de Barcelona (Fase 4 EN CURSO; 4.1 implementada, PR #26 sin fusionar)
+
+**Contexto**
+- **Estado de Git y del PR al empezar:**
+  - rama `claude/phase4-1-rooms-integrity`, HEAD `4cda7f4`, árbol limpio;
+  - PR #26 abierto, sin conflictos, CI #61 en verde, base `master` =
+    `7818a15`.
+- **El archivo:**
+  - el propietario lo indicó en `tmp/BarcelonaCiutat_Barris.json`, pero esa
+    ruta no existía en el contenedor, ni en ninguna rama remota, ni como
+    adjunto del PR;
+  - el dominio de Open Data BCN seguía rechazado por el proxy (403). Se
+    informó y se paró dos veces sin inventar nada;
+  - después, el propietario lo subió a la sesión; se copió al scratchpad
+    (sha256 `038ccc3e…07990`) y no se versiona.
+
+**Verificación del archivo**
+- JSON válido: un array de 73 objetos con los mismos 6 campos
+  (`codi_districte`, `nom_districte`, `codi_barri`, `nom_barri`,
+  `geometria_etrs89`, `geometria_wgs84`). Sin metadatos de licencia ni de
+  versión.
+- **Son barrios:**
+  - 73 `codi_barri` distintos, `01`–`73` sin huecos;
+  - repartidos en los 10 districtes: 4, 6, 8, 3, 6, 5, 11, 13, 7 y 10;
+  - geometrías `POLYGON`/`MULTIPOLYGON` cerradas, que suman 101,70 km² y caen
+    dentro del término municipal;
+  - no son distritos (10) ni áreas estadísticas.
+- **Nombres:** en catalán y en NFC, sin espacios sobrantes. Fuera de
+  `[A-Za-z0-9]` solo aparecen el espacio, el apóstrofo, la coma, el guion y
+  `à ç é í ò ó`.
+- **Licencia:** CC BY 4.0, como indicó el propietario. No se ha podido
+  comprobar en el portal, que sigue bloqueado.
+
+**Qué se hizo**
+- **Migración de datos** `20261016120000_barcelona_neighborhoods.sql`:
+  - un único bloque `do` con los 73 barrios (código, slug y nombre);
+  - crea Barcelona con los valores del seed si no existe;
+  - se detiene sin escribir si Barcelona tiene barrios que no coinciden
+    exactamente con uno oficial (`neighborhoods_r1_precheck:`);
+  - inserta con `on conflict (city_id, slug) do nothing`, y al terminar
+    comprueba que están los 73;
+  - sin coordenadas ni distrito, y sin cambios de esquema, políticas,
+    triggers, funciones ni permisos.
+- **Slug:** se deriva del nombre (minúsculas, sin acentos y `-` entre
+  tramos). Los 73 son distintos.
+- **Seed:** las ciudades se insertan con `on conflict (slug) do nothing`, y
+  la cabecera explica el orden.
+- **Tests:**
+  - `tests/db/18_neighborhoods_catalog.sql` (22), nuevo;
+  - P1 del preflight, con la huella y 4 mutaciones;
+  - `migration-upgrade-selftest`:
+    - el barrio de los datos anteriores pasa a ser uno oficial;
+    - la carga rechazada, la carga repetida, UP10 y la instalación limpia,
+      con y sin seed;
+  - 5 pruebas en `validation-infra`;
+  - el mensaje de RO en la api-suite (sin ejecutar).
+- **Documentación:**
+  - `docs/DATABASE.md`, con la fuente, la atribución, la licencia, el
+    contenido verificado, el orden y la idempotencia;
+  - `docs/SECURITY.md`, `docs/TESTING.md` y `docs/ROADMAP.md`;
+  - `CLAUDE.md`: la línea de R1 decía que faltaba la carga, y se añade la
+    opción A de R7;
+  - `docs/SUPABASE_VALIDATION.md`, en la parte vigente:
+    - la suite 01–18 (651);
+    - el preflight P1 y P4 de la 4.1 y R1;
+    - los recuentos de los selftests;
+    - el aviso de la Fase 4 (un run actual fallaría ya en P1);
+    - RO6 con el GRANT;
+    - una sección de R8.
+  - Los resultados de los runs 13–19 no se tocan.
+
+**Decisiones técnicas** (para revisar)
+- **Barrios de más en Barcelona:** la carga se detiene, aunque no
+  contradigan ningún oficial, para no mezclar barrios oficiales con otros ni
+  dejar duplicados. No borra ni transforma nada.
+- **Sin columna para el código oficial** (`codi_barri`): queda en la
+  migración para trazar cada fila. Guardarlo sería un cambio de esquema que
+  la 4.1 no necesita.
+- **La migración crea Barcelona:** así la carga funciona sin seed, como en un
+  despliegue que solo aplica migraciones.
+- **`tests/db/18` no exige «solo 73»:** en local quedan barrios sintéticos
+  de otras pruebas. Lo exigen P1 y el selftest.
+
+**Resultados** (en local, con el PostgreSQL 16 del entorno)
+- `test:db` 651/651 (antes 629): el `18` con 22 aserciones.
+- `test:infra` en verde:
+  - guarda 28;
+  - `sql-suite-selftest` 78/78 («651 = 651», 18 archivos, con el runner
+    real);
+  - `preflight-selftest` 69/69 (61 mutaciones);
+  - `migration-upgrade-selftest` con 26 líneas `ok`.
+- `npm run test` 1052/1052. `lint`, `typecheck`, `format:check` y
+  `git diff --check`: ver el final de la sesión, antes del commit.
+- **Mutaciones**, sobre copias en el scratchpad: 10/10 de R1 detectadas.
+- La comprobación de que las 73 filas de la migración coinciden con el
+  archivo se hizo con un script del scratchpad; el archivo no se versiona.
+
+**Observaciones** (sin cambios)
+- Los formularios de preferencias muestran todos los barrios de la ciudad:
+  Barcelona pasa de 0 a 73 opciones, ordenadas por nombre (con artículo:
+  «el Raval», «la Barceloneta»…).
+- Un admin activo puede escribir `neighborhoods` desde el cliente (Fase 0).
+- La atribución CC BY 4.0 en la interfaz es una decisión de producto
+  pendiente.
+
+**Pendiente**
+- CI del PR #26, y su revisión y merge (decide el propietario).
+- **R8:** sin validación real. `roomly-validation-3` no tiene las migraciones
+  de la Fase 4, y un run actual fallaría en P1.
+- La visibilidad de R7, R3, R4, R5 y el resto de R2, sin decidir. No se
+  avanza a la 4.2 sin autorización.
+
+---
+
 ## 2026-10-15 — Sesión 45: decisión R7 sobre `rooms.status` (opción A) y su matriz de tests (Fase 4 EN CURSO; 4.1 NO terminada)
 
 **Contexto**

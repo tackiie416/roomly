@@ -480,13 +480,16 @@ propietario se divide por comando, con `to authenticated`.
 
 ## Fase 4.1 — habitaciones: integridad, catálogo, ocupación y publicación (2026-10-15)
 
-Migración incremental
-`supabase/migrations/20261015120000_rooms_integrity_publication.sql`, con
-las decisiones R1, R2 (alcance mínimo), R6, R7 (publicación) y R9 del
-propietario (2026-10-15; ver `docs/ROADMAP.md`). Sin interfaz. Todo es
-declarativo (FK, CHECK y GRANT): no añade tablas, columnas, políticas,
-triggers ni funciones. Siguen 18 tablas, **44 políticas, 13 triggers y 11
-funciones**.
+Dos migraciones incrementales, con las decisiones R1, R2 (alcance mínimo),
+R6, R7 (publicación y estado) y R9 del propietario (2026-10-15; ver
+`docs/ROADMAP.md`). Sin interfaz.
+- `supabase/migrations/20261015120000_rooms_integrity_publication.sql`:
+  declarativa (FK, CHECK y GRANT).
+- `supabase/migrations/20261016120000_barcelona_neighborhoods.sql`: solo
+  datos, el catálogo de barrios oficiales (R1, abajo).
+
+Ninguna añade tablas, columnas, políticas, triggers ni funciones. Siguen 18
+tablas, **44 políticas, 13 triggers y 11 funciones**.
 
 **Barrio ↔ ciudad (R1).** FK compuesta `fk_rooms_neighborhood_city`:
 `(neighborhood_id, city_id)` → `neighborhoods (id, city_id)`, con la clave
@@ -502,14 +505,75 @@ funciones**.
   sobre elementos de un array (Fase 2.0).
 - Se conserva la FK simple `rooms_neighborhood_id_fkey`.
 
-**Catálogo de barrios oficiales (R1): pendiente.** La fuente aprobada es Open
-Data BCN, pero desde el entorno de esta sesión no se pudo acceder al portal
-(política de red), así que no se han verificado la licencia, la versión ni
-los barrios, y **no se ha cargado ninguno**. Irá en una migración de datos
-idempotente aparte (`on conflict (city_id, slug) do nothing`), con las
-coordenadas vacías (R2). Hay que resolver al escribirla que, en un proyecto
-nuevo, las migraciones se aplican antes que `supabase/seed.sql`, que es quien
-crea Barcelona.
+**Catálogo de barrios oficiales (R1).** Migración de datos
+`20261016120000_barcelona_neighborhoods.sql`.
+- **Fuente y atribución:** © Ajuntament de Barcelona, Open Data BCN. Archivo
+  `BarcelonaCiutat_Barris.json`, licencia **CC BY 4.0**, que obliga a
+  reconocer la autoría del Ajuntament allí donde se usen los datos.
+  - El propietario facilitó el archivo el 2026-10-16 (sha256
+    `038ccc3e124493afa9378187968e29c79519d63522fac3733ce035fe19207990`).
+  - El archivo no trae metadatos (ni licencia ni versión), y el portal no es
+    accesible desde el entorno de desarrollo. La licencia es la que indicó
+    el propietario.
+  - El JSON no se versiona: la migración lleva los datos y no depende de él.
+- **Qué contiene el archivo, verificado:**
+  - un array de 73 objetos con 6 campos: `codi_districte`, `nom_districte`,
+    `codi_barri`, `nom_barri`, `geometria_etrs89` y `geometria_wgs84`, con
+    geometrías `POLYGON` o `MULTIPOLYGON`;
+  - son barrios, no distritos ni áreas estadísticas: 73 `codi_barri`
+    distintos (`01`–`73`, sin huecos) repartidos en los 10 districtes
+    (4, 6, 8, 3, 6, 5, 11, 13, 7 y 10);
+  - sus geometrías suman 101,70 km² y caen dentro del término municipal.
+- **Qué se carga:**
+  - `name`: `nom_barri`, tal cual (en catalán, por ejemplo «la Dreta de
+    l'Eixample»);
+  - `slug`: derivado de `nom_barri`. Minúsculas, sin acentos, y cada tramo
+    que no sea `[a-z0-9]` pasa a ser un `-` (`la-dreta-de-l-eixample`). Es la
+    clave estable del barrio en su ciudad (`unique (city_id, slug)`): si un
+    nombre oficial cambia, una migración posterior actualiza `name` y
+    conserva el slug;
+  - el `codi_barri` queda en la migración para trazar cada fila, pero no se
+    guarda: no hay columna, y la 4.1 no lo necesita.
+  - No se cargan el distrito ni coordenadas: `center_lat` y `center_lng`
+    quedan vacíos (R2).
+- **Orden migraciones → seed.** En una instalación limpia las migraciones se
+  aplican antes que `supabase/seed.sql`, que es quien crea Barcelona.
+  - Si Barcelona no existe, la migración la crea con los mismos valores que
+    el seed. `validation-infra` comprueba que coinciden.
+  - El seed inserta las ciudades con `on conflict (slug) do nothing`, así que
+    ya no falla al encontrarla. Los barrios no van en el seed.
+  - Sin seed (un despliegue que solo aplica migraciones), Barcelona y sus
+    barrios existen igual.
+- **Instalación existente:** Barcelona ya está, y se añaden los barrios que
+  falten (`on conflict (city_id, slug) do nothing`). Un barrio oficial que ya
+  existiera con el mismo slug y nombre se conserva con su id.
+- **Idempotente:** aplicarla otra vez no cambia nada. Todo va en un único
+  bloque `do`, así que, aun sin transacción, o se aplica entero o no se
+  aplica.
+- **Datos incompatibles:** si Barcelona tiene algún barrio que no coincide
+  exactamente (slug y nombre) con uno oficial, la migración se detiene
+  (`23514`, `neighborhoods_r1_precheck:`), con cuántos y cuáles, sin
+  escribir nada.
+  - Cubre un barrio inventado, un slug oficial con otro nombre y un nombre
+    oficial con otro slug.
+  - No borra, renombra ni fusiona barrios: quien opere la base de datos
+    decide antes de reintentar.
+  - Al terminar, comprueba que Barcelona tiene los 73 oficiales; si no, se
+    detiene igual.
+- **Comprobaciones:** P1 del preflight exige exactamente los 73, por número
+  y por la huella md5 de «slug|nombre» ordenados por slug
+  (`9847876cf9e43791d3ad0a206f28813a`). La comprueban también `tests/db/18`
+  y `migration-upgrade-selftest`, y `validation-infra` la recalcula desde la
+  migración.
+- **Escritura del catálogo:** sin cambios desde la Fase 0
+  (`neighborhoods_admin_write`). Los clientes lo leen, y solo un admin activo
+  podría escribirlo desde el cliente. Un cambio así haría fallar P1. Si se
+  volviera a aplicar la carga, repondría un barrio borrado y se detendría
+  ante uno renombrado o añadido.
+- **Efecto en la interfaz existente:** los formularios de preferencias
+  (`/bienvenida/preferencias` y `/preferencias`) muestran todos los barrios
+  de la ciudad, ordenados por nombre. Con la carga, Barcelona pasa de 0 a 73
+  opciones. No se cambia aquí.
 
 **Catálogo cerrado de características (R6).**
 - Fuente única en el código: `ROOM_FEATURES` en `lib/validation/rooms.ts`

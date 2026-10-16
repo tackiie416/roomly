@@ -261,8 +261,13 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - migración `20261015120000`: barrio ↔ ciudad, catálogo cerrado de
       características (`lib/validation/rooms.ts`), ocupación, requisitos para
       `active` y GRANT por columnas en `rooms`;
-    - falta cargar el catálogo de barrios oficiales (R1): desde el entorno no
-      se pudo acceder a Open Data BCN.
+    - migración de datos `20261016120000` (R1): los 73 barrios oficiales de
+      Barcelona (© Ajuntament de Barcelona, Open Data BCN, CC BY 4.0),
+      idempotente, que crea Barcelona si falta y se detiene ante barrios
+      incompatibles; el seed inserta las ciudades con `on conflict`;
+    - R7 sobre `status`: opción A del propietario (la propietaria lo cambia
+      entre `draft`, `active`, `paused` y `rented`; `removed` es del admin),
+      fijada por `tests/db/17`.
   - Siguen pendientes R3, R4, R5, R8, la visibilidad de R7 y el resto de R2.
     Cada subfase necesita su autorización (`docs/ROADMAP.md`, Fase 4).
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.

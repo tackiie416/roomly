@@ -542,8 +542,9 @@ Subfases:
   - **Sin validar en Supabase real** (ver R8).
 - **4.1 Datos e integridad, sin interfaz**: autorizada el 2026-10-15 con las
   decisiones R1, R2 (alcance mínimo), R6, R7 (publicación) y R9.
-  Implementada y probada en local, y pendiente de revisión en su PR. Falta la
-  carga del catálogo de barrios (ver R1).
+  Implementada y probada en local, incluida la carga de barrios oficiales
+  (R1, 2026-10-16). Pendiente de la revisión y del merge del PR #26, que
+  decide el propietario.
   - Migración `20261015120000_rooms_integrity_publication.sql`:
     - FK compuesta barrio ↔ ciudad;
     - catálogo cerrado de características, con su fuente única en
@@ -552,14 +553,16 @@ Subfases:
     - GRANT por columnas en `rooms`: `status` fuera del INSERT, y
       `deleted_at`, las fechas, `approx_*`, `id` y `owner_id` reservados al
       servidor.
-  - Tests: `tests/db/16_rooms_publication.sql`, P1 y P4 del preflight,
+  - Migración de datos `20261016120000_barcelona_neighborhoods.sql` (R1): los
+    73 barrios oficiales de Barcelona, idempotente, para instalaciones
+    limpias y existentes.
+  - Tests: `tests/db/16_rooms_publication.sql`,
+    `tests/db/18_neighborhoods_catalog.sql`, P1 y P4 del preflight,
     `migration-upgrade-selftest` y `validation-infra`.
   - Decisión R7 sobre `status` (opción A, 2026-10-15): sin cambios en la
     migración; la fija `tests/db/17_rooms_status_transitions.sql` (ver R7).
   - Sin CRUD, Storage ni búsqueda.
   - **Sin validar en Supabase real** (ver R8).
-  - **No está terminada:** falta la carga de barrios (R1), y el PR no se
-    fusiona sin ella.
 
 **Decisiones del propietario** (auditoría del 2026-10-13). Del 2026-10-15
 son las de R1, R2 (alcance mínimo), R6, R7 (publicación y estado) y R9; las
@@ -570,8 +573,19 @@ demás siguen sin tomar:
     empezando por Open Data BCN, cargados con una migración de datos
     idempotente, sin coordenadas, y sin inventar barrios de otras ciudades.
   - Hecha en la 4.1: la coherencia barrio ↔ ciudad de `rooms`.
-  - **Pendiente:** la carga. Desde el entorno no se pudo acceder a la fuente
-    para verificar la licencia, la versión y los barrios.
+  - **Carga, implementada (2026-10-16, 4.1):** migración
+    `20261016120000_barcelona_neighborhoods.sql`.
+    - Fuente: © Ajuntament de Barcelona, Open Data BCN
+      (`BarcelonaCiutat_Barris.json`, facilitado por el propietario),
+      licencia CC BY 4.0.
+    - 73 barrios de los 10 districtes, verificados en el archivo; nombre
+      oficial y slug derivado, sin coordenadas.
+    - Crea Barcelona si falta, con los valores del seed, y se detiene sin
+      cambiar nada ante barrios incompatibles. Detalle en
+      `docs/DATABASE.md`.
+  - **Pendiente:** mostrar la atribución del Ajuntament en la interfaz donde
+    se vean los barrios (decisión de producto) y otras ciudades, cuando se
+    activen.
 - **R2.** Ubicación aproximada: solo el barrio, o coordenadas difuminadas con
   mapa; el proveedor (Mapbox está recomendado, sin confirmar) y la
   distancia a la universidad, que no tiene coordenadas.

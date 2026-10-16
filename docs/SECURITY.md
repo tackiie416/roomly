@@ -429,9 +429,21 @@ columnas; las dos capas son independientes, como en `profiles` y
     reactivarla. Y H5 solo vigila `status`: con la habitación en `removed`,
     la propietaria aún edita sus demás columnas o la borra. Ninguna de las dos
     cosas cambia en la 4.1; quedan para la Fase 7 (admin real).
+- **Catálogo de barrios oficiales (R1, `20261016120000`):** solo datos; 73
+  barrios de Barcelona del Ajuntament de Barcelona (Open Data BCN, CC BY 4.0;
+  detalle y atribución en `docs/DATABASE.md`).
+  - Sin cambios de permisos: `neighborhoods` se lee en abierto y solo la
+    escribe un admin activo (`neighborhoods_admin_write`, Fase 0). Un usuario
+    autenticado o `anon` no añade, renombra ni borra barrios (`tests/db/18`).
+  - La migración no borra ni transforma datos: ante barrios de Barcelona que
+    no coinciden con los oficiales, se detiene (`neighborhoods_r1_precheck:`).
+  - P1 del preflight exige exactamente los 73 (número y huella): si el
+    catálogo del proyecto de validación cambia, el run se detiene antes de
+    las suites.
 - **Pendiente:**
   - la visibilidad de las habitaciones de cuentas desactivadas (R7);
-  - el catálogo de barrios (R1, sin acceso a la fuente desde el entorno);
+  - mostrar la atribución del Ajuntament (CC BY 4.0) en la interfaz donde se
+    vean los barrios: es una decisión de producto, sin hacer;
   - los privilegios `TRUNCATE`, `REFERENCES` y `TRIGGER` de los privilegios
     por defecto de Supabase en `rooms`, que no se han tocado y no son
     alcanzables desde PostgREST.
@@ -441,8 +453,12 @@ columnas; las dos capas son independientes, como en `profiles` y
   - `tests/db/17_rooms_status_transitions.sql`: la matriz de transiciones de
     `status` por actor (R7, opción A), con el motivo exacto de cada rechazo y
     controles que prueban que los fixtures son válidos;
+  - `tests/db/18_neighborhoods_catalog.sql`: los 73 barrios oficiales,
+    Barcelona y el seed, la escritura del catálogo y su uso con las reglas de
+    la 4.1;
   - P1 y P4 del preflight y sus mutaciones;
-  - `migration-upgrade-selftest.sh`.
+  - `migration-upgrade-selftest.sh`, también la instalación limpia y la carga
+    rechazada de R1.
 
   **Sin validar en Supabase real** (R8).
 

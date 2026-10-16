@@ -5,7 +5,7 @@
 #   - el esquema actual pasa P0–P6;
 #   - cada mutación (política que falta, sobra, cambia de comando o de nombre;
 #     tabla sin RLS; GRANT de más en housing_preferences; trigger que falta,
-#     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); escrituras de habitaciones sin la comprobación de cuenta activa (Fase 4.0); restricciones de habitaciones que faltan, sin validar o con otro catálogo, y GRANT por columnas de rooms (Fase 4.1); función con otra seguridad o search_path;
+#     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); escrituras de habitaciones sin la comprobación de cuenta activa (Fase 4.0); restricciones de habitaciones que faltan, sin validar o con otro catálogo, GRANT por columnas de rooms y barrios de Barcelona que faltan, sobran o cambian (Fase 4.1); función con otra seguridad o search_path;
 #     función de más; EXECUTE concedido; marcas anteriores) hace fallar la
 #     comprobación que corresponde. Cada mutación va en su propia
 #     transacción y se deshace.
@@ -76,6 +76,10 @@ P1|chk_rooms_publishable sin validar (NOT VALID)|alter table public.rooms drop c
 P1|falta chk_rooms_features_unique (4.1)|alter table public.rooms drop constraint chk_rooms_features_unique;
 P1|falta la FK barrio ↔ ciudad (4.1)|alter table public.rooms drop constraint fk_rooms_neighborhood_city;
 P1|FK barrio ↔ ciudad sustituida por una de otras columnas|alter table public.rooms drop constraint fk_rooms_neighborhood_city; alter table public.rooms add constraint fk_rooms_neighborhood_city foreign key (neighborhood_id) references public.neighborhoods (id);
+P1|falta un barrio oficial de Barcelona (R1)|delete from public.neighborhoods where slug = 'navas';
+P1|barrio oficial renombrado|update public.neighborhoods set name = 'Raval' where slug = 'el-raval';
+P1|slug de un barrio oficial cambiado|update public.neighborhoods set slug = 'raval' where slug = 'el-raval';
+P1|barrio de más en Barcelona|insert into public.neighborhoods (city_id, name, slug) select id, 'Barrio de más', 'barrio-de-mas' from public.cities where slug = 'barcelona';
 P1|catálogo de características con una clave de más|alter table public.rooms drop constraint chk_rooms_features_catalog; alter table public.rooms add constraint chk_rooms_features_catalog check (features <@ array['wifi', 'heating', 'air_conditioning', 'elevator', 'washing_machine', 'dishwasher', 'balcony', 'furnished', 'private_bathroom', 'double_bed', 'desk', 'exterior', 'pool']::text[]);
 P3|falta profiles_update_own|drop policy profiles_update_own on public.profiles;
 P3|falta housing_preferences_delete_own|drop policy housing_preferences_delete_own on public.housing_preferences;
