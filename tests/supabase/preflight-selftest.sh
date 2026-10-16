@@ -5,7 +5,7 @@
 #   - el esquema actual pasa P0–P6;
 #   - cada mutación (política que falta, sobra, cambia de comando o de nombre;
 #     tabla sin RLS; GRANT de más en housing_preferences; trigger que falta,
-#     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); escrituras de habitaciones sin la comprobación de cuenta activa (Fase 4.0); función con otra seguridad o search_path;
+#     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); escrituras de habitaciones sin la comprobación de cuenta activa (Fase 4.0); restricciones de habitaciones que faltan, sin validar o con otro catálogo, GRANT por columnas de rooms y barrios de Barcelona que faltan, sobran o cambian (Fase 4.1); función con otra seguridad o search_path;
 #     función de más; EXECUTE concedido; marcas anteriores) hace fallar la
 #     comprobación que corresponde. Cada mutación va en su propia
 #     transacción y se deshace.
@@ -71,6 +71,16 @@ done <<'CASES'
 P0|marca antigua roomly-validation|do $$ begin execute format('comment on database %I is %L', current_database(), 'roomly-validation'); end $$;
 P0|marca del proyecto anterior roomly-validation-2 (aislamiento)|do $$ begin execute format('comment on database %I is %L', current_database(), 'roomly-validation-2'); end $$;
 P0|marca con espacio final|do $$ begin execute format('comment on database %I is %L', current_database(), 'roomly-validation-3 '); end $$;
+P1|falta chk_rooms_publishable (4.1)|alter table public.rooms drop constraint chk_rooms_publishable;
+P1|chk_rooms_publishable sin validar (NOT VALID)|alter table public.rooms drop constraint chk_rooms_publishable; alter table public.rooms add constraint chk_rooms_publishable check (status <> 'active' or (neighborhood_id is not null and total_roommates is not null and total_rooms is not null)) not valid;
+P1|falta chk_rooms_features_unique (4.1)|alter table public.rooms drop constraint chk_rooms_features_unique;
+P1|falta la FK barrio ↔ ciudad (4.1)|alter table public.rooms drop constraint fk_rooms_neighborhood_city;
+P1|FK barrio ↔ ciudad sustituida por una de otras columnas|alter table public.rooms drop constraint fk_rooms_neighborhood_city; alter table public.rooms add constraint fk_rooms_neighborhood_city foreign key (neighborhood_id) references public.neighborhoods (id);
+P1|falta un barrio oficial de Barcelona (R1)|delete from public.neighborhoods where slug = 'navas';
+P1|barrio oficial renombrado|update public.neighborhoods set name = 'Raval' where slug = 'el-raval';
+P1|slug de un barrio oficial cambiado|update public.neighborhoods set slug = 'raval' where slug = 'el-raval';
+P1|barrio de más en Barcelona|insert into public.neighborhoods (city_id, name, slug) select id, 'Barrio de más', 'barrio-de-mas' from public.cities where slug = 'barcelona';
+P1|catálogo de características con una clave de más|alter table public.rooms drop constraint chk_rooms_features_catalog; alter table public.rooms add constraint chk_rooms_features_catalog check (features <@ array['wifi', 'heating', 'air_conditioning', 'elevator', 'washing_machine', 'dishwasher', 'balcony', 'furnished', 'private_bathroom', 'double_bed', 'desk', 'exterior', 'pool']::text[]);
 P3|falta profiles_update_own|drop policy profiles_update_own on public.profiles;
 P3|falta housing_preferences_delete_own|drop policy housing_preferences_delete_own on public.housing_preferences;
 P3|sobra una política (aunque el total cambie)|create policy zz_extra on public.cities for select using (true);
@@ -96,6 +106,15 @@ P4|anon con SELECT en compatibility_responses|grant select on public.compatibili
 P4|authenticated con INSERT en compatibility_responses|grant insert on public.compatibility_responses to authenticated;
 P4|authenticated con UPDATE de compatibility_responses.completed_at|grant update (completed_at) on public.compatibility_responses to authenticated;
 P4|authenticated sin SELECT en compatibility_responses|revoke select on public.compatibility_responses from authenticated;
+P4|authenticated con INSERT de rooms.status (4.1)|grant insert (status) on public.rooms to authenticated;
+P4|authenticated con UPDATE de rooms.deleted_at|grant update (deleted_at) on public.rooms to authenticated;
+P4|authenticated con UPDATE de rooms.approx_lat|grant update (approx_lat) on public.rooms to authenticated;
+P4|authenticated con UPDATE de rooms.owner_id|grant update (owner_id) on public.rooms to authenticated;
+P4|authenticated con UPDATE de tabla completa en rooms|grant update on public.rooms to authenticated;
+P4|authenticated sin UPDATE de rooms.status (no podría publicar)|revoke update (status) on public.rooms from authenticated;
+P4|anon con INSERT en rooms|grant insert on public.rooms to anon;
+P4|anon sin SELECT en rooms|revoke select on public.rooms from anon;
+P4|service_role sin UPDATE en rooms|revoke update on public.rooms from service_role;
 P6|falta trg_housing_preferences_university|drop trigger trg_housing_preferences_university on public.housing_preferences;
 P6|falta trg_profiles_onboarding_completion|drop trigger trg_profiles_onboarding_completion on public.profiles;
 P6|trigger desactivado|alter table public.housing_preferences disable trigger trg_housing_preferences_city_required;

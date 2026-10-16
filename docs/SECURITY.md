@@ -10,7 +10,7 @@ corregidas están en `docs/DATABASE.md`.
 |---|---|
 | Usuarios solo modifican sus propios datos | `profiles_update_own`, `housing_preferences_{insert,update,delete}_own` (las dos, solo con la cuenta activa desde `20260930130000`), `favorites_own`, `interests_insert_own`/`interests_delete_own`, `participants_update_own` |
 | Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations`, todas vía `is_conversation_participant()` — un tercero no puede leer ni escribir aunque conozca el UUID de la conversación. **Hasta la migración `20260926120000_security_fixes.sql` esto NO era cierto** (ver "Correcciones de la auditoría inicial" abajo) |
-| Habitaciones editables solo por su propietario | `rooms_{insert,update,delete}_own`, `room_addresses_{insert,update,delete}_own` y `room_images_{insert,update,delete}_own`, solo con la cuenta activa desde la Fase 4.0 (antes, `rooms_owner_write`, `room_addresses_owner_only` y `room_images_owner_write`, FOR ALL). La dirección exacta va un paso más allá: `room_addresses_select_own`, ni siquiera visible para otros usuarios autenticados |
+| Habitaciones editables solo por su propietario | `rooms_{insert,update,delete}_own`, `room_addresses_{insert,update,delete}_own` y `room_images_{insert,update,delete}_own`, solo con la cuenta activa desde la Fase 4.0 (antes, `rooms_owner_write`, `room_addresses_owner_only` y `room_images_owner_write`, FOR ALL). Desde la Fase 4.1, en `rooms` solo las columnas del GRANT: sin `status` al crear, ni `deleted_at`, fechas, `approx_lat`/`approx_lng`, ni `id`/`owner_id` al editar. La dirección exacta va un paso más allá: `room_addresses_select_own`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
 | Respuestas del test (Fase 3.1) | `compatibility_responses_select_own`: `authenticated` solo **lee** su fila; no tiene INSERT, UPDATE ni DELETE (GRANT). `anon`, ningún privilegio. Solo escribe el servidor (service_role, `lib/services/compatibility.ts`), y el trigger `trg_compatibility_responses_integrity` aplica S1–S6 y el bloqueo de cuentas eliminadas a todos los roles |
 | Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); los datos públicos de otros, en la vista `public_profile_previews`; `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
@@ -60,7 +60,9 @@ servidor o desde el SQL editor, nunca desde la app.
 **Decisión técnica en H5**: el propietario tampoco puede poner él mismo
 `removed` (no podría deshacerlo); para retirar su anuncio tiene `paused`
 o el soft-delete (`deleted_at`). `removed` queda como estado de
-moderación.
+moderación. **Actualización (Fase 4.1):** `deleted_at` ya no está en el GRANT
+de `authenticated`, así que el borrado lógico es del servidor; el propietario
+retira su anuncio con `paused` o borrándolo (ver «Fase 4.1», abajo).
 
 ## Fase 2.0 — permisos de `housing_preferences` (2026-09-29)
 
@@ -373,6 +375,92 @@ impide escribir, no solo la aplicación.
 
   Detalle en `docs/TESTING.md`. **Sin validar en Supabase real** (R8,
   pendiente).
+
+## Fase 4.1 — habitaciones: columnas reservadas al servidor e invariantes (2026-10-15)
+
+Migración `20261015120000_rooms_integrity_publication.sql` (detalle de cada
+regla en `docs/DATABASE.md`, «Fase 4.1»). RLS filtra filas y el GRANT limita
+columnas; las dos capas son independientes, como en `profiles` y
+`housing_preferences`.
+
+- **GRANT por columnas en `rooms`:**
+  - `authenticated` ya no tiene INSERT ni UPDATE de tabla completa;
+  - al crear no fija `status` (toda habitación nace `draft`), `deleted_at`,
+    `created_at`, `updated_at`, `approx_lat` ni `approx_lng`;
+  - al editar tampoco `id` ni `owner_id`;
+  - `anon` pierde INSERT, UPDATE y DELETE, que la RLS ya le impedía, y
+    conserva SELECT;
+  - comprobado de forma exacta en P4 y en `tests/db/16` (RS4 y RS5).
+- **`status` sigue en el UPDATE de `authenticated`: excepción aprobada (R7,
+  opción A, decisión expresa del propietario del 2026-10-15).** Es la única
+  columna del ciclo de vida de la habitación que escribe el cliente, y solo
+  al editar. No hay RPC, función `SECURITY DEFINER` ni operación privilegiada
+  nueva, ni usos nuevos de service_role: D17 no cambia.
+  - **Propiedad:** la habitación es de su `owner_id`, que el cliente no puede
+    cambiar (fuera del UPDATE). Solo la propietaria con la cuenta activa, o
+    un admin activo, cambian su estado (RLS de la 4.0). Una cuenta
+    desactivada no lo cambia: 0 filas.
+  - **Lo que puede la propietaria:** al crear, nada (nace `draft`); después,
+    moverla entre `draft`, `active`, `paused` y `rented`. Para `active`,
+    `chk_rooms_publishable` exige barrio y ocupación, para todos los roles.
+  - **Límite de la moderación:** solo un admin activo o el servidor entran o
+    salen de `removed` (trigger H5, `42501` `room_moderation:`). La
+    propietaria no lo pone ni con un UPDATE directo, y no recupera una
+    habitación retirada.
+  - Matriz completa: `docs/DATABASE.md` («Estado de la habitación») y
+    `tests/db/17`.
+- **Invariantes para todos los roles**, también admin y service_role: barrio
+  de la ciudad de la habitación (FK compuesta), características del catálogo
+  sin repetir, ocupación válida y requisitos de publicación (CHECK).
+- **Sin cambios:**
+  - la RLS de la 4.0 (cuentas desactivadas) y la lectura pública;
+  - `room_addresses` y `room_images`;
+  - el trigger de moderación;
+  - `service_role`: tabla completa, BYPASSRLS. D17 sigue en dos servicios;
+  - políticas, triggers y funciones (44, 13 y 11).
+- **Consecuencias:**
+  - el GRANT es por rol de Postgres: un admin desde el cliente sigue
+    moderando (`status`), pero no escribe `deleted_at` ni las coordenadas,
+    que serán del servidor (Fase 7 y R2);
+  - el propietario ya no hace el borrado lógico (ver H5, arriba);
+  - `upsert()` no sirve en esta tabla;
+  - la moderación efectiva es solo `removed`: si un admin «oculta» con
+    `paused`, como describe `docs/ARCHITECTURE.md`, la propietaria puede
+    reactivarla. Y H5 solo vigila `status`: con la habitación en `removed`,
+    la propietaria aún edita sus demás columnas o la borra. Ninguna de las dos
+    cosas cambia en la 4.1; quedan para la Fase 7 (admin real).
+- **Catálogo de barrios oficiales (R1, `20261016120000`):** solo datos; 73
+  barrios de Barcelona del Ajuntament de Barcelona (Open Data BCN, CC BY 4.0;
+  detalle y atribución en `docs/DATABASE.md`).
+  - Sin cambios de permisos: `neighborhoods` se lee en abierto y solo la
+    escribe un admin activo (`neighborhoods_admin_write`, Fase 0). Un usuario
+    autenticado o `anon` no añade, renombra ni borra barrios (`tests/db/18`).
+  - La migración no borra ni transforma datos: ante barrios de Barcelona que
+    no coinciden con los oficiales, se detiene (`neighborhoods_r1_precheck:`).
+  - P1 del preflight exige exactamente los 73 (número y huella): si el
+    catálogo del proyecto de validación cambia, el run se detiene antes de
+    las suites.
+- **Pendiente:**
+  - la visibilidad de las habitaciones de cuentas desactivadas (R7);
+  - mostrar la atribución del Ajuntament (CC BY 4.0) en la interfaz donde se
+    vean los barrios: es una decisión de producto, sin hacer;
+  - los privilegios `TRUNCATE`, `REFERENCES` y `TRIGGER` de los privilegios
+    por defecto de Supabase en `rooms`, que no se han tocado y no son
+    alcanzables desde PostgREST.
+- **Tests:**
+  - `tests/db/16_rooms_publication.sql`, con un control negativo que retira
+    cada restricción de forma temporal;
+  - `tests/db/17_rooms_status_transitions.sql`: la matriz de transiciones de
+    `status` por actor (R7, opción A), con el motivo exacto de cada rechazo y
+    controles que prueban que los fixtures son válidos;
+  - `tests/db/18_neighborhoods_catalog.sql`: los 73 barrios oficiales,
+    Barcelona y el seed, la escritura del catálogo y su uso con las reglas de
+    la 4.1;
+  - P1 y P4 del preflight y sus mutaciones;
+  - `migration-upgrade-selftest.sh`, también la instalación limpia y la carga
+    rechazada de R1.
+
+  **Sin validar en Supabase real** (R8).
 
 ## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
 

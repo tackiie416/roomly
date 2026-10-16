@@ -59,24 +59,27 @@
 | Comprobación | Resultado | Dónde |
 |---|---|---|
 | `format:check`, `lint`, `typecheck`, `build` | ✅ | local y CI |
-| `npm run test` | ✅ 1032/1032 en local con la 4.0 (2 nuevos en `validation-infra`: las políticas por comando de habitaciones y la comprobación de cuenta activa de P3). Antes: ✅ 1030/1030 en local con la configuración privada en `lib/env.server.ts` y D1 (5 nuevos sobre los 1025 de `master`; ver «D1» abajo; CI, en el PR). Antes: ✅ 1013/1013 con la v2 del cuestionario (S1–S4, integrada con el PR #13), 149 nuevos: motor 86 → 172 (los casos de la especificación con la v1 y con la v2, la lista exacta de cada versión, y v1 frente a v2 en el motor: `version_mismatch`, respuestas de la v1 sin puntuar en la v2), versiones del cuestionario 22 (`questionnaire-versions`, nuevo), dirección de Ruido por versión y cuestionarios rotos 19 (`matching-score-direction`, nuevo), cambio de versión 5 → 16 (paso real v1 → v2, sin `vi.mock`), estado del test y Zod 22 → 26, guards y Server Action 25 → 29, candidatos 25 → 27, filtros 33 → 34. Antes: ✅ 864/864 (2 de aislamiento de la marca `roomly-validation-3` en `validation-infra.test.ts`, PR #8; antes 862, Fase 3, 245 nuevos: motor 86 (`matching-score`: cuestionario exacto, pesos, similitud, conducta/tolerancia con `min`, presupuesto 0/75/150/151, barrios, renormalización, r6, umbrales, dirección, 500 pares de simetría, determinismo, entradas inválidas sin excepción, textos sin cifras), filtros 33, estado del test y Zod 22, servicio del test 36 + 5 de cambio de versión, servicio de candidatos 25 (consulta única, filtros SQL, defensa en profundidad, orden, paginación, lista blanca del DTO), guards y Server Action 25, test estático de service_role 6, proxy +3, infraestructura +2, shell +2; antes 617: 20 del adaptador de Mailtrap del E2 real, Fase 2.8; 65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local (1013/1013 con la v2 antes de su commit, 2026-10-10; 864/864 sobre `83654eb`, 2026-10-09); en CI (`lint-typecheck-test-build`), 1013/1013 con la v2: en el head del PR #13 (run `38088753365`), después de su merge (run `38089079771`, `7550d71`) y después del merge del PR #14 (run `38100362367`, `83d9687`). Antes de la v2, 864/864 sobre `83654eb` (run `38003093188`, después del merge del PR #11) y, en el PR #6, CI #11 (`f9f08ad`, 597) y CI #12 (`ec7c3fc`, 617) |
+| `npm run test` | ✅ 1052/1052 en local con la carga de barrios de R1 (5 nuevos en `validation-infra`: la lista de la migración, Barcelona igual que en el seed, la carga idempotente y sin borrados, la lista de `tests/db/18` y la huella de P1, `tests/db/18` y el selftest; ver «Fase 4.1 — R1» abajo). Antes: ✅ 1047/1047 en local con la 4.1 (15 nuevos: 10 de `validation-rooms`, el catálogo de características, sus esquemas Zod y la ocupación, y 5 de `validation-infra`, la coherencia de catálogo, GRANT y restricciones de `rooms` entre código, migración, preflight y `tests/db/16`). Antes: ✅ 1032/1032 en local con la 4.0 (2 nuevos en `validation-infra`: las políticas por comando de habitaciones y la comprobación de cuenta activa de P3). Antes: ✅ 1030/1030 en local con la configuración privada en `lib/env.server.ts` y D1 (5 nuevos sobre los 1025 de `master`; ver «D1» abajo; CI, en el PR). Antes: ✅ 1013/1013 con la v2 del cuestionario (S1–S4, integrada con el PR #13), 149 nuevos: motor 86 → 172 (los casos de la especificación con la v1 y con la v2, la lista exacta de cada versión, y v1 frente a v2 en el motor: `version_mismatch`, respuestas de la v1 sin puntuar en la v2), versiones del cuestionario 22 (`questionnaire-versions`, nuevo), dirección de Ruido por versión y cuestionarios rotos 19 (`matching-score-direction`, nuevo), cambio de versión 5 → 16 (paso real v1 → v2, sin `vi.mock`), estado del test y Zod 22 → 26, guards y Server Action 25 → 29, candidatos 25 → 27, filtros 33 → 34. Antes: ✅ 864/864 (2 de aislamiento de la marca `roomly-validation-3` en `validation-infra.test.ts`, PR #8; antes 862, Fase 3, 245 nuevos: motor 86 (`matching-score`: cuestionario exacto, pesos, similitud, conducta/tolerancia con `min`, presupuesto 0/75/150/151, barrios, renormalización, r6, umbrales, dirección, 500 pares de simetría, determinismo, entradas inválidas sin excepción, textos sin cifras), filtros 33, estado del test y Zod 22, servicio del test 36 + 5 de cambio de versión, servicio de candidatos 25 (consulta única, filtros SQL, defensa en profundidad, orden, paginación, lista blanca del DTO), guards y Server Action 25, test estático de service_role 6, proxy +3, infraestructura +2, shell +2; antes 617: 20 del adaptador de Mailtrap del E2 real, Fase 2.8; 65 de infraestructura de validación, Fase 2.8: identidad `roomly-validation-2`, preflight derivado de las migraciones, separación E1/E2, secrets por paso del workflow, lógica del E2 real y aviso de registro abierto aunque falle el buzón; 17 de shell y errores, Fase 2.7; 46 de ajustes, Fase 2.6: esquema y servicio de avisos, Server Action, página y logout; 39 de Fase 1 + 113 de Fase 2.1 + 131 de routing de Auth, Fase 2.2 + 64 de onboarding, Fase 2.3 + 69 de perfil propio, Fase 2.4 + 53 de preferencias, Fase 2.5: reglas del servicio, Server Action (también referencias inexistentes o incompatibles), página, formulario, datos de referencia y proxy) | local (1013/1013 con la v2 antes de su commit, 2026-10-10; 864/864 sobre `83654eb`, 2026-10-09); en CI (`lint-typecheck-test-build`), 1013/1013 con la v2: en el head del PR #13 (run `38088753365`), después de su merge (run `38089079771`, `7550d71`) y después del merge del PR #14 (run `38100362367`, `83d9687`). Antes de la v2, 864/864 sobre `83654eb` (run `38003093188`, después del merge del PR #11) y, en el PR #6, CI #11 (`f9f08ad`, 597) y CI #12 (`ec7c3fc`, 617) |
 | `tests/supabase/auth-redirects.sh` | ✅ 16/16 (AU3a–g, AU5a–i) | local contra `next start` con Supabase simulado (Fases 2.2 y 2.3); en `roomly-validation` se ejecutaron las 6 anteriores |
 | Flujo de onboarding en Chromium | ✅ con y sin JavaScript | local con `next start` y Supabase simulado con estado (Fase 2.3); no es la suite E2E |
 | Flujo de `/perfil` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript, incluido el logout) | local con `next start` y Supabase simulado con estado (Fase 2.4); no es la suite E2E |
 | Shell de Fase 2.7 en Chromium | ✅ 35/35 (20 con JavaScript y 15 sin él; sin JavaScript no aplican `aria-current` ni «Reintentar»): `/` con su contenido y «Entrar», sin sesión/sin perfil/eliminada en las tres rutas, nav con los tres enlaces y navegación entre ellas, perfil incompleto, error de servidor sin texto técnico, logout desde el nav; y regresión con el shell: `/perfil` 24/24, `/preferencias` 43/43, `/ajustes` 24/24, onboarding 2/2 | local con `next start` y Supabase simulado; scripts en el scratchpad de la sesión (no en el repositorio) |
 | Flujo de `/ajustes` en Chromium | ✅ 24/24 (12 con y 12 sin JavaScript: sin sesión, sin perfil, eliminada, estado actual, desactivar/activar y recargar, mismo valor en `/perfil`, `full_name` inyectado, `?profile_id=` en la URL, eliminada con la página abierta, logout) + `/perfil` otra vez 24/24 | local con `next start` y Supabase simulado con estado (Fase 2.6); no es la suite E2E |
 | Flujo de `/preferencias` en Chromium | ✅ 43/43 (22 con y 21 sin JavaScript; el filtro dinámico solo aplica con JavaScript; incluye crear preferencias con el onboarding ya completado) + regresión del onboarding 2/2 | local con `next start` y Supabase simulado con estado que emula los triggers (Fase 2.5); no es la suite E2E |
-| `npm run test:db` (PostgreSQL local con shim) | ✅ 378/378 con la 4.0 (`15_rooms_integrity`, 73 aserciones, 71 hasta las correcciones de la auditoría del PR #25; PX4, PV10 y CR9 pasan de 37 a 44 políticas; ver «Fase 4.0» abajo). Antes: ✅ 305/305, también con la v2 del cuestionario (2026-10-10, sin cambios en la base de datos) (Fase 3.1: `14_compatibility_responses`, 40 aserciones CR1–CR20; antes 265, incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3 y del punto A de la 2.9, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5, `11` de ownership aislado, `12` de Fase 2.6 y `13` de H4, Fase 2.9) | local; en CI (`db-security`, paso `tests/db/run.sh`) en verde sobre `83654eb` (run `38003093188`) y en los PR #7–#11; antes, sobre `f9f08ad` (PR #6, run `37231766834`) |
+| `npm run test:db` (PostgreSQL local con shim) | ✅ 651/651 con la carga de barrios de R1 (`18_neighborhoods_catalog`, 22 aserciones; ver «Fase 4.1 — R1» abajo). Antes: ✅ 629/629 con la decisión R7 (opción A) sobre `status` (`17_rooms_status_transitions`, 160 aserciones; ver «Fase 4.1 — R7» abajo). Antes: ✅ 469/469 con la 4.1 (`16_rooms_publication`, 88 aserciones; `03` pasa de 13 a 14 y `15` de 73 a 75, porque crean borradores completos y los publican con un UPDATE; ver «Fase 4.1» abajo). Antes: ✅ 378/378 con la 4.0 (`15_rooms_integrity`, 73 aserciones, 71 hasta las correcciones de la auditoría del PR #25; PX4, PV10 y CR9 pasan de 37 a 44 políticas; ver «Fase 4.0» abajo). Antes: ✅ 305/305, también con la v2 del cuestionario (2026-10-10, sin cambios en la base de datos) (Fase 3.1: `14_compatibility_responses`, 40 aserciones CR1–CR20; antes 265, incluye `05`/`06` de Fase 2.0, `07` de Fase 2.3 y del punto A de la 2.9, `08` de cuentas eliminadas, `09` de Fase 2.4, `10` de Fase 2.5, `11` de ownership aislado, `12` de Fase 2.6 y `13` de H4, Fase 2.9) | local; en CI (`db-security`, paso `tests/db/run.sh`) en verde sobre `83654eb` (run `38003093188`) y en los PR #7–#11; antes, sobre `f9f08ad` (PR #6, run `37231766834`) |
 | `npm run test:e2e` (E1, Playwright) | ✅ 32/32 en local con D1 (`no-service-key-in-client`, 2 tests; ver «D1» abajo; CI, en el PR). Antes: ✅ 30/30 con la v2 del cuestionario (S1–S4, integrada con el PR #13), en local y en CI: candidatos sembrados con la versión vigente, una candidata solo con el test v1 que no aparece, un escenario nuevo (test v1 completado → aviso en `/test`, las 21 respuestas comunes marcadas y las 8 nuevas sin responder, borrador de la v2 con una pendiente y completado en la v2) y la regresión de la versión de las siembras del mock (`mock-seed-version`, 2 tests: 13 versiones no válidas → 400 sin sembrar ni cambiar nada; 1, 2 y 2147483647 se siembran). Antes: ✅ 27/27 en local (Fase 3: `compatibility-flow`: onboarding → `/test`, guardar a medias y retomar, `/explorar` → `/test` sin test, completar → `/explorar` con candidatos solo del DTO (sin admin, eliminada ni presupuesto lejano, sin fecha de nacimiento ni presupuesto exacto), paginación, editar sin cambiar la fecha, service_role solo para candidatos y escritura del test; y el test sin JavaScript; los demás specs, con el destino `/test`). Antes: ✅ 25/25 (también tras H4 de la 2.9, con el mock devolviendo solo la fila propia de `profiles`): rutas protegidas sin sesión (con y sin JavaScript, y 307 sin contenido), alta de estudiante por magic link → `/callback` PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout (sesión anterior inservible), enlace en otro navegador o reutilizado, `/callback` con código inventado o error, `next` tras el login, cuenta eliminada (rutas, formulario abierto, nuevo login), `profile_id`/`id` ajenos en URL y formularios, formularios sin JavaScript, smoke | local con el Chromium preinstalado **1194** vía `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (Playwright 1.63 espera 1243: combinación no soportada oficialmente); en CI (`e2e-local`), con el Chromium que instala el workflow, 30/30 con la v2: en el head del PR #13 (run `38088753365`), después de su merge (run `38089079771`) y después del merge del PR #14 (run `38100362367`). Antes de la v2, 27/27 sobre `83654eb` (run `38003093188`) y 25/25 sobre `f9f08ad` con el Chromium oficial v1243 (PR #6, run `37231766834`) |
 | Mutaciones de la app contra E1 | ✅ 4/4 detectadas (cuenta eliminada → home, ajustes sin esquema estricto, logout sin `signOut`, `/preferencias` sin ciudad obligatoria) | local, restauradas por hash |
 | `tests/supabase/guard-selftest.sh` | ✅ 28/28 (marca `roomly-validation-3`; las anteriores y variantes no pasan; aislamiento: con la marca `roomly-validation-2` la guarda, migraciones, P0 y suite SQL abortan) | local; en CI (`db-security`) desde 2.8 |
-| `tests/supabase/sql-suite-selftest.sh` | ✅ 78/78: `run-sql-suite.sh` real 01–15 con las mismas aserciones que `run.sh` (378 desde la 4.0; 305 desde la Fase 3.1; 265 tras H4 de la 2.9; 240 tras el punto A; eran 218), una sesión aislada por archivo (15; el número se cuenta), 44 políticas al terminar (37 hasta la 4.0), sin restos, rollback de bloque, sin fugas de rol/GUC, 31 formas de control de transacción rechazadas antes de conectar, 16 identificadores `"..."`/cadenas `E'...'` que intentan ocultar un control (incluido el caso de la auditoría final) rechazados y los legítimos aceptados, WARNING → fallo, fallo a mitad sin restos, 11 sin reescribir falla, marcas anteriores (`roomly-validation` y `roomly-validation-2`) rechazadas | local; en CI (`db-security`) desde 2.8 |
+| `tests/supabase/sql-suite-selftest.sh` | ✅ 78/78: `run-sql-suite.sh` real 01–18 con las mismas aserciones que `run.sh` (651 desde R1; 629 desde la decisión R7; 469 desde la 4.1; 378 desde la 4.0; 305 desde la Fase 3.1; 265 tras H4 de la 2.9; 240 tras el punto A; eran 218), una sesión aislada por archivo (18; el número se cuenta), 44 políticas al terminar (37 hasta la 4.0), sin restos, rollback de bloque, sin fugas de rol/GUC, 31 formas de control de transacción rechazadas antes de conectar, 16 identificadores `"..."`/cadenas `E'...'` que intentan ocultar un control (incluido el caso de la auditoría final) rechazados y los legítimos aceptados, WARNING → fallo, fallo a mitad sin restos, 11 sin reescribir falla, marcas anteriores (`roomly-validation` y `roomly-validation-2`) rechazadas | local; en CI (`db-security`) desde 2.8 |
 | Mutaciones del runner | ✅ 4/4 detectadas (sin reescritura a SAVEPOINT, WARNING no falla, COMMIT permitido, COMMIT en vez de ROLLBACK) + validador tras la auditoría final: 2/2 con efecto detectadas (sin estado de identificador `"..."`, sin rechazo de `E'...'`); 2 sin efecto observable (quitar la `""` escapada es equivalente; quitar el error de identificador sin cerrar lo cubre «sentencia final sin `;`») | local, restaurado por hash |
 | Mutaciones de la limpieza del E2 | ✅ 2/2 detectadas (aviso de registro abierto sin captura del fallo del buzón; error de los ajustes que tapa el original) | local, restaurado por hash |
 | Mutaciones del punto A de la 2.9 contra `test:db` | ✅ 3/3 detectadas (sin la migración, bloqueo solo del paso a `NULL`, función `SECURITY DEFINER`) | local, migración restaurada y comprobada con `cmp` |
 | Mutaciones de H4 (2.9) contra `test:db` | ✅ 5/5 detectadas: sin la migración; `profiles_select_authenticated` recreada; otra política SELECT `using (true)`; la política propia, con su nombre, pero `using (auth.uid() is not null)`; `public_profile_previews` con `date_of_birth` | local, con migraciones temporales borradas y la de H4 comprobada por hash |
-| `tests/supabase/preflight-selftest.sh` | ✅ 50/50: P0–P6 pasan con el esquema actual y 42 mutaciones (6 de habitaciones, Fase 4.0: vuelve `rooms_owner_write`, falta `room_addresses_select_own` y cuatro escrituras sin la comprobación de cuenta activa; 8 de `compatibility_responses`, Fase 3.1; la marca `roomly-validation-2` en P0, Fase 3) fallan cada una en su check | local; en CI (`db-security`) desde 2.8 |
-| `tests/supabase/migration-upgrade-selftest.sh` (Fase 3.1; 4.0) | ✅ 10/10: migraciones de la Fase 2 con datos y después las nuevas; filas conservadas y sujetas a S4/S5 y al bloqueo de cuentas eliminadas; desde la 4.0, habitaciones anteriores conservadas: la de una cuenta activa se sigue editando y la de una desactivada ya no (UP6–UP7) | local; en CI (`db-security`) en verde desde el PR #7; el último, sobre `83654eb` (run `38003093188`) |
+| `tests/supabase/preflight-selftest.sh` | ✅ 69/69 desde R1 (65/65 con la 4.1, antes 50/50): P0–P6 pasan con el esquema actual y 61 mutaciones (4 de R1, en P1: falta un barrio oficial, uno renombrado, su slug cambiado y un barrio de más en Barcelona; 15 de la 4.1: en P1, faltan restricciones de `rooms`, una sin validar, la FK barrio ↔ ciudad sobre otras columnas y el catálogo con una clave de más; en P4, `status` en el INSERT, `deleted_at`, `approx_lat` u `owner_id` en el UPDATE, UPDATE de tabla completa, sin UPDATE de `status`, `anon` con INSERT o sin SELECT y `service_role` sin UPDATE; 6 de habitaciones, Fase 4.0: vuelve `rooms_owner_write`, falta `room_addresses_select_own` y cuatro escrituras sin la comprobación de cuenta activa; 8 de `compatibility_responses`, Fase 3.1; la marca `roomly-validation-2` en P0, Fase 3) fallan cada una en su check | local; en CI (`db-security`) desde 2.8 |
+| `tests/supabase/migration-upgrade-selftest.sh` (Fase 3.1; 4.0; 4.1; R1) | ✅ 26 líneas `ok` desde R1: 15 aserciones (UP1–UP10), los datos de partida, las 4 migraciones nuevas aplicadas, el rechazo de la 4.1, el de R1, la carga repetida y 3 de la instalación limpia. **R1:** el barrio oficial de los datos anteriores conserva su id y Barcelona queda con exactamente los 73 (UP10); con un barrio inventado, un slug oficial con otro nombre y un nombre oficial con otro slug, la carga se detiene en `neighborhoods_r1_precheck` sin dejar nada; aplicarla otra vez no cambia ningún barrio; en otra base de datos, las migraciones solas crean Barcelona y sus 73 barrios, el seed después no duplica nada, y la carga repetida tampoco. Antes, con la 4.1, 13 aserciones (UP1–UP9) y el rechazo de la 4.1 (antes 10/10): con una habitación activa sin barrio y otra con características fuera del catálogo, la 4.1 se detiene en `rooms_4_1_precheck` sin dejar nada; con datos válidos, conserva la habitación activa completa y el borrador incompleto (UP8) e impone sus reglas a la habitación anterior (UP9). Antes: migraciones de la Fase 2 con datos y después las nuevas; filas conservadas y sujetas a S4/S5 y al bloqueo de cuentas eliminadas; desde la 4.0, habitaciones anteriores conservadas: la de una cuenta activa se sigue editando y la de una desactivada ya no (UP6–UP7) | local; en CI (`db-security`) en verde desde el PR #7; el último, sobre `83654eb` (run `38003093188`) |
+| Mutaciones de R1 contra `test:db` y el selftest de actualización | ✅ 10/10 detectadas: sin la comprobación previa, comprobación previa solo por slug, falta un barrio, un nombre cambiado, un barrio de más, Barcelona con otros valores que el seed, la carga sin `on conflict`, el seed sin `on conflict`, barrios con coordenadas y sin la migración. `validation-infra` detecta además las que cambian la lista, Barcelona o el seed | local, sobre copias en el scratchpad (el repositorio no se toca) |
+| Mutaciones de R7 (opción A) contra `tests/db/17` | ✅ 14/14 detectadas solo con `17`: sin el trigger de moderación, deshabilitado, que solo bloquee entrar en `removed`, que solo bloquee salir, que bloquee también a un admin, que bloquee a `service_role`; sin `chk_rooms_publishable`, publicar solo con barrio; `status` en el INSERT, sin UPDATE de `status`; sin el bloqueo de cuentas desactivadas, o solo en el `WITH CHECK`; `anon` con UPDATE de `status`; `service_role` sin UPDATE. Las 7 que detecta primero la estructura (ST0) las detecta también el comportamiento (ST1 o ST4) si se quita ST0 | local, sobre copias de la migración y del test en el scratchpad (el repositorio no se toca) |
+| Mutaciones de la Fase 4.1 contra `test:db` | ✅ 16/16 detectadas: sin el CHECK de catálogo, con una clave de más, sin el de duplicados, sin el de `total_roommates`, `total_rooms` ≥ 0, publicar solo con barrio, publicación neutralizada (`or true`, sin quitar el texto), sin la FK barrio ↔ ciudad, `status` en el INSERT, `deleted_at`/`approx_*` en el UPDATE, `owner_id` en el UPDATE, `anon` vuelve a escribir, UPDATE de tabla completa, sin UPDATE de `status`, sin la migración; y sin la comprobación previa, que detecta `migration-upgrade-selftest`. Las neutralizaciones que conservan el texto las detecta el comportamiento (RT4, RP2, RP3), no la estructura. Las 11 de la 4.0 siguen detectándose con los tests de la 4.1 | local, sobre copias de la migración en el scratchpad (el repositorio no se toca) |
 | Mutaciones de la Fase 4.0 contra `test:db` | ✅ 11/11 detectadas: la comprobación de cuenta activa neutralizada (`or true`, sin quitar el texto) en el UPDATE y el INSERT de `rooms`, el INSERT de `room_addresses` y el DELETE de `room_images`; vuelve `rooms_owner_write`; UPDATE de `rooms` sin propiedad; dirección legible por todos; UPDATE de `room_images` sin la comprobación; sin la migración; y, tras la auditoría del PR #25, un rechazo 42501 que no viene de la RLS (trigger de INSERT) en la fila de `anon` de RI3 o en la de D de RD2, que solo detectan las repeticiones RI3-control y RX2 (con el test anterior pasaban). `15_rooms_integrity` falla en las once | local, sobre copias de la migración en el scratchpad (el repositorio no se toca) |
 | Mutaciones de la Fase 3.1 contra `test:db` | ✅ 5/5 detectadas (sin S4, UPDATE devuelto a `authenticated`, sin bloqueo de cuentas eliminadas, SELECT para `anon`, bajar de versión permitido) | local, sobre una copia de la migración en el scratchpad |
 | Mutaciones del motor (Fase 3.2) | ✅ 7/7 detectadas (media en vez de `min`, Jaccard, dato ausente como neutro, sin r6, dirección por suma en vez de signos concordantes, sin tope de diferencias, umbral de fortaleza exclusivo) | local, `score.ts` restaurado y comprobado con `diff` |
@@ -151,8 +154,170 @@ con los runs 16–19 es de la Fase 3 y el resto, de las Fases 1 y 2.
 - Su workflow no aplica migraciones a un esquema que ya existe. Cómo validar
   en real las migraciones de la Fase 4 lo decide el propietario (R8).
 
+**Fase 4.1 (2026-10-15): sin validación real.**
+- La migración `20261015120000` y `16_rooms_publication` solo han corrido en
+  local y en la CI. La suite SQL pasa a 16 archivos, y P1 y P4 del preflight
+  exigen las restricciones y el GRANT de la 4.1, que `roomly-validation-3`
+  tampoco tiene.
+- `17_rooms_status_transitions` (la decisión R7 sobre `status`), igual: solo
+  en local y en la CI. Con él, la suite SQL tiene 17 archivos.
+- La carga de barrios oficiales (R1, `20261016120000`) y
+  `18_neighborhoods_catalog`, igual: solo en local y en la CI. La suite SQL
+  tiene 18 archivos, y P1 exige los 73 barrios, que `roomly-validation-3` no
+  tiene.
+- La api-suite (RO1–RO9) crea borradores completos y los publica con un
+  UPDATE, con un barrio oficial de Barcelona. Ni RO ni la api-suite se han
+  ejecutado con la 4.1.
+
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
+
+## Fase 4.1 — R1: barrios oficiales de Barcelona (2026-10-16, en local)
+
+Migración de datos `20261016120000_barcelona_neighborhoods.sql`, con los 73
+barrios del archivo oficial (© Ajuntament de Barcelona, Open Data BCN, CC BY
+4.0; detalle en `docs/DATABASE.md`).
+- **Verificación del archivo** (en el scratchpad, sin versionar el JSON):
+  - JSON válido, 73 objetos con 6 campos;
+  - 73 `codi_barri` (`01`–`73`) en los 10 districtes;
+  - geometrías cerradas, que suman 101,70 km², dentro del término municipal;
+  - las 73 filas de la migración coinciden exactamente con el archivo
+    (código, nombre y slug derivado).
+- **Qué se prueba:**
+  - `tests/db/18_neighborhoods_catalog.sql` (22 aserciones):
+    - NB0–NB1: la lista del test, Barcelona y el seed después de las
+      migraciones;
+    - NB2–NB4: los 73 exactos, sin coordenadas, sin duplicados por nombre y
+      con la huella de P1;
+    - NB5: lectura abierta, sin escrituras de usuarios ni de `anon`, con un
+      control del admin;
+    - NB6: un barrio oficial con las reglas de la 4.1 (publicar, barrio ↔
+      ciudad) y con las preferencias.
+  - P1 del preflight: los 73 por número y huella, con 4 mutaciones nuevas en
+    `preflight-selftest`.
+  - `migration-upgrade-selftest`: instalación existente, carga rechazada,
+    carga repetida e instalación limpia, con y sin seed.
+  - `validation-infra`: la lista de la migración, Barcelona igual que en el
+    seed, la carga sin borrados, la lista de `tests/db/18` y la huella.
+- **Por qué no se exige «solo 73» en `tests/db/18`:** en local, `run.sh`
+  ejecuta los archivos sobre la misma base de datos, y otras pruebas dejan
+  barrios sintéticos en Barcelona. Lo exigen P1, contra el proyecto de
+  validación, y el selftest, sobre bases de datos sin esos barrios.
+- **Mutaciones locales:** 10/10 detectadas (ver la tabla).
+
+## Fase 4.1 — R7: transiciones de `status` (2026-10-15, en local)
+
+Decisión expresa del propietario (opción A, 2026-10-15): la propietaria
+actualiza `status`, dentro de los límites de la base de datos. Sin cambios en
+la migración: el test fija la matriz efectiva que ya resultaba de la 4.0, H5
+y la 4.1 (`docs/DATABASE.md`, «Estado de la habitación»).
+- **Qué se prueba** (`tests/db/17_rooms_status_transitions.sql`, 160
+  aserciones):
+  - **ST0, permisos y fixtures:**
+    - `status`: `authenticated`, solo en el UPDATE; `anon` no escribe;
+      `service_role`, tabla completa;
+    - el trigger de moderación, activo, y `chk_rooms_publishable`;
+    - `room_status` con exactamente los 5 estados de la matriz: un estado
+      nuevo obliga a revisarla;
+    - las habitaciones C y DR completas e I incompleta, en `draft`, con un
+      barrio sintético propio del test (no es un barrio real; R1);
+    - la propietaria desactivada ve su habitación, y el admin la de O.
+  - **ST1, matriz:** 6 casos × 20 transiciones entre `draft`, `active`,
+    `paused`, `rented` y `removed`:
+    - propietaria activa, con su habitación completa y con la incompleta;
+    - admin activo;
+    - propietaria desactivada;
+    - `service_role`, con la completa y con la incompleta.
+    Cada celda parte de un estado que fija el dueño de las tablas y se
+    intenta en una subtransacción que se deshace. Las 4 celdas `active → …`
+    de la incompleta no pueden ni prepararse (`chk_rooms_publishable`), en
+    los dos casos.
+  - **ST2, flujo persistido de la propietaria:** publica, pausa, reactiva,
+    edita otro campo y marca como alquilada. Activa, no puede dejarla sin
+    `total_rooms`, `total_roommates` ni barrio, ni marcarla `removed` con un
+    UPDATE directo, y los rechazos no cambian la fila.
+  - **ST3, moderación persistida:** el admin la retira; la propietaria no la
+    reactiva ni la pasa a `draft`; el admin la devuelve a `paused` y la
+    propietaria la reactiva.
+  - **ST4, GRANT:** el cliente no fija `status` al crear (ni `draft` ni
+    `active`); la misma fila sin `status` entra y nace `draft`. `anon` ve la
+    habitación activa, pero no cambia su estado ni crea habitaciones.
+  - **ST5, controles:**
+    - sin el trigger (dentro de `begin;`/`rollback;`), la propietaria
+      pondría `removed`; después vuelve a estar activo;
+    - reactivada, D publicaría su habitación;
+    - completada, I se publica, y pausada puede volver a quedar incompleta.
+- **Por qué las negativas fallan por la regla, sin depender del idioma de
+  los mensajes:**
+  - H5: `42501` con el mensaje propio `room_moderation:`;
+  - publicación: `23514` con `constraint_name = chk_rooms_publishable`
+    (`get stacked diagnostics`);
+  - GRANT: `42501` sin ese prefijo, y la misma fila sin `status` entra;
+  - cuenta desactivada: 0 filas sobre una fila que ve, y 1 fila al
+    reactivarla;
+  - cada rechazo se acepta en otra celda, con otro actor o en los controles.
+- **Mutaciones locales:** 14/14 detectadas solo con `17` (ver la tabla).
+- **Comportamiento actual que el test no fija** (no forma parte de la
+  decisión; Fase 7): con la habitación en `removed`, la propietaria puede
+  editar las demás columnas y borrarla. Comprobado en una base de datos de
+  prueba del scratchpad, sin cambios en el repositorio.
+
+## Fase 4.1 — integridad, catálogo, ocupación y publicación de habitaciones (2026-10-15, en local)
+
+- **Qué se prueba** (`tests/db/16_rooms_publication.sql`, 88 aserciones):
+  - **RS1–RS5, estructura:**
+    - las 8 CHECK de `rooms`, validadas;
+    - la FK compuesta y su clave única, comparadas por catálogo, sin depender
+      del texto de `pg_get_constraintdef`;
+    - el catálogo exacto de la base de datos;
+    - las columnas exactas de INSERT y UPDATE de `authenticated`;
+    - `anon` solo con SELECT y `service_role` con la tabla completa.
+  - **RC1–RC9, catálogo (R6):**
+    - acepta las 12 claves a la vez, el array vacío y un subconjunto;
+    - rechaza (`23514`) una clave desconocida, otras mayúsculas, una
+      repetida, `NULL` y los nombres de las columnas booleanas;
+    - también como `service_role`.
+  - **RT1–RT6, ocupación (R9):** un borrador sin ocupación se guarda; 0
+    compañeros y 1 dormitorio son válidos; negativos y `total_rooms = 0`, no,
+    tampoco como servidor.
+  - **RN1–RN9, barrio ↔ ciudad (R1):** rechaza (`23503`) el barrio de otra
+    ciudad al crear, al cambiar el barrio y al cambiar solo la ciudad, también
+    como servidor. Acepta un cambio coherente de los dos y un borrador sin
+    barrio. Un admin renombra un barrio en uso, pero no lo mueve de ciudad ni
+    lo borra.
+  - **RP1–RP13, publicación (R7):**
+    - un borrador incompleto se guarda y nace `draft`;
+    - no se publica sin barrio, sin `total_roommates` o sin `total_rooms`, y
+      una habitación activa no los pierde;
+    - pausada puede quedar incompleta, pero no se reactiva sin completarla;
+    - el cliente no fija `status` al crear;
+    - ni un admin ni el servidor publican una habitación incompleta;
+    - una cuenta desactivada no publica su borrador completo.
+  - **RG1–RG7, columnas reservadas:**
+    - `deleted_at`, `approx_*`, las fechas, `owner_id` e `id`, rechazados
+      (`42501`), y también el upsert que reescribe `owner_id`;
+    - los datos del anuncio y el estado, sí;
+    - un admin modera, pero no hace el borrado lógico;
+    - `anon` no edita.
+  - **RK1–RK7, control negativo:** dentro de `begin;`/`rollback;` se retiran
+    las restricciones y se concede `deleted_at`. Las escrituras rechazadas
+    entran, y después todo vuelve a estar como antes.
+- **Por qué las negativas fallan por la regla:**
+  - cada rechazo exige su SQLSTATE, y el log muestra la restricción concreta
+    (`chk_rooms_*`, `fk_rooms_neighborhood_city` o el GRANT);
+  - cada negativa va precedida de una escritura válida sobre la misma fila,
+    y las de CHECK y FK se repiten como `service_role`.
+- **Ajustes:**
+  - `03` y `15` crean borradores completos y los publican con un UPDATE;
+  - la aserción H5 de `03` que combinaba `status` con `deleted_at` usa ahora
+    columnas permitidas, para que su `42501` siga siendo del trigger;
+  - el borrado lógico de RD2 (`15`) espera el `42501` del GRANT.
+- **Infraestructura:** P1 (restricciones y catálogo) y P4 (GRANT de `rooms`)
+  del preflight, con 15 mutaciones nuevas; `migration-upgrade-selftest`
+  (UP8–UP9 y el rechazo con datos inválidos); `validation-infra`; y la
+  api-suite (RO1 y RO6), sin ejecutar.
+- **Mutaciones locales:** 16/16 de la 4.1 y 11/11 de la 4.0 detectadas (ver
+  la tabla).
 
 ## Fase 4.0 — escrituras de habitaciones con la cuenta desactivada (2026-10-13, en local)
 
@@ -530,6 +695,9 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 | `12_settings_notifications.sql` (Fase 2.6) | que una cuenta activa deje de poder activar o desactivar su aviso por email, o que el cambio no persista (se relee el valor); que pueda cambiar el de otra **en las dos direcciones** (A→B y B→A, también junto con otro campo), comprobando antes que la fila ajena es **visible** —desde la 2.9 (H4) gracias a una política SELECT temporal dentro de un bloque `begin;`/`rollback;`, como en `11`—, así que el 0 solo lo explica la condición de dueño de `profiles_update_own`; que la fila atacada quede intacta; que el aviso quede nulo; que cambiarlo complete el onboarding; que tras los bloques quede la política temporal o B vea la fila de A con la lectura normal (ST12) |
 | `13_profiles_privacy.sql` (Fase 2.9, H4) | que un usuario autenticado lea el perfil de otro (por id, por `date_of_birth` u otras columnas); que pierda la lectura de su propio perfil, también eliminado; que un admin activo deje de leer todos, incluida la fecha de nacimiento, o que uno eliminado los lea; que anon lea alguno; que `public_profile_previews` deje de devolver el nombre de otros, muestre cuentas eliminadas o exponga `date_of_birth` (columnas exactas); que `profiles` no tenga exactamente sus 4 políticas o haya otra que dé lectura; que no sean 44 políticas en `public` (37 hasta la 4.0) |
 | `15_rooms_integrity.sql` (Fase 4.0) | que una cuenta desactivada, también a mitad de sesión con el mismo JWT, cree, modifique o borre habitaciones, direcciones exactas o imágenes; que otro usuario escriba en filas ajenas aunque las vea; que otro usuario o `anon` lean la dirección exacta, o que la propietaria desactivada deje de leer las suyas; que `anon` cree habitaciones; que un propietario activo, un admin activo o `service_role` pierdan lo que podían hacer; que cambie la lectura pública (una habitación activa de una cuenta desactivada sigue siendo pública, R7); que las tres tablas no tengan exactamente sus 14 políticas, o que una de escritura no sea de `authenticated`, no exija propiedad y cuenta activa en todas sus expresiones o no cualifique `room_id`; que una de lectura consulte `profiles`. Cada rechazo exige 42501 y cada INSERT rechazado se repite con los mismos datos y entra; RI9 comprueba que, con la condición anterior a la 4.0, la cuenta desactivada volvería a escribir |
+| `18_neighborhoods_catalog.sql` (Fase 4.1, R1) | que falte, sobre o cambie (slug o nombre) alguno de los 73 barrios oficiales de Barcelona, o que tengan coordenadas; que Barcelona no exista una sola vez con los valores del seed o que el seed no termine después de la migración; que otro barrio de Barcelona repita el nombre de uno oficial con otro slug; que la huella no sea la de P1; que un usuario sin rol admin o `anon` añada, renombre o borre barrios; que un barrio oficial no sirva para publicar una habitación de Barcelona, o sirva para una de Madrid; que las preferencias no lo acepten con su ciudad, o lo acepten con otra; que se borre uno en uso. No exige que Barcelona tenga solo 73: en local, las demás pruebas dejan barrios sintéticos (eso lo exigen P1 y el selftest) |
+| `17_rooms_status_transitions.sql` (Fase 4.1, R7) | que la propietaria activa deje de poder mover su habitación entre `draft`, `active`, `paused` y `rented`, o que pueda entrar o salir de `removed`, también con un UPDATE directo; que publique o reactive una habitación incompleta, o que una activa quede incompleta; que el cliente fije `status` al crear; que una cuenta desactivada cambie el estado; que un admin activo o `service_role` pierdan alguna transición; que `anon` escriba. Cada celda distingue el trigger, el CHECK, el GRANT y la RLS, y los controles prueban que los fixtures aceptan lo que se rechaza |
+| `16_rooms_publication.sql` (Fase 4.1) | que una habitación tenga un barrio de otra ciudad (al crear, al cambiar el barrio o solo la ciudad) o que un barrio en uso cambie de ciudad o se borre; que `features` acepte claves fuera del catálogo, repetidas, con otras mayúsculas o `NULL`, o deje de aceptar alguna de las 12 o el array vacío; que la ocupación admita negativos o `total_rooms = 0`; que se publique o quede `active` una habitación sin barrio u ocupación, o que un borrador deje de poder estar incompleto; que el cliente fije `status` al crear, o escriba `deleted_at`, las fechas, `approx_lat`/`approx_lng`, `id` u `owner_id`; que `anon` escriba o `service_role` pierda la tabla completa; que una cuenta desactivada publique. Las reglas valen también para un admin y `service_role`. RK comprueba que, sin cada restricción, la escritura rechazada entraría |
 | `11_housing_preferences_ownership.sql` | UPDATE o DELETE de la fila de otro usuario **con esa fila visible**: dentro de una transacción con `ROLLBACK` se añade una política de SELECT temporal abierta, así que el resultado ya no lo explica la lectura, solo la condición de dueño de `housing_preferences_update_own`/`_delete_own`; control positivo (el dueño sí puede en la misma situación) y comprobación final de que la política temporal no queda |
 | `10_preferences_integrity.sql` (Fase 2.5) | con el onboarding completado: quitar la ciudad (cliente y servidor), crear preferencias sin ciudad, borrarlas desde el cliente; que antes del onboarding todo siga siendo opcional y borrable; que el servidor pierda el borrado o la cascada del perfil; universidad de otra ciudad (y al cambiar solo la ciudad), universidad sin ciudad aceptada, FK intacta; barrio de otra ciudad; estructura de triggers, funciones y política |
 | `09_own_profile_update.sql` (Fase 2.4) | que una cuenta activa deje de poder escribir alguno de los campos de `/perfil`; que `id`, `created_at` o `updated_at` pasen a ser actualizables; editar un perfil ajeno; vaciar `seeking_status` o `email_notifications_enabled`; `bio` de más de 500 |

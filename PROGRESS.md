@@ -6,6 +6,321 @@ próximos pasos.**
 
 ---
 
+## 2026-10-16 — Sesión 46: R1, carga de los barrios oficiales de Barcelona (Fase 4 EN CURSO; 4.1 implementada, PR #26 sin fusionar)
+
+**Contexto**
+- **Estado de Git y del PR al empezar:**
+  - rama `claude/phase4-1-rooms-integrity`, HEAD `4cda7f4`, árbol limpio;
+  - PR #26 abierto, sin conflictos, CI #61 en verde, base `master` =
+    `7818a15`.
+- **El archivo:**
+  - el propietario lo indicó en `tmp/BarcelonaCiutat_Barris.json`, pero esa
+    ruta no existía en el contenedor, ni en ninguna rama remota, ni como
+    adjunto del PR;
+  - el dominio de Open Data BCN seguía rechazado por el proxy (403). Se
+    informó y se paró dos veces sin inventar nada;
+  - después, el propietario lo subió a la sesión; se copió al scratchpad
+    (sha256 `038ccc3e…07990`) y no se versiona.
+
+**Verificación del archivo**
+- JSON válido: un array de 73 objetos con los mismos 6 campos
+  (`codi_districte`, `nom_districte`, `codi_barri`, `nom_barri`,
+  `geometria_etrs89`, `geometria_wgs84`). Sin metadatos de licencia ni de
+  versión.
+- **Son barrios:**
+  - 73 `codi_barri` distintos, `01`–`73` sin huecos;
+  - repartidos en los 10 districtes: 4, 6, 8, 3, 6, 5, 11, 13, 7 y 10;
+  - geometrías `POLYGON`/`MULTIPOLYGON` cerradas, que suman 101,70 km² y caen
+    dentro del término municipal;
+  - no son distritos (10) ni áreas estadísticas.
+- **Nombres:** en catalán y en NFC, sin espacios sobrantes. Fuera de
+  `[A-Za-z0-9]` solo aparecen el espacio, el apóstrofo, la coma, el guion y
+  `à ç é í ò ó`.
+- **Licencia:** CC BY 4.0, como indicó el propietario. No se ha podido
+  comprobar en el portal, que sigue bloqueado.
+
+**Qué se hizo**
+- **Migración de datos** `20261016120000_barcelona_neighborhoods.sql`:
+  - un único bloque `do` con los 73 barrios (código, slug y nombre);
+  - crea Barcelona con los valores del seed si no existe;
+  - se detiene sin escribir si Barcelona tiene barrios que no coinciden
+    exactamente con uno oficial (`neighborhoods_r1_precheck:`);
+  - inserta con `on conflict (city_id, slug) do nothing`, y al terminar
+    comprueba que están los 73;
+  - sin coordenadas ni distrito, y sin cambios de esquema, políticas,
+    triggers, funciones ni permisos.
+- **Slug:** se deriva del nombre (minúsculas, sin acentos y `-` entre
+  tramos). Los 73 son distintos.
+- **Seed:** las ciudades se insertan con `on conflict (slug) do nothing`, y
+  la cabecera explica el orden.
+- **Tests:**
+  - `tests/db/18_neighborhoods_catalog.sql` (22), nuevo;
+  - P1 del preflight, con la huella y 4 mutaciones;
+  - `migration-upgrade-selftest`:
+    - el barrio de los datos anteriores pasa a ser uno oficial;
+    - la carga rechazada, la carga repetida, UP10 y la instalación limpia,
+      con y sin seed;
+  - 5 pruebas en `validation-infra`;
+  - el mensaje de RO en la api-suite (sin ejecutar).
+- **Documentación:**
+  - `docs/DATABASE.md`, con la fuente, la atribución, la licencia, el
+    contenido verificado, el orden y la idempotencia;
+  - `docs/SECURITY.md`, `docs/TESTING.md` y `docs/ROADMAP.md`;
+  - `CLAUDE.md`: la línea de R1 decía que faltaba la carga, y se añade la
+    opción A de R7;
+  - `docs/SUPABASE_VALIDATION.md`, en la parte vigente:
+    - la suite 01–18 (651);
+    - el preflight P1 y P4 de la 4.1 y R1;
+    - los recuentos de los selftests;
+    - el aviso de la Fase 4 (un run actual fallaría ya en P1);
+    - RO6 con el GRANT;
+    - una sección de R8.
+  - Los resultados de los runs 13–19 no se tocan.
+
+**Decisiones técnicas** (para revisar)
+- **Barrios de más en Barcelona:** la carga se detiene, aunque no
+  contradigan ningún oficial, para no mezclar barrios oficiales con otros ni
+  dejar duplicados. No borra ni transforma nada.
+- **Sin columna para el código oficial** (`codi_barri`): queda en la
+  migración para trazar cada fila. Guardarlo sería un cambio de esquema que
+  la 4.1 no necesita.
+- **La migración crea Barcelona:** así la carga funciona sin seed, como en un
+  despliegue que solo aplica migraciones.
+- **`tests/db/18` no exige «solo 73»:** en local quedan barrios sintéticos
+  de otras pruebas. Lo exigen P1 y el selftest.
+
+**Resultados** (en local, con el PostgreSQL 16 del entorno)
+- `test:db` 651/651 (antes 629): el `18` con 22 aserciones.
+- `test:infra` en verde:
+  - guarda 28;
+  - `sql-suite-selftest` 78/78 («651 = 651», 18 archivos, con el runner
+    real);
+  - `preflight-selftest` 69/69 (61 mutaciones);
+  - `migration-upgrade-selftest` con 26 líneas `ok`.
+- `npm run test` 1052/1052. `lint`, `typecheck`, `format:check` y
+  `git diff --check`: ver el final de la sesión, antes del commit.
+- **Mutaciones**, sobre copias en el scratchpad: 10/10 de R1 detectadas.
+- La comprobación de que las 73 filas de la migración coinciden con el
+  archivo se hizo con un script del scratchpad; el archivo no se versiona.
+
+**Observaciones** (sin cambios)
+- Los formularios de preferencias muestran todos los barrios de la ciudad:
+  Barcelona pasa de 0 a 73 opciones, ordenadas por nombre (con artículo:
+  «el Raval», «la Barceloneta»…).
+- Un admin activo puede escribir `neighborhoods` desde el cliente (Fase 0).
+- La atribución CC BY 4.0 en la interfaz es una decisión de producto
+  pendiente.
+
+**Pendiente**
+- CI del PR #26, y su revisión y merge (decide el propietario).
+- **R8:** sin validación real. `roomly-validation-3` no tiene las migraciones
+  de la Fase 4, y un run actual fallaría en P1.
+- La visibilidad de R7, R3, R4, R5 y el resto de R2, sin decidir. No se
+  avanza a la 4.2 sin autorización.
+
+---
+
+## 2026-10-15 — Sesión 45: decisión R7 sobre `rooms.status` (opción A) y su matriz de tests (Fase 4 EN CURSO; 4.1 NO terminada)
+
+**Contexto**
+- El propietario confirmó de forma expresa la opción A de R7 para
+  `rooms.status`:
+  - la propietaria autenticada lo actualiza;
+  - el INSERT no lo admite, así que toda habitación nace `draft`;
+  - se mueve entre `draft`, `active`, `paused` y `rented`, y `active` exige
+    barrio válido, barrio de su ciudad y ocupación;
+  - la propietaria no pone ni quita `removed`; la moderación sigue protegida
+    por el trigger existente;
+  - siguen el bloqueo de cuentas desactivadas de la 4.0 y service_role sin
+    cambios;
+  - sin ampliar D17 ni añadir una función privilegiada.
+- **Estado de Git al empezar:** rama `claude/phase4-1-rooms-integrity`, HEAD
+  `1045d3e` (PR #26 abierto, base `7818a15`, CI #60 en verde), árbol limpio.
+- R1 sigue bloqueado: el proxy del entorno rechaza
+  `opendata-ajuntament.barcelona.cat` (`connect_rejected`, también en el
+  segundo intento de la sesión anterior). No se ha cargado ningún barrio.
+
+**Qué se hizo**
+- **Sin cambios en la migración** ni en el código de la aplicación. La matriz
+  efectiva, medida antes en una base de datos de prueba, ya coincidía con la
+  opción A, así que no hubo que tocar la lógica.
+- **`tests/db/17_rooms_status_transitions.sql`** (160 aserciones), nuevo:
+  - ST0: permisos efectivos sobre `status`, el trigger y el CHECK, los 5
+    valores de `room_status` y fixtures válidos, con un barrio sintético
+    propio del test (no es un barrio real);
+  - ST1: matriz de 6 casos × 20 transiciones (propietaria con habitación
+    completa e incompleta, admin, propietaria desactivada y `service_role`
+    con las dos);
+  - ST2: flujo persistido de la propietaria (publica, pausa, reactiva, edita
+    y marca como alquilada; no la deja incompleta ni la marca `removed`);
+  - ST3: moderación persistida (el admin retira y devuelve a `paused`; la
+    propietaria no la recupera);
+  - ST4: GRANT al crear y `anon`;
+  - ST5: controles: sin el trigger, la propietaria pondría `removed`;
+    reactivada, D publicaría; completada, I se publica.
+  - Cada rechazo se clasifica por su motivo sin depender del idioma del
+    servidor: el mensaje propio `room_moderation:` (H5), `constraint_name`
+    (`chk_rooms_publishable`), el `42501` del GRANT con su control positivo,
+    y 0 filas sobre una fila visible (RLS de la 4.0).
+- `tests/supabase/run-sql-suite.sh`: comentario 01–17.
+- **Documentación:** `docs/DATABASE.md` («Estado de la habitación», con la
+  tabla de transiciones y el límite de la moderación), `docs/SECURITY.md` (la
+  excepción de `status`, la propiedad y la moderación), `docs/TESTING.md`
+  (sección, filas de resultados, «Protege contra» y mutaciones),
+  `docs/ROADMAP.md` (R7, sin cambiar criterios) y esta entrada. `CLAUDE.md`
+  no se ha tocado: no contradice la decisión.
+- En `docs/TESTING.md`, la fila de `sql-suite-selftest` decía «una sesión
+  aislada por archivo (15)» desde la 4.0; ahora dice 17, el número que cuenta
+  el selftest.
+
+**Problemas encontrados**
+- Primera versión del test: el control de D (5b) falló porque la matriz
+  dejaba cada habitación en el último estado de partida (`removed`). Era un
+  fallo del fixture, no de la lógica: la matriz devuelve cada habitación a
+  `draft` al terminar su caso y una aserción lo comprueba.
+
+**Observaciones** (comportamiento actual, sin cambios; para la Fase 7)
+- La moderación efectiva es solo `removed`. Si un admin «oculta» con
+  `paused`, como describe `docs/ARCHITECTURE.md`, la propietaria puede
+  reactivarla.
+- H5 solo vigila `status`. Comprobado en una base de datos de prueba del
+  scratchpad: con la habitación en `removed`, la propietaria sigue editando
+  sus demás columnas y puede borrarla. El test no lo fija, porque no forma
+  parte de la decisión.
+
+**Resultados** (en local, con el PostgreSQL 16 del entorno)
+- `test:db` 629/629 (antes 469): `17` con 160; `03`, `15` y `16` sin cambios
+  (14, 75 y 88).
+- `test:infra` en verde: guarda; `sql-suite-selftest` 78/78 («629 = 629», 17
+  archivos, también `17` con el runner real); `preflight-selftest` 65/65;
+  `migration-upgrade-selftest`.
+- `npm run test` 1047/1047; `lint`, `typecheck`, `format:check` y
+  `git diff --check`, sin errores.
+- **Mutaciones**, sobre copias en el scratchpad y ejecutando solo `17`: 14/14
+  detectadas (trigger quitado, deshabilitado, que solo bloquee entrar o
+  salir, que bloquee al admin o a `service_role`; sin CHECK o publicar solo
+  con barrio; `status` en el INSERT o fuera del UPDATE; sin el bloqueo de
+  cuentas desactivadas o solo en el `WITH CHECK`; `anon` con UPDATE;
+  `service_role` sin UPDATE). Las 7 que detecta primero ST0 también las
+  detecta el comportamiento si se quita ST0.
+- `build` y E1 no se ejecutaron en local (no cambia código de la aplicación);
+  los ejecuta la CI.
+
+**Pendiente** (la 4.1 no está terminada)
+- **R1:** incorporar el dataset oficial de barrios. Hay que verificar sus
+  campos y su licencia, e implementar la carga idempotente para instalaciones
+  limpias y existentes (con el orden migraciones → seed). La red del entorno
+  lo sigue bloqueando. El PR #26 no es fusionable sin R1.
+- Sin validar en Supabase real (R8).
+- `docs/SUPABASE_VALIDATION.md`, sin actualizar (ver la sesión 44).
+- La visibilidad de R7, R3, R4, R5 y el resto de R2, sin decidir.
+
+---
+
+## 2026-10-15 — Sesión 44: Fase 4.1, datos e integridad de habitaciones, sin interfaz (Fase 4 EN CURSO)
+
+**Contexto**
+- El propietario autorizó la 4.1 con sus decisiones R1, R2 (alcance mínimo),
+  R6 (catálogo de 12 claves con etiquetas), R7 (publicación) y R9, más la
+  protección de las columnas que gestiona el servidor.
+- **Estado de Git al empezar:** `master` = `origin/master` = `7818a15`
+  (merge del PR #25), árbol limpio y sin PR abiertos. Rama nueva
+  `claude/phase4-1-rooms-integrity`.
+- Leídos `docs/DATABASE.md` completo (regla 7), `CLAUDE.md`,
+  `docs/ROADMAP.md`, `docs/SECURITY.md`, `ROOMLY_MASTER_SPEC.md` y
+  `docs/SUPABASE_VALIDATION.md`. Revisados las migraciones, la RLS y los GRANT
+  de `rooms`, y todos los tests que la usan (`03`, `15`, la api-suite, P3, el
+  selftest de actualización y `validation-infra`).
+
+**R1: catálogo de barrios bloqueado por la red**
+- La política de red del entorno deniega `opendata-ajuntament.barcelona.cat`
+  (403 del proxy). La herramienta de lectura web tampoco resolvió ese host,
+  `datos.gob.es` ni otros.
+- No se verificaron la fuente, la licencia ni la versión, y **no se cargó ningún
+  barrio** (nada inventado). El propietario puede permitir el dominio en la
+  configuración de red del entorno.
+- Al escribir la migración de datos habrá que resolver el orden: en un proyecto
+  nuevo las migraciones van antes que `supabase/seed.sql`, que es quien crea
+  Barcelona.
+
+**Qué se hizo**
+- **Migración** `supabase/migrations/20261015120000_rooms_integrity_publication.sql`
+  (incremental, declarativa):
+  - comprobación previa: si alguna habitación incumple las reglas nuevas, se
+    detiene (`rooms_4_1_precheck:`) sin borrar ni transformar nada;
+  - barrio ↔ ciudad: FK compuesta `fk_rooms_neighborhood_city` y la clave
+    única `neighborhoods_id_city_id_key`;
+  - R6: `chk_rooms_features_catalog` y `chk_rooms_features_unique` (sin
+    funciones; el array vacío se acepta);
+  - R9: `chk_rooms_total_roommates` (≥ 0) y `chk_rooms_total_rooms` (≥ 1),
+    con comentarios de columna nuevos;
+  - R7: `chk_rooms_publishable` (`active` exige barrio y ocupación);
+  - GRANT por columnas en `rooms` y `anon` sin escrituras.
+  - Siguen 18 tablas, 44 políticas, 13 triggers y 11 funciones.
+- **Código:** `lib/validation/rooms.ts` (`ROOM_FEATURES` como fuente única,
+  `roomFeaturesSchema`, los esquemas de ocupación y
+  `ROOM_PUBLICATION_REQUIRED_FIELDS`), sin usar todavía.
+- **Tests:**
+  - `tests/db/16_rooms_publication.sql` (88 aserciones), nuevo;
+  - `03` y `15` crean borradores completos y los publican con un UPDATE;
+  - la aserción H5 de `03` ya no mezcla `deleted_at`, para que su `42501`
+    siga siendo del trigger; RD2 (`15`) espera el `42501` del GRANT;
+  - P1 y P4 del preflight, y 15 mutaciones nuevas en `preflight-selftest`;
+  - `migration-upgrade-selftest`: datos válidos para la 4.1, UP8–UP9 y el
+    rechazo con datos inválidos;
+  - `validation-infra`: 5 pruebas de coherencia nuevas; `validation-rooms`,
+    10 nuevas;
+  - api-suite (RO1 y RO6), ajustada pero sin ejecutar.
+- **Documentación:** `docs/DATABASE.md`, `docs/SECURITY.md` (incluida la nota
+  de H5), `docs/TESTING.md`, `docs/ROADMAP.md`, `CLAUDE.md` y esta entrada.
+
+**Decisiones técnicas** (para revisar)
+- **`status`:** fuera del INSERT, pero en el UPDATE. Publicar, pausar y
+  moderar los acotan la RLS de la 4.0, el trigger H5 y el CHECK nuevo.
+  Reservarlo también al servidor exigiría una operación privilegiada nueva, y
+  afecta a D17: no se ha diseñado ni implementado.
+- **`deleted_at`:** reservado. El propietario retira su anuncio con `paused`
+  o borrándolo, y un admin desde el cliente ya no hace el borrado lógico, que
+  será del servidor (como en `profiles`).
+- **`anon`:** pierde INSERT, UPDATE y DELETE en `rooms`, que la RLS ya le
+  impedía.
+- **Duplicados:** la base de datos los rechaza; Zod los quita.
+- **Sin requisitos de producto nuevos:** por ejemplo, el título solo exige
+  `NOT NULL`.
+
+**Resultados** (en local, con el PostgreSQL 16 del entorno)
+- `test:db` 469/469 (antes 378): el `16` con 88, el `03` con 14 y el `15` con
+  75.
+- `test:infra` en verde:
+  - guarda;
+  - `sql-suite-selftest` 78/78 («469 = 469», 16 archivos);
+  - `preflight-selftest` 65/65 (57 mutaciones);
+  - `migration-upgrade-selftest`, con el rechazo de la 4.1.
+- `npm run test` 1047/1047.
+- `lint`, `typecheck`, `format:check` y `git diff --check`, sin errores.
+- **Mutaciones**, sobre copias en el scratchpad:
+  - 16/16 de la 4.1 (15 en `test:db` y la de la comprobación previa en el
+    selftest de actualización);
+  - las 11 de la 4.0 y de la auditoría del PR #25 siguen detectándose.
+- `build` y E1 no se ejecutaron en local: no cambia código de la aplicación.
+  Los ejecuta la CI.
+
+**Límites y pendiente**
+- **Sin validar en Supabase real** (R8). La api-suite necesita además un barrio
+  de Barcelona cargado (R1).
+- `docs/SUPABASE_VALIDATION.md` no se actualizó, porque la tarea limitaba la
+  documentación a otros archivos. Siguen describiendo el estado anterior:
+  - las filas de P1 y P4;
+  - los recuentos del `preflight-selftest`;
+  - la suite SQL «01–15»;
+  - la dependencia de RO de los barrios.
+- Quedan los privilegios `TRUNCATE`, `REFERENCES` y `TRIGGER` por defecto en
+  `rooms`, que no son alcanzables desde PostgREST.
+- La visibilidad de R7, R3, R4, R5 y el resto de R2, sin decidir. No se avanza
+  a la 4.2 sin autorización.
+
+---
+
 ## 2026-10-15 — Sesión 43: correcciones de la auditoría del PR #25 (Fase 4 EN CURSO)
 
 **Contexto**
