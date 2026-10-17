@@ -521,10 +521,16 @@ Entradas:
 - `apply_migrations`: `true` solo la primera vez, sobre el proyecto vacío.
 - `run_e2e_real`: `true` solo cuando el registro está abierto y el buzón
   configurado (ver E2).
+- `phase4_upgrade` (R8, desde la herramienta de la Fase 4): `none` por
+  defecto; `dry_run` o `apply`, con `confirm_phase4_upgrade`. Ver «Fase 4:
+  herramienta de actualización (R8)». No se combina con `apply_migrations` ni
+  con `run_e2e_real`.
 
 Orden de jobs (cada uno solo corre si el anterior pasa):
 
 1. **guard**:
+   - las entradas compatibles entre sí (`phase4-upgrade.sh --check-inputs`,
+     sin conectar ni leer secrets);
    - confirmación explícita del proyecto;
    - secrets presentes;
    - URL y conexión de BD del mismo `PROJECT_REF`;
@@ -537,6 +543,7 @@ Orden de jobs (cada uno solo corre si el anterior pasa):
      (con los valores del seed) y sus barrios oficiales, y el seed ya no
      falla al encontrarla (`on conflict (slug) do nothing`).
    - Se niega si `public.profiles` ya existe.
+   - No se ejecuta con `phase4_upgrade` en `dry_run` ni en `apply`.
    - No usa `supabase db push`: el historial de migraciones de la CLI no se
      registra, algo aceptable en un proyecto desechable.
    - Cada migración nueva obliga a recrear un proyecto vacío (P1).
@@ -926,6 +933,9 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
   - R1, instalación limpia: en otra base de datos, las migraciones solas
     crean Barcelona y sus 73 barrios, el seed se aplica después sin duplicar
     nada, y la carga repetida tampoco cambia nada.
+- **`phase4-upgrade-selftest.sh` (R8, 31 comprobaciones):** la herramienta de
+  la Fase 4 contra bases de datos locales temporales que clonan el esquema de
+  la Fase 3. Ver «Fase 4: herramienta de actualización (R8)».
 
 ## Pendiente de decisión o de ejecución (no lo hace Claude)
 
@@ -998,11 +1008,104 @@ cubrir un run real de la Fase 4:
   P3 con 44 políticas y P4 con el GRANT de `rooms`);
 - la suite SQL `01`–`18` y la api-suite RO con la 4.1.
 
-`roomly-validation-3` no tiene esas migraciones, y el workflow no las aplica
-sobre un esquema existente (`apply_migrations` se niega si `public.profiles`
-ya existe). En local, la actualización de un esquema existente la prueba
-`migration-upgrade-selftest.sh`, y la instalación limpia, `tests/db/run.sh`
-y ese mismo selftest.
+`roomly-validation-3` no tiene esas migraciones, y `apply_migrations` se
+niega si `public.profiles` ya existe. En local, la actualización de un
+esquema existente la prueba `migration-upgrade-selftest.sh`, y la instalación
+limpia, `tests/db/run.sh` y ese mismo selftest.
+
+### Fase 4: herramienta de actualización (R8)
+
+**Preparada y probada solo en local (2026-10-17). No se ha ejecutado contra
+ningún proyecto.** Cada ejecución, `dry_run` o `apply`, necesita la
+autorización expresa del propietario.
+
+`tests/supabase/phase4-upgrade.sh` aplica a `roomly-validation-3` solo las
+tres migraciones de la Fase 4 sobre el esquema que dejaron los runs 16–19:
+- `20261013120000_rooms_deleted_account_writes.sql` (4.0);
+- `20261015120000_rooms_integrity_publication.sql` (4.1);
+- `20261016120000_barcelona_neighborhoods.sql` (R1).
+
+Pasos, con fallo cerrado en cada uno:
+1. **Entradas** (sin conectar): `phase4_upgrade` es `dry_run` o `apply`;
+   `apply_migrations` y `run_e2e_real` son `false`; `apply` exige
+   `confirm_phase4_upgrade` igual a `aplicar-fase4-en-roomly-validation-3`.
+   La guarda del workflow hace la misma comprobación antes de leer secrets.
+2. **SHA-256** (sin conectar) de las tres migraciones y de los dos archivos de
+   estado de partida, fijados en el script. Un archivo distinto aborta.
+3. **Guarda F1** (`guard.sh`): la URL y la conexión del mismo `PROJECT_REF`, y
+   la marca `roomly-validation-3` leída en la propia base de datos.
+4. **Una sola sesión y una sola transacción** (`lock_timeout` de 10 s):
+   - el preflight congelado de la Fase 3
+     (`tests/supabase/phase3-baseline-preflight.sql`, copia exacta del que
+     pasó en el run 19: blob `7155e796…`);
+   - `R8-BASE` (`tests/supabase/phase4-upgrade-baseline.sql`): ningún objeto
+     de la 4.1, 0 habitaciones, direcciones, imágenes y barrios, 9 ciudades y
+     7 universidades, sin usuarios de prueba ni `roomly_test`, y las tablas
+     del rol que conecta;
+   - las tres migraciones, en orden;
+   - el preflight vigente (P0–P6);
+   - `ROLLBACK` en `dry_run`, `COMMIT` en `apply`.
+   Cualquier error corta psql (`ON_ERROR_STOP`) y la transacción se revierte.
+5. **`apply` hace dos pasadas:** primero la de `dry_run`, que debe terminar sin
+   errores ni WARNING. Un WARNING (por ejemplo, «no privileges were granted»)
+   no es un error de Postgres y solo se ve al leer la salida, así que con una
+   sola pasada llegaría al `COMMIT`. Solo después repite todo con `COMMIT`.
+
+**En el workflow** (job `phase4-upgrade`, entre la guarda y el preflight):
+- recibe solo `SUPABASE_VALIDATION_PROJECT_REF` y `SUPABASE_VALIDATION_DB_URL`;
+- con `dry_run` no se ejecutan el preflight ni las suites: el ensayo ya pasó
+  P0–P6 dentro de su transacción y la revirtió;
+- con `apply`, después siguen el preflight, la suite SQL, la api-suite y
+  AU3/AU5. El E2 y `migrate` quedan excluidos.
+- No usa la CLI de Supabase (`db push`, `link`) ni variables de Netlify o
+  Vercel. No imprime la cadena de conexión: solo NOTICE, WARNING y ERROR
+  filtrados.
+
+**Probado en local** (`phase4-upgrade-selftest.sh`, en `test:infra` y en la
+CI): entradas incompatibles, `dry_run` sin efectos, `apply` y el preflight
+vigente después, la segunda aplicación rechazada, otra marca o ninguna, seis
+estados de partida inesperados, archivos con otro SHA-256, un error a mitad,
+un preflight vigente que falla, un WARNING y que ninguna salida contiene la
+contraseña ni la cadena de conexión. Mutaciones de la herramienta: 14/14
+detectadas (`docs/TESTING.md`).
+
+**Lo que no se ha podido probar en local:**
+- Supabase real con PostgreSQL 17: el selftest usa PostgreSQL 16 y un rol
+  **superusuario**, así que no reproduce los avisos de privilegios de un rol
+  no superusuario como el de Supabase. Es justo lo que tiene que comprobar
+  el `dry_run`.
+- Que el estado real de `roomly-validation-3` sea el esperado: lo comprueba
+  la herramienta al ejecutarse; nadie se ha conectado.
+- El Session pooler de Supabase, que debe mantener la sesión durante toda la
+  transacción (modo sesión).
+
+**Incertidumbres antes de ejecutar** (las resuelve el propietario):
+- **Reglas del Environment `roomly-validation-3`:** no se han podido
+  consultar (la API de Environments no es accesible desde el entorno de
+  Claude). Revisar en Settings → Environments → `roomly-validation-3`:
+  - «Deployment branches»: si solo permite `master`, el job no correrá desde
+    otra rama;
+  - si exige revisores para aprobar el job.
+- **`workflow_dispatch` desde una rama distinta de `master`:**
+  - comprobado en este repositorio: los runs 13 y 15 se lanzaron desde
+    `claude/gifted-noether-y98vc6` y ejecutaron la definición de jobs de esa
+    rama (su job se llamaba «01–13», y el de `master` entonces, «01–12»);
+  - no comprobado: si GitHub acepta entradas nuevas definidas solo en la rama,
+    como `phase4_upgrade`, y si el Environment lo permite;
+  - cómo verificarlo sin ejecutar nada: en Actions → Supabase validation →
+    Run workflow, elegir la rama y ver si aparece `phase4_upgrade`; cerrar
+    sin pulsar Run. Si no aparece, la herramienta tiene que estar antes en
+    `master`.
+- **Deploy Previews de Netlify:** comprobar que ninguno usa
+  `roomly-validation-3` durante el run.
+
+**Procedimiento cuando el propietario lo autorice:**
+1. Revisar las incertidumbres de arriba.
+2. `dry_run`: `confirm_project=roomly-validation-3`, `apply_migrations=false`,
+   `run_e2e_real=false`, `phase4_upgrade=dry_run`. Revisar el log.
+3. Con otra autorización, `apply`, con `confirm_phase4_upgrade`. Después corren
+   el preflight y las suites; el E2 no.
+4. Comprobar la limpieza y documentar el run.
 
 ---
 

@@ -6,6 +6,126 @@ próximos pasos.**
 
 ---
 
+## 2026-10-17 — Sesión 47: R8, herramienta de actualización de la Fase 4, solo en local (Fase 4 EN CURSO; PR #26 sin fusionar)
+
+**Contexto**
+- **Decisiones del propietario:**
+  - R8 antes de decidir el merge del PR #26;
+  - todavía no se actualiza `roomly-validation-3` ni se crea
+    `roomly-validation-4`;
+  - la licencia sigue pendiente de verificación oficial;
+  - autoriza el código de la herramienta y sus pruebas, pero no ejecutar
+    workflows ni conectar con Supabase.
+- **Estado de Git al empezar:**
+  - PR #26 abierto, HEAD `179972c`, base `master` = `7818a15`, CI #62 en
+    verde;
+  - árbol limpio.
+  - Rama nueva `claude/phase4-r8-upgrade-tool` sobre `179972c`, para revisar
+    la herramienta aparte del PR #26.
+- **Discrepancia:** la tarea nombraba la segunda migración como
+  `20261015120000_rooms_status_transitions.sql`, que no existe. El archivo
+  real es `20261015120000_rooms_integrity_publication.sql`
+  (`rooms_status_transitions` es el test `tests/db/17`). La herramienta fija el
+  real.
+
+**Qué se hizo**
+- **`tests/supabase/phase4-upgrade.sh`** (`dry_run`, `apply` y
+  `--check-inputs`):
+  - entradas: `apply_migrations` y `run_e2e_real` deben ser `false`, y `apply`
+    exige `confirm_phase4_upgrade` = `aplicar-fase4-en-roomly-validation-3`;
+  - SHA-256 fijados de las tres migraciones y de los dos archivos de estado de
+    partida, sin conectar;
+  - la guarda F1 de siempre;
+  - una sola sesión y transacción (`lock_timeout` de 10 s), con este orden:
+    - el preflight congelado de la Fase 3;
+    - `R8-BASE`;
+    - las tres migraciones;
+    - el preflight vigente;
+    - `ROLLBACK` o `COMMIT`.
+  - Salida filtrada (`roomly_sql_filter_output`), sin la conexión.
+- **`apply` en dos pasadas:** un WARNING de Postgres no es un error y solo se
+  ve al leer la salida. La primera pasada termina en `ROLLBACK` y debe salir
+  limpia; solo entonces se repite con `COMMIT`.
+- **`tests/supabase/phase3-baseline-preflight.sql`:** copia exacta de
+  `f2c12c9:tests/supabase/preflight.sql`, el que pasó en el run 19 (blob
+  `7155e796…`).
+- **`tests/supabase/phase4-upgrade-baseline.sql`** (`R8-BASE`, solo lectura):
+  - ningún objeto de la 4.1 (restricciones, clave única, GRANT por columnas);
+  - 0 habitaciones, direcciones, imágenes y barrios;
+  - 9 ciudades y 7 universidades;
+  - sin usuarios de prueba ni `roomly_test`;
+  - tablas del rol que conecta.
+- **Workflow:**
+  - entradas `phase4_upgrade` (`none`, `dry_run`, `apply`; por defecto `none`)
+    y `confirm_phase4_upgrade`;
+  - la guarda las valida antes de leer secrets;
+  - job `phase4-upgrade`, solo con `PROJECT_REF` y `DB_URL`;
+  - con `dry_run` no corren el preflight ni las suites, y `migrate` y el E2
+    quedan excluidos de la actualización.
+  - Etiquetas corregidas, solo texto: «Suite SQL tests/db, todos los
+    archivos» y la api-suite con CRA, SVC y GC.
+- **`tests/supabase/phase4-upgrade-selftest.sh`** (31 comprobaciones), en
+  `test:infra` y en la CI (`db-security`).
+- **`validation-infra`:** 8 pruebas nuevas, y dos existentes adaptadas al
+  nuevo job (el orden de jobs y los `needs` del preflight). El selftest nuevo
+  entra en la lista de los que usan la marca anterior como caso negativo.
+- **Documentación:** `docs/SUPABASE_VALIDATION.md` (entradas, job, selftest,
+  herramienta, límites, incertidumbres y procedimiento),
+  `docs/TESTING.md`, `docs/ROADMAP.md` (R8), `CLAUDE.md` y esta entrada.
+- **No se ha ejecutado ningún workflow** ni se ha conectado con ningún
+  proyecto Supabase.
+
+**Problemas encontrados** (en mis propias pruebas, corregidos)
+- **El primer selftest era inválido:** `clone` se llamaba dentro de `$(...)`,
+  el contador no sobrevivía y todos los casos usaban la misma base de datos.
+  Ahora `clone` asigna una variable global y aborta si no puede crear la
+  base de datos.
+- **El caso K buscaba en todo el directorio de trabajo:** encontraba la
+  plantilla `postgresql://` en las copias del árbol de los casos G–J. Ahora
+  busca solo en las salidas (`*.log`) y nombra el archivo si encuentra algo.
+- **Mutaciones mal formadas:**
+  - la primera ronda usaba `sed -E` con patrones de BRE, y `||` vacío
+    reescribía todas las líneas; se rehízo con sustituciones literales;
+  - T12 y T13 dejaban un error de sintaxis (`true || \` seguido de `|| die`).
+  - Se corrigieron, y el runner comprueba ahora `bash -n` antes de contar una
+    mutación como detectada.
+
+**Resultados** (en local, PostgreSQL 16)
+- `phase4-upgrade-selftest` 31/31.
+- `test:infra` en verde: guarda 28, `sql-suite-selftest` 78,
+  `preflight-selftest` 69, `migration-upgrade-selftest` 26 y
+  `phase4-upgrade-selftest` 31.
+- `test:db` 651/651, sin cambios. `npm run test` 1060/1060 (8 nuevos).
+- `lint`, `typecheck`, `format:check`, `git diff --check` y `bash -n` de los
+  dos scripts, sin errores. `shellcheck` no está instalado en el entorno.
+- **Mutaciones de la herramienta: 14/14 detectadas**, todas sintácticamente
+  válidas y detectadas por la comprobación que corresponde:
+  - `dry_run` que confirma, sin SHA-256, sin el preflight congelado, sin
+    R8-BASE;
+  - `apply` en una pasada, sin comprobar entradas, sin el preflight vigente,
+    sin la guarda;
+  - que imprime la conexión, sin `ON_ERROR_STOP`, WARNING que no falla;
+  - confirmación laxa, E2 permitido y migraciones que confirman a mitad.
+
+**Límites** (no se han podido probar)
+- Supabase real y PostgreSQL 17: el selftest usa un rol superusuario, así que
+  no reproduce los avisos de privilegios de un rol como el de Supabase.
+- El Session pooler, que debe mantener la sesión durante la transacción.
+- El estado real de `roomly-validation-3`.
+- Las reglas del Environment (ramas permitidas, revisores): la API no es
+  accesible desde el entorno.
+- Si `workflow_dispatch` acepta entradas nuevas definidas solo en una rama.
+  Los runs 13 y 15 prueban que usa la definición de jobs de la rama, pero
+  no sus entradas.
+
+**Pendiente**
+- Revisión de la herramienta (PR aparte) y decisión del propietario sobre
+  cada `dry_run` o `apply`.
+- La licencia del dataset, sin verificar en una fuente oficial.
+- El merge del PR #26, después de R8.
+
+---
+
 ## 2026-10-16 — Sesión 46: R1, carga de los barrios oficiales de Barcelona (Fase 4 EN CURSO; 4.1 implementada, PR #26 sin fusionar)
 
 **Contexto**

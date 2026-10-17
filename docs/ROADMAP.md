@@ -628,9 +628,18 @@ demás siguen sin tomar:
   - **Pendiente:** la visibilidad de las habitaciones de cuentas
     desactivadas, que se decidirá antes de la búsqueda.
 - **R8.** Cómo validar en Supabase real las migraciones de la Fase 4.
-  `roomly-validation-3` ya tiene el esquema y el workflow no aplica
-  migraciones sobre uno existente. Mientras no se decida, un run nuevo
-  fallaría en P3.
+  `roomly-validation-3` ya tiene el esquema y `apply_migrations` no aplica
+  migraciones sobre uno existente. Un run actual fallaría ya en P1.
+  - **Decidido (2026-10-17):** R8 antes de decidir el merge del PR #26.
+    Primero se implementa y prueba en local una herramienta; todavía no se
+    actualiza `roomly-validation-3` ni se crea `roomly-validation-4`.
+  - **Herramienta preparada, sin ejecutar** (`tests/supabase/phase4-upgrade.sh`,
+    entrada `phase4_upgrade` del workflow): aplica solo las tres migraciones
+    de la Fase 4 sobre el esquema de la Fase 3, con `dry_run` (siempre
+    `ROLLBACK`) y `apply` (confirmación aparte). Detalle en
+    `docs/SUPABASE_VALIDATION.md`.
+  - **Pendiente:** revisar la herramienta, las reglas del Environment y cada
+    ejecución, con su autorización.
 - **R9.** Qué significa `total_roommates`, que el esquema marca como ambigua.
   - **Decidido e implementado (2026-10-15, 4.1):** `total_roommates` es el
     número de personas con las que convivirá quien entre, sin contarse a sí

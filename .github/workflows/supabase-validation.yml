@@ -27,6 +27,16 @@ name: Supabase validation
 #   COMMENT ON DATABASE postgres IS 'roomly-validation-3';
 # Si falta o no coincide exactamente, todo aborta. Sin fallback. Las marcas
 # de los proyectos de validación anteriores (Fases 1 y 2.8) no pasan.
+#
+# R8 (Fase 4): phase4_upgrade aplica a roomly-validation-3 solo las tres
+# migraciones de la Fase 4 sobre el esquema de la Fase 3, con
+# tests/supabase/phase4-upgrade.sh (ver docs/SUPABASE_VALIDATION.md):
+#   - dry_run: una transacción que termina siempre en ROLLBACK; no ejecuta
+#     ninguna suite;
+#   - apply: exige confirm_phase4_upgrade exacto, repite el ensayo y confirma
+#     solo si el preflight vigente pasa dentro de la transacción; después
+#     siguen el preflight y las suites, sin E2.
+# No se combina con apply_migrations ni con run_e2e_real.
 
 on:
   workflow_dispatch:
@@ -45,6 +55,20 @@ on:
         required: true
         type: boolean
         default: false
+      phase4_upgrade:
+        description: "R8: migraciones de la Fase 4 sobre el esquema de la Fase 3 (none, dry_run = ensayo con ROLLBACK, apply = aplicar)"
+        required: true
+        type: choice
+        options:
+          - none
+          - dry_run
+          - apply
+        default: none
+      confirm_phase4_upgrade:
+        description: "Solo con phase4_upgrade=apply: escribe aplicar-fase4-en-roomly-validation-3"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -60,6 +84,13 @@ jobs:
     environment: roomly-validation-3
     steps:
       - uses: actions/checkout@v4
+      - name: Entradas compatibles (phase4_upgrade frente a apply_migrations y run_e2e_real), sin conectar
+        env:
+          PHASE4_UPGRADE: ${{ inputs.phase4_upgrade }}
+          APPLY_MIGRATIONS: ${{ inputs.apply_migrations }}
+          RUN_E2E_REAL: ${{ inputs.run_e2e_real }}
+          PHASE4_UPGRADE_CONFIRM: ${{ inputs.confirm_phase4_upgrade }}
+        run: bash tests/supabase/phase4-upgrade.sh --check-inputs
       - name: Confirmación explícita del proyecto
         env:
           CONFIRM: ${{ inputs.confirm_project }}
@@ -82,7 +113,7 @@ jobs:
   migrate:
     name: Aplicar migraciones + seed
     needs: guard
-    if: ${{ inputs.apply_migrations }}
+    if: ${{ inputs.apply_migrations && inputs.phase4_upgrade != 'dry_run' && inputs.phase4_upgrade != 'apply' }}
     runs-on: ubuntu-latest
     environment: roomly-validation-3
     steps:
@@ -93,10 +124,30 @@ jobs:
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
         run: bash tests/supabase/apply-migrations.sh
 
+  phase4-upgrade:
+    name: R8 — migraciones de la Fase 4 sobre la Fase 3 (dry_run o apply)
+    needs: guard
+    if: ${{ inputs.phase4_upgrade == 'dry_run' || inputs.phase4_upgrade == 'apply' }}
+    runs-on: ubuntu-latest
+    environment: roomly-validation-3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Estado de partida, SHA-256, 3 migraciones y P0–P6 en una transacción (dry_run termina en ROLLBACK)
+        env:
+          PHASE4_UPGRADE: ${{ inputs.phase4_upgrade }}
+          APPLY_MIGRATIONS: ${{ inputs.apply_migrations }}
+          RUN_E2E_REAL: ${{ inputs.run_e2e_real }}
+          PHASE4_UPGRADE_CONFIRM: ${{ inputs.confirm_phase4_upgrade }}
+          SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
+          SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+        run: bash tests/supabase/phase4-upgrade.sh "$PHASE4_UPGRADE"
+
   preflight:
     name: P0–P6 (infraestructura)
-    needs: [guard, migrate]
-    if: ${{ !cancelled() && needs.guard.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
+    needs: [guard, migrate, phase4-upgrade]
+    # Con phase4_upgrade=dry_run no hay nada que comprobar después: el ensayo
+    # ya pasó P0–P6 dentro de su transacción y la revirtió.
+    if: ${{ !cancelled() && needs.guard.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') && (needs.phase4-upgrade.result == 'success' || needs.phase4-upgrade.result == 'skipped') && inputs.phase4_upgrade != 'dry_run' }}
     runs-on: ubuntu-latest
     environment: roomly-validation-3
     steps:
@@ -108,21 +159,21 @@ jobs:
         run: bash tests/supabase/run-preflight.sh
 
   sql-suite:
-    name: Suite SQL tests/db 01–14 (roles reales, una sesión y un ROLLBACK por archivo)
+    name: Suite SQL tests/db, todos los archivos (roles reales, una sesión y un ROLLBACK por archivo)
     needs: preflight
     if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
     environment: roomly-validation-3
     steps:
       - uses: actions/checkout@v4
-      - name: tests/db 01–14 en Supabase real
+      - name: tests/db (todos los archivos) en Supabase real
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
         run: bash tests/supabase/run-sql-suite.sh
 
   api-suite:
-    name: API supabase-js (PR / CH / RO / RE / AU2)
+    name: API supabase-js (PR / CH / RO / RE / CRA / SVC / GC / AU2)
     needs: sql-suite
     if: ${{ !cancelled() && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
@@ -136,7 +187,7 @@ jobs:
       - run: npm ci
       # La suite verifica ella misma la marca de identidad del proyecto (F1)
       # con la conexión de BD antes de crear ningún usuario.
-      - name: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, AU2 con JWT reales
+      - name: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, CRA1–CRA6, SVC1–SVC5, GC1–GC4, AU2 con JWT reales
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
@@ -179,7 +230,7 @@ jobs:
   e2e-real:
     name: E2 — alta real por magic link (Playwright, email real)
     needs: sql-suite
-    if: ${{ !cancelled() && inputs.run_e2e_real && needs.sql-suite.result == 'success' }}
+    if: ${{ !cancelled() && inputs.run_e2e_real && inputs.phase4_upgrade != 'dry_run' && inputs.phase4_upgrade != 'apply' && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
     environment: roomly-validation-3
     timeout-minutes: 30

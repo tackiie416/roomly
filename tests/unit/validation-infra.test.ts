@@ -73,6 +73,7 @@ describe("identidad del proyecto P1: roomly-validation-3, comparación exacta", 
     // Solo los auto-tests la usan, como caso negativo que debe abortar.
     const negativeCases = new Set([
       "guard-selftest.sh",
+      "phase4-upgrade-selftest.sh",
       "preflight-selftest.sh",
       "sql-suite-selftest.sh",
     ]);
@@ -126,6 +127,7 @@ describe("identidad del proyecto P1: roomly-validation-3, comparación exacta", 
     expect(jobs.map((job) => job.trim().split(":")[0])).toEqual([
       "guard",
       "migrate",
+      "phase4-upgrade",
       "preflight",
       "sql-suite",
       "api-suite",
@@ -453,6 +455,125 @@ describe("Fase 4.1, R1: barrios oficiales de Barcelona coherentes", () => {
   });
 });
 
+describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", () => {
+  const SCRIPT = "tests/supabase/phase4-upgrade.sh";
+  const script = read(SCRIPT);
+  const workflow = read(".github/workflows/supabase-validation.yml");
+  const sha256 = (file: string) =>
+    createHash("sha256").update(readFileSync(file)).digest("hex");
+  /** Id de blob de git (sha1 de «blob <tamaño>\0<contenido>»), sin depender del historial. */
+  const gitBlob = (file: string) => {
+    const content = readFileSync(file);
+    return createHash("sha1")
+      .update(Buffer.concat([Buffer.from(`blob ${content.length}\0`), content]))
+      .digest("hex");
+  };
+  const pinned = [
+    ...script.matchAll(/^ {2}"([0-9]{14}_[a-z0-9_]+\.sql) ([0-9a-f]{64})"$/gm),
+  ].map(([, file, hash]) => ({ file, hash }));
+  const pinnedFile = (name: string) =>
+    script.match(
+      new RegExp(`^[A-Z0-9_]+="(tests/supabase/${name}) ([0-9a-f]{64})"$`, "m")
+    );
+  const job = (name: string) => {
+    const start = workflow.indexOf(`\n  ${name}:\n`);
+    const next = workflow.slice(start + 1).search(/\n {2}[a-z0-9-]+:\n/);
+    return workflow.slice(start, next === -1 ? undefined : start + 1 + next);
+  };
+
+  it("fija exactamente las 3 primeras migraciones posteriores a la Fase 3, con su SHA-256 real", () => {
+    const after = readdirSync("supabase/migrations")
+      .filter((f) => f > "20261007120000_compatibility_responses_hardening.sql")
+      .sort()
+      .slice(0, 3);
+    expect(pinned.map((p) => p.file)).toEqual(after);
+    expect(pinned.map((p) => p.file)).toEqual([
+      "20261013120000_rooms_deleted_account_writes.sql",
+      "20261015120000_rooms_integrity_publication.sql",
+      "20261016120000_barcelona_neighborhoods.sql",
+    ]);
+    for (const { file, hash } of pinned) {
+      expect(sha256(`supabase/migrations/${file}`), file).toBe(hash);
+    }
+  });
+
+  it("el preflight congelado es el del run 19 (blob 7155e796…) y los dos archivos de estado de partida llevan su SHA-256 real", () => {
+    const frozen = "tests/supabase/phase3-baseline-preflight.sql";
+    expect(gitBlob(frozen)).toBe("7155e79601220f896530d8f35fe314ee91ff203d");
+    for (const name of ["phase3-baseline-preflight.sql", "phase4-upgrade-baseline.sql"]) {
+      const [, file, hash] = pinnedFile(name) ?? [];
+      expect(file, name).toBe(`tests/supabase/${name}`);
+      expect(sha256(file), name).toBe(hash);
+    }
+  });
+
+  it("dry_run termina siempre en ROLLBACK; apply ensaya antes y exige la confirmación exacta", () => {
+    expect(script).toMatch(/^run_pass rollback \|\| status=\$\?$/m);
+    expect(script.indexOf("run_pass rollback")).toBeLessThan(
+      script.indexOf("run_pass commit")
+    );
+    const phrase = script.match(/^PHASE4_APPLY_PHRASE="([a-z0-9-]+)"$/m)?.[1];
+    expect(phrase).toBe("aplicar-fase4-en-roomly-validation-3");
+    expect(workflow).toContain(`escribe ${phrase}`);
+  });
+
+  it("no usa la CLI de Supabase, ni Netlify o Vercel, ni variables públicas", () => {
+    const code = script.replace(/^\s*#.*$/gm, "");
+    expect(code).not.toMatch(/supabase (db|link)|netlify|vercel|NEXT_PUBLIC_/i);
+  });
+
+  it("workflow: entrada phase4_upgrade (none, dry_run, apply; por defecto none) y confirmación aparte", () => {
+    const inputs = workflow.slice(
+      workflow.indexOf("    inputs:"),
+      workflow.indexOf("\npermissions:")
+    );
+    expect(inputs).toMatch(
+      /phase4_upgrade:\n[\s\S]*?type: choice\n {8}options:\n {10}- none\n {10}- dry_run\n {10}- apply\n {8}default: none\n/
+    );
+    expect(inputs).toMatch(
+      /confirm_phase4_upgrade:\n[\s\S]*?required: false\n {8}type: string\n {8}default: ""\n/
+    );
+  });
+
+  it("workflow: la guarda valida las entradas antes de leer secrets, y el job solo recibe la conexión de BD", () => {
+    const guard = job("guard");
+    expect(guard.indexOf("phase4-upgrade.sh --check-inputs")).toBeGreaterThan(-1);
+    expect(guard.indexOf("phase4-upgrade.sh --check-inputs")).toBeLessThan(
+      guard.indexOf("secrets.")
+    );
+    const upgrade = job("phase4-upgrade");
+    expect(upgrade).toContain("needs: guard");
+    expect(upgrade).toContain(`environment: ${MARKER}`);
+    expect([...upgrade.matchAll(/secrets\.([A-Z_]+)/g)].map((m) => m[1]).sort()).toEqual([
+      "SUPABASE_VALIDATION_DB_URL",
+      "SUPABASE_VALIDATION_PROJECT_REF",
+    ]);
+    expect(upgrade).toContain(
+      'run: bash tests/supabase/phase4-upgrade.sh "$PHASE4_UPGRADE"'
+    );
+  });
+
+  it("workflow: dry_run no ejecuta suites, y ni migrate ni el E2 se combinan con la actualización", () => {
+    expect(job("preflight")).toContain("inputs.phase4_upgrade != 'dry_run'");
+    expect(job("preflight")).toContain(
+      "needs.phase4-upgrade.result == 'success' || needs.phase4-upgrade.result == 'skipped'"
+    );
+    for (const name of ["migrate", "e2e-real"]) {
+      expect(job(name), name).toContain(
+        "inputs.phase4_upgrade != 'dry_run' && inputs.phase4_upgrade != 'apply'"
+      );
+    }
+  });
+
+  it("su selftest corre en test:infra y en la CI", () => {
+    const infra = JSON.parse(read("package.json")).scripts["test:infra"] as string;
+    expect(infra).toContain("bash tests/supabase/phase4-upgrade-selftest.sh");
+    expect(read(".github/workflows/ci.yml")).toContain(
+      "- run: bash tests/supabase/phase4-upgrade-selftest.sh"
+    );
+  });
+});
+
 describe("E1 (local, simulado) y E2 (real, manual) separados", () => {
   const e1 = read("playwright.config.ts");
   const e2 = code("playwright.real.config.ts");
@@ -640,7 +761,9 @@ describe("workflow manual: secrets por paso", () => {
     expect(e2eJob).toContain("needs: sql-suite");
     expect(e2eJob).toContain("inputs.run_e2e_real");
     expect(workflow).toMatch(/sql-suite:[\s\S]*?needs: preflight/);
-    expect(workflow).toMatch(/preflight:[\s\S]*?needs: \[guard, migrate\]/);
+    expect(workflow).toMatch(
+      /preflight:[\s\S]*?needs: \[guard, migrate, phase4-upgrade\]/
+    );
   });
 
   it("ninguna variable NEXT_PUBLIC_* lleva un secret privilegiado", () => {

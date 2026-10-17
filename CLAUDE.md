@@ -270,6 +270,11 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       fijada por `tests/db/17`.
   - Siguen pendientes R3, R4, R5, R8, la visibilidad de R7 y el resto de R2.
     Cada subfase necesita su autorización (`docs/ROADMAP.md`, Fase 4).
+  - R8 (decisión del 2026-10-17: antes de decidir el merge del PR #26): la
+    herramienta `tests/supabase/phase4-upgrade.sh` (entrada `phase4_upgrade`
+    del workflow, `dry_run` y `apply`) está preparada y probada solo en local.
+    No se ha ejecutado contra ningún proyecto: cada `dry_run` o `apply`
+    necesita autorización explícita (`docs/SUPABASE_VALIDATION.md`).
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -354,7 +359,7 @@ npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (v
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
 npm run test:e2e:real         # E2: alta real contra roomly-validation-3 (solo desde el workflow manual)
-npm run test:infra            # auto-tests de guarda, runner SQL y preflight contra PostgreSQL local
+npm run test:infra            # auto-tests de guarda, runner SQL, preflight y actualizaciones (incluida la de la Fase 4) contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
 ```
