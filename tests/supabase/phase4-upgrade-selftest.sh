@@ -16,10 +16,18 @@
 #   F. un esquema de partida inesperado se rechaza (política de más, un
 #      barrio, la 4.0 ya aplicada, una restricción de la 4.1, una tabla de
 #      otro rol, un usuario de prueba);
-#   G. un archivo con otro SHA-256 se rechaza antes de conectar;
+#   G. un archivo con otro SHA-256 (una migración, el preflight congelado o el
+#      vigente) se rechaza antes de conectar: un psql falso demuestra que no
+#      se llega a llamar a psql;
 #   H. un error a mitad (en la segunda migración) revierte todo;
 #   I. si el preflight vigente falla, apply no confirma nada;
-#   J. un WARNING hace fallar el ensayo y apply no llega a confirmar;
+#   J. un WARNING hace fallar el ensayo y apply no llega a confirmar, también
+#      con client_min_messages = error en la base de datos; una migración que
+#      oculta los WARNING (client_min_messages) se rechaza (R8-MSG);
+#   L. si falta un aviso de éxito esperado (P6 del vigente), la pasada falla;
+#   M. un fallo solo en la pasada con COMMIT (un error, o la conexión perdida
+#      durante el propio COMMIT) da «NO CONFIRMADO» e «incierto», y pide el
+#      preflight antes de repetir: nunca «nada aplicado»;
 #   K. ninguna salida contiene la contraseña ni la cadena de conexión.
 #
 # Conexión: variables estándar de libpq con un usuario que pueda crear roles
@@ -116,6 +124,24 @@ upgrade() {
     bash "$tree/tests/supabase/phase4-upgrade.sh" "$mode" >"$WORK/$log" 2>&1
 }
 logged() { grep -qF -- "$2" "$WORK/$1"; }
+# offline <árbol> <modo> <log> [VAR=valor ...]: como upgrade, pero con un psql
+# falso delante en el PATH que solo deja constancia de que se le llamó. Toda
+# conexión del script pasa por psql: si no hay constancia, no conectó.
+STUB="$WORK/stub-bin"
+mkdir -p "$STUB"
+cat >"$STUB/psql" <<STUB_PSQL
+#!/usr/bin/env bash
+echo llamado >>"$WORK/psql-calls"
+exit 1
+STUB_PSQL
+chmod +x "$STUB/psql"
+offline() {
+  local tree="$1" mode="$2" log="$3"
+  shift 3
+  rm -f "$WORK/psql-calls"
+  PATH="$STUB:$PATH" upgrade "$tree" sin_conexion "$mode" "$log" "$@"
+}
+psql_called() { [ -e "$WORK/psql-calls" ]; }
 # Copia del árbol que usa la herramienta, para cambiar un archivo sin tocar el
 # repositorio. repin <árbol> <ruta>: actualiza su SHA-256 en el script copiado.
 tree_copy() {
@@ -129,7 +155,11 @@ repin() {
   local tree="$1" rel="$2" name new
   name="$(basename "$rel")"
   new="$(sha256sum "$tree/$rel" | cut -c1-64)"
-  sed -i -E "s|${name} [0-9a-f]{64}\"|${name} ${new}\"|" "$tree/tests/supabase/phase4-upgrade.sh"
+  # Solo la entrada de ese archivo: el nombre va precedido de " o de /, así que
+  # preflight.sql no toca la de phase3-baseline-preflight.sql.
+  [ "$(grep -cE "[\"/]${name} [0-9a-f]{64}\"" "$tree/tests/supabase/phase4-upgrade.sh")" = 1 ] \
+    || { echo "   FALLO: repin no encuentra una sola entrada fijada para ${name}"; exit 1; }
+  sed -i -E "s|([\"/])${name} [0-9a-f]{64}\"|\\1${name} ${new}\"|" "$tree/tests/supabase/phase4-upgrade.sh"
 }
 
 M1="20261013120000_rooms_deleted_account_writes.sql"
@@ -163,6 +193,12 @@ upgrade "$ROOT" "$db" apply a3.log || true
 check "el script rechaza esas combinaciones antes de la guarda (no conecta) y no cambia nada" \
   "logged a1.log 'apply_migrations=true' && logged a2.log 'run_e2e_real=true' && logged a3.log 'exactamente igual' \
    && ! logged a1.log 'guard:' && ! logged a2.log 'guard:' && ! logged a3.log 'guard:' && [ \"\$(fp \"$db\")\" = '$before' ]"
+# Control del psql falso: con entradas y archivos correctos, la guarda sí lo llama.
+offline "$ROOT" dry_run a-control.log || true
+check "control: el psql falso deja constancia cuando el script llega a la guarda" "psql_called"
+offline "$ROOT" dry_run a4.log APPLY_MIGRATIONS=true || true
+check "con el psql falso, una combinación rechazada no llega a llamar a psql" \
+  "logged a4.log 'apply_migrations=true' && ! psql_called"
 
 echo "== B. dry_run sobre el esquema de la Fase 3"
 clone
@@ -171,6 +207,9 @@ check "dry_run termina bien" "upgrade '$ROOT' '$db' dry_run b.log"
 check "dentro de la transacción: preflight de la Fase 3, R8-BASE, las 3 migraciones y P0–P6 vigentes" \
   "logged b.log 'ok - R8-BASE' && logged b.log 'migración ${M3}' && [ \"\$(grep -c 'ok - P6:' '$WORK/b.log')\" = 2 ] \
    && logged b.log 'rollback hecho' && logged b.log 'dry_run correcto'"
+check "R8-MSG al empezar y antes del ROLLBACK: client_min_messages = notice" \
+  "logged b.log 'ok - R8-MSG: client_min_messages = notice al empezar' \
+   && logged b.log 'ok - R8-MSG: client_min_messages = notice antes de rollback'"
 check "no deja nada: misma huella y sin barrios" \
   "[ \"\$(fp \"$db\")\" = '$before' ] && [ \"\$(q \"$db\" 'select count(*) from public.neighborhoods')\" = 0 ]"
 check "y el preflight congelado de la Fase 3 sigue pasando" \
@@ -247,6 +286,18 @@ upgrade "$tree" "$db" apply g2.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
 check "el preflight congelado cambiado se rechaza antes de conectar" \
   "logged g2.log 'phase3-baseline-preflight.sql no es el fijado' && ! logged g2.log 'guard:' \
    && [ \"\$(fp \"$db\")\" = '$before' ]"
+tree="$(tree_copy sha-final)"
+echo "-- cambio" >>"$tree/tests/supabase/preflight.sql"
+upgrade "$tree" "$db" apply g3.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "el preflight vigente cambiado se rechaza antes de conectar" \
+  "logged g3.log 'SHA-256 de tests/supabase/preflight.sql no es el fijado' && ! logged g3.log 'guard:' \
+   && [ \"\$(fp \"$db\")\" = '$before' ]"
+offline "$tree" apply g4.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "con el psql falso: el preflight vigente cambiado no llega a llamar a psql" \
+  "logged g4.log 'tests/supabase/preflight.sql no es el fijado' && ! psql_called"
+offline "$WORK/tree-sha-mig" dry_run g5.log || true
+check "con el psql falso: la migración cambiada tampoco llega a llamar a psql" \
+  "logged g5.log 'supabase/migrations/${M3} no es el fijado' && ! psql_called"
 
 echo "== H. error a mitad de la transacción"
 tree="$(tree_copy mid-error)"
@@ -263,6 +314,7 @@ check "un error en la segunda migración revierte también la primera (dry_run y
 echo "== I. el preflight vigente falla"
 tree="$(tree_copy final-preflight)"
 echo "do \$\$ begin raise exception 'FALLO P9: selftest'; end \$\$;" >>"$tree/tests/supabase/preflight.sql"
+repin "$tree" "tests/supabase/preflight.sql"
 clone
 before="$(fp "$db")"
 upgrade "$tree" "$db" apply i.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
@@ -281,6 +333,80 @@ upgrade "$tree" "$db" apply j2.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
 check "un WARNING hace fallar el ensayo, y apply no llega a la pasada con COMMIT" \
   "logged j1.log 'WARNING: r8 selftest' && logged j1.log 'ensayo FALLIDO' \
    && logged j2.log 'ensayo FALLIDO' && ! logged j2.log 'commit hecho' && [ \"\$(fp \"$db\")\" = '$before' ]"
+# Con client_min_messages = error en la base de datos, sin el `set local` del
+# script el WARNING no llegaría a psql y la pasada parecería limpia.
+clone
+"${ADMIN[@]}" -c "alter database ${db} set client_min_messages = error" >/dev/null
+before="$(fp "$db")"
+upgrade "$tree" "$db" dry_run j3.log || true
+upgrade "$tree" "$db" apply j4.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "con client_min_messages = error en la base de datos, el WARNING llega igual y apply no confirma" \
+  "logged j3.log 'WARNING: r8 selftest' && logged j3.log 'ensayo FALLIDO' \
+   && logged j4.log 'WARNING: r8 selftest' && ! logged j4.log 'commit hecho' && [ \"\$(fp \"$db\")\" = '$before' ]"
+check "y sin WARNING, el dry_run pasa en esa base de datos, con R8-MSG = notice" \
+  "upgrade '$ROOT' '$db' dry_run j5.log && logged j5.log 'ok - R8-MSG: client_min_messages = notice antes de rollback' \
+   && [ \"\$(fp \"$db\")\" = '$before' ]"
+tree="$(tree_copy hide-warnings)"
+echo "set client_min_messages = error;" >>"$tree/supabase/migrations/$M2"
+repin "$tree" "supabase/migrations/$M2"
+clone
+before="$(fp "$db")"
+upgrade "$tree" "$db" apply j6.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "una migración que sube client_min_messages se rechaza (FALLO R8-MSG) y apply no confirma" \
+  "logged j6.log 'FALLO R8-MSG (antes de rollback): client_min_messages = error' && logged j6.log 'ensayo FALLIDO' \
+   && ! logged j6.log 'commit hecho' && [ \"\$(fp \"$db\")\" = '$before' ]"
+
+echo "== L. avisos de éxito esperados"
+tree="$(tree_copy no-p6)"
+[ "$(grep -c "raise notice 'ok - P6:" "$tree/tests/supabase/preflight.sql")" = 1 ] \
+  || { echo "   FALLO: el preflight vigente no tiene exactamente un aviso P6"; exit 1; }
+sed -i "s/raise notice 'ok - P6:/raise notice 'P6 sin aviso:/" "$tree/tests/supabase/preflight.sql"
+repin "$tree" "tests/supabase/preflight.sql"
+clone
+before="$(fp "$db")"
+upgrade "$tree" "$db" dry_run l1.log || true
+upgrade "$tree" "$db" apply l2.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "sin el P6 del preflight vigente, la pasada falla aunque psql termine bien, y apply no confirma" \
+  "logged l1.log 'rollback hecho' && logged l1.log 'faltan avisos de éxito' && logged l1.log 'ensayo FALLIDO' \
+   && ! logged l1.log 'dry_run correcto' && logged l2.log 'ensayo FALLIDO' && ! logged l2.log 'commit hecho' \
+   && [ \"\$(fp \"$db\")\" = '$before' ]"
+
+echo "== M. fallo solo en la pasada con COMMIT"
+# Ningún caso anterior llega a la segunda pasada. Aquí la primera sale limpia y
+# la segunda falla: una secuencia (no se revierte) distingue las pasadas, y un
+# trigger diferido corta la propia conexión al ejecutarse el COMMIT. Todo en el
+# schema r8_selftest, que los preflights y R8-BASE no miran.
+pass2_message() { # <log>: los mensajes de un resultado sin confirmar
+  logged "$1" 'rollback hecho' && logged "$1" 'ensayo limpio' && ! logged "$1" 'commit hecho' \
+    && logged "$1" 'apply NO CONFIRMADO' && logged "$1" 'incierto' && logged "$1" 'run-preflight.sh' \
+    && ! logged "$1" 'nada aplicado' && ! logged "$1" 'se ha revertido' && ! logged "$1" 'apply correcto'
+}
+tree="$(tree_copy pass2-error)"
+echo "do \$\$ begin if nextval('r8_selftest.pass') > 1 then raise exception 'r8 selftest: falla en la segunda pasada'; end if; end \$\$;" \
+  >>"$tree/supabase/migrations/$M2"
+repin "$tree" "supabase/migrations/$M2"
+clone
+q "$db" "create schema r8_selftest; create sequence r8_selftest.pass" >/dev/null
+before="$(fp "$db")"
+upgrade "$tree" "$db" apply m1.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "un error solo en la pasada con COMMIT: NO CONFIRMADO, incierto y preflight antes de repetir" \
+  "pass2_message m1.log && logged m1.log 'falla en la segunda pasada' && logged m1.log 'código 3'"
+check "(en local se ve que no se aplicó: misma huella)" "[ \"\$(fp \"$db\")\" = '$before' ]"
+tree="$(tree_copy commit-drop)"
+echo "insert into r8_selftest.commit_drop values (1);" >>"$tree/supabase/migrations/$M3"
+repin "$tree" "supabase/migrations/$M3"
+clone
+q "$db" "create schema r8_selftest;
+  create table r8_selftest.commit_drop (x int);
+  create function r8_selftest.drop_connection() returns trigger language plpgsql as
+    \$\$ begin perform pg_terminate_backend(pg_backend_pid()); return null; end \$\$;
+  create constraint trigger commit_drop after insert on r8_selftest.commit_drop
+    deferrable initially deferred for each row execute function r8_selftest.drop_connection()" >/dev/null
+before="$(fp "$db")"
+upgrade "$tree" "$db" apply m2.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "la conexión perdida durante el COMMIT: NO CONFIRMADO, incierto y preflight antes de repetir" \
+  "pass2_message m2.log && logged m2.log 'código 2' && ! logged m2.log 'FATAL' && ! logged m2.log 'server closed'"
+check "(en local se ve que no se aplicó: misma huella)" "[ \"\$(fp \"$db\")\" = '$before' ]"
 
 echo "== K. sin secretos en la salida"
 # Solo las salidas (*.log): las copias del árbol contienen, como texto, la

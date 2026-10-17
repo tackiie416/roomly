@@ -130,6 +130,7 @@ jobs:
     if: ${{ inputs.phase4_upgrade == 'dry_run' || inputs.phase4_upgrade == 'apply' }}
     runs-on: ubuntu-latest
     environment: roomly-validation-3
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Estado de partida, SHA-256, 3 migraciones y P0–P6 en una transacción (dry_run termina en ROLLBACK)

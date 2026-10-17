@@ -933,7 +933,7 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
   - R1, instalación limpia: en otra base de datos, las migraciones solas
     crean Barcelona y sus 73 barrios, el seed se aplica después sin duplicar
     nada, y la carga repetida tampoco cambia nada.
-- **`phase4-upgrade-selftest.sh` (R8, 31 comprobaciones):** la herramienta de
+- **`phase4-upgrade-selftest.sh` (R8, 45 comprobaciones):** la herramienta de
   la Fase 4 contra bases de datos locales temporales que clonan el esquema de
   la Fase 3. Ver «Fase 4: herramienta de actualización (R8)».
 
@@ -1030,11 +1030,22 @@ Pasos, con fallo cerrado en cada uno:
    `apply_migrations` y `run_e2e_real` son `false`; `apply` exige
    `confirm_phase4_upgrade` igual a `aplicar-fase4-en-roomly-validation-3`.
    La guarda del workflow hace la misma comprobación antes de leer secrets.
-2. **SHA-256** (sin conectar) de las tres migraciones y de los dos archivos de
-   estado de partida, fijados en el script. Un archivo distinto aborta.
+2. **SHA-256** (sin conectar), fijados en el script, de seis archivos: las
+   tres migraciones, los dos de estado de partida y el preflight vigente
+   (`tests/supabase/preflight.sql`, `PHASE4_FINAL_PREFLIGHT`). Un archivo
+   distinto aborta.
+   - El preflight congelado describe el estado de partida y el vigente, el de
+     llegada: son dos entradas distintas.
+   - **Si `preflight.sql` cambia de forma legítima:** revisar su diff (sin
+     control de transacciones ni meta-comandos de psql), recalcular con
+     `sha256sum tests/supabase/preflight.sql` y actualizar la línea
+     `PHASE4_FINAL_PREFLIGHT`. `validation-infra` falla hasta que coincide.
 3. **Guarda F1** (`guard.sh`): la URL y la conexión del mismo `PROJECT_REF`, y
    la marca `roomly-validation-3` leída en la propia base de datos.
 4. **Una sola sesión y una sola transacción** (`lock_timeout` de 10 s):
+   - `set local client_min_messages = notice` y `R8-MSG`, que lo comprueba. Un
+     valor más alto en el rol o en la base de datos (`warning` o `error`)
+     ocultaría los WARNING;
    - el preflight congelado de la Fase 3
      (`tests/supabase/phase3-baseline-preflight.sql`, copia exacta del que
      pasó en el run 19: blob `7155e796…`);
@@ -1044,15 +1055,38 @@ Pasos, con fallo cerrado en cada uno:
      del rol que conecta;
    - las tres migraciones, en orden;
    - el preflight vigente (P0–P6);
+   - `R8-MSG` otra vez: ninguna migración ha cambiado `client_min_messages`;
    - `ROLLBACK` en `dry_run`, `COMMIT` en `apply`.
-   Cualquier error corta psql (`ON_ERROR_STOP`) y la transacción se revierte.
-5. **`apply` hace dos pasadas:** primero la de `dry_run`, que debe terminar sin
-   errores ni WARNING. Un WARNING (por ejemplo, «no privileges were granted»)
-   no es un error de Postgres y solo se ve al leer la salida, así que con una
-   sola pasada llegaría al `COMMIT`. Solo después repite todo con `COMMIT`.
+   Un error corta psql (`ON_ERROR_STOP`) antes del final de la transacción.
+5. **Una pasada solo vale** si psql termina bien, sin WARNING y con los
+   avisos de éxito esperados, en orden: `ok - R8-MSG`, el `ok - P6:` del
+   preflight congelado, `ok - R8-BASE`, el `ok - P6:` del vigente y
+   `ok - R8-MSG`. Solo cuentan las líneas NOTICE del servidor. Si falta
+   alguno, la pasada falla aunque psql haya terminado bien.
+6. **`apply` hace dos pasadas:** primero la de `dry_run`, que tiene que valer.
+   Un WARNING (por ejemplo, «no privileges were granted») no es un error de
+   Postgres y solo se ve al leer la salida, así que con una sola pasada
+   llegaría al `COMMIT`. Solo después repite todo con `COMMIT`.
+7. **Resultados** (la última línea `RESULTADO:` del log):
+   - antes de conectar (entradas, SHA-256): «NO ejecutada (nada aplicado)»;
+   - fallo en la primera pasada: «ensayo FALLIDO; nada confirmado». Esa pasada
+     no envía `COMMIT`: todo su contenido está fijado por SHA-256;
+   - fallo en la pasada con `COMMIT`: «apply NO CONFIRMADO… incierto». Si la
+     conexión se pierde durante el propio `COMMIT`, la actualización puede
+     haber quedado aplicada o no, y el script no lo afirma. Es una sola
+     transacción: o está entera o no está;
+   - psql termina bien en la pasada con `COMMIT` pero hay WARNING o faltan
+     avisos: «apply NO VÁLIDO». El `COMMIT` sí se ejecutó.
+   - En los dos últimos casos, **antes de volver a ejecutar nada**, comprobar
+     el estado con el preflight vigente (`tests/supabase/run-preflight.sh`,
+     el job P0–P6 del workflow), con su propia autorización. Si pasa, la
+     Fase 4 quedó aplicada. Si falla porque faltan los objetos de la 4.1, no
+     se aplicó, y hay que entender el fallo antes de repetir.
 
 **En el workflow** (job `phase4-upgrade`, entre la guarda y el preflight):
 - recibe solo `SUPABASE_VALIDATION_PROJECT_REF` y `SUPABASE_VALIDATION_DB_URL`;
+- `timeout-minutes: 20` (además de `statement_timeout` de 5 min y
+  `lock_timeout` de 10 s dentro de la transacción);
 - con `dry_run` no se ejecutan el preflight ni las suites: el ensayo ya pasó
   P0–P6 dentro de su transacción y la revirtió;
 - con `apply`, después siguen el preflight, la suite SQL, la api-suite y
@@ -1061,13 +1095,26 @@ Pasos, con fallo cerrado en cada uno:
   Vercel. No imprime la cadena de conexión: solo NOTICE, WARNING y ERROR
   filtrados.
 
-**Probado en local** (`phase4-upgrade-selftest.sh`, en `test:infra` y en la
-CI): entradas incompatibles, `dry_run` sin efectos, `apply` y el preflight
-vigente después, la segunda aplicación rechazada, otra marca o ninguna, seis
-estados de partida inesperados, archivos con otro SHA-256, un error a mitad,
-un preflight vigente que falla, un WARNING y que ninguna salida contiene la
-contraseña ni la cadena de conexión. Mutaciones de la herramienta: 14/14
-detectadas (`docs/TESTING.md`).
+**Probado en local** (`phase4-upgrade-selftest.sh`, 45 comprobaciones, en
+`test:infra` y en la CI):
+- entradas incompatibles, `dry_run` sin efectos, `apply` y el preflight
+  vigente después, la segunda aplicación rechazada, otra marca o ninguna, y
+  seis estados de partida inesperados;
+- archivos con otro SHA-256: una migración, el preflight congelado y el
+  vigente. Un psql falso en el `PATH` demuestra que no se llega a llamar a
+  psql; su control comprueba que sí se le llama cuando las entradas y los
+  archivos son correctos;
+- un error a mitad, y un preflight vigente que falla;
+- un WARNING, también con `client_min_messages = error` en la base de datos,
+  y una migración que sube `client_min_messages` (`FALLO R8-MSG`);
+- un aviso de éxito que falta (el P6 del vigente);
+- fallos solo en la pasada con `COMMIT`: un error, y la conexión perdida
+  durante el propio `COMMIT` (un trigger diferido que termina su backend).
+  Los dos dan «NO CONFIRMADO… incierto», nunca «nada aplicado»;
+- ninguna salida contiene la contraseña ni la cadena de conexión.
+
+Mutaciones: 14/14 de la versión inicial, y 5/5 de las correcciones
+posteriores (`docs/TESTING.md`).
 
 **Lo que no se ha podido probar en local:**
 - Supabase real con PostgreSQL 17: el selftest usa PostgreSQL 16 y un rol
@@ -1078,6 +1125,11 @@ detectadas (`docs/TESTING.md`).
   la herramienta al ejecutarse; nadie se ha conectado.
 - El Session pooler de Supabase, que debe mantener la sesión durante toda la
   transacción (modo sesión).
+- Una pérdida de red real durante el `COMMIT`: en local se simula con un
+  trigger diferido que termina su propio backend, que no es lo mismo que un
+  corte del pooler o de la red.
+- `client_min_messages` en Supabase: el `dry_run` mostrará si `R8-MSG` y los
+  avisos de éxito llegan a través del pooler.
 
 **Incertidumbres antes de ejecutar** (las resuelve el propietario):
 - **Reglas del Environment `roomly-validation-3`:** no se han podido
@@ -1102,7 +1154,9 @@ detectadas (`docs/TESTING.md`).
 **Procedimiento cuando el propietario lo autorice:**
 1. Revisar las incertidumbres de arriba.
 2. `dry_run`: `confirm_project=roomly-validation-3`, `apply_migrations=false`,
-   `run_e2e_real=false`, `phase4_upgrade=dry_run`. Revisar el log.
+   `run_e2e_real=false`, `phase4_upgrade=dry_run`. Revisar el log: las dos
+   líneas `ok - R8-MSG`, `ok - R8-BASE`, los dos `ok - P6:`, ningún WARNING
+   y «dry_run correcto».
 3. Con otra autorización, `apply`, con `confirm_phase4_upgrade`. Después corren
    el preflight y las suites; el E2 no.
 4. Comprobar la limpieza y documentar el run.

@@ -15,18 +15,22 @@
 #
 # Orden, con fallo cerrado en cada paso:
 #   1. el modo y su combinación con las demás entradas, sin conectar;
-#   2. el SHA-256 de las tres migraciones y de los dos archivos de estado de
-#      partida, sin conectar;
+#   2. el SHA-256 de las tres migraciones, de los dos archivos de estado de
+#      partida y del preflight vigente, sin conectar;
 #   3. la guarda F1 (coherencia local y marca roomly-validation-3 leída en la
 #      propia base de datos);
-#   4. en una sola sesión y una sola transacción: el preflight congelado de la
-#      Fase 3, las comprobaciones R8-BASE, las tres migraciones en orden y el
-#      preflight vigente (P0–P6). Después, ROLLBACK (dry_run) o COMMIT (apply).
-#      Cualquier error corta psql (ON_ERROR_STOP) y la transacción se revierte.
+#   4. en una sola sesión y una sola transacción: client_min_messages = notice
+#      (R8-MSG), el preflight congelado de la Fase 3, las comprobaciones
+#      R8-BASE, las tres migraciones en orden, el preflight vigente (P0–P6) y
+#      R8-MSG otra vez. Después, ROLLBACK (dry_run) o COMMIT (apply). Un error
+#      corta psql (ON_ERROR_STOP) antes del final de la transacción.
 #
-# apply hace dos pasadas: primero la de dry_run, que debe terminar sin errores
-# ni WARNING (psql no convierte un WARNING en error, y solo se ve al leer la
-# salida), y solo entonces repite todo con COMMIT.
+# Una pasada solo vale si psql termina bien, sin WARNING (psql no convierte un
+# WARNING en error, y solo se ve al leer la salida) y con los avisos de éxito
+# esperados, en orden (EXPECTED_NOTICES). apply hace dos pasadas: primero la de
+# dry_run, y solo si vale repite todo con COMMIT. Si la pasada con COMMIT falla,
+# el resultado no se da por conocido: con la conexión perdida durante el
+# COMMIT, pudo quedar aplicado o no.
 #
 # Nunca imprime la cadena de conexión ni la salida de error de psql en bruto:
 # solo NOTICE/WARNING/ERROR filtrados (roomly_sql_filter_output). No usa la CLI
@@ -48,7 +52,19 @@ PHASE4_MIGRATIONS=(
 # mismo que pasó en el run 19 contra roomly-validation-3.
 PHASE3_BASELINE="tests/supabase/phase3-baseline-preflight.sql 2c33c4a1d8dfb9a838b830777a71e4e877493da24b8fc976c9224bbd15a6e4c4"
 PHASE4_BASELINE_CHECKS="tests/supabase/phase4-upgrade-baseline.sql 7c8909b9a3a25394b58d8e2eb81506c6776f28eaecbce8e91eb72ce7d125f491"
+# Preflight vigente: el estado de llegada (P0–P6 de la Fase 4), comprobado
+# antes del COMMIT. No es el de partida (PHASE3_BASELINE). Si cambia de forma
+# legítima: revisar su diff (sin control de transacciones ni meta-comandos de
+# psql), recalcular con `sha256sum tests/supabase/preflight.sql` y actualizar
+# esta línea. validation-infra comprueba que coincide.
+PHASE4_FINAL_PREFLIGHT="tests/supabase/preflight.sql 38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec"
 
+# Avisos de éxito (NOTICE) que tiene que mostrar cada pasada, en este orden:
+# R8-MSG, P6 del preflight congelado, R8-BASE, P6 del vigente y R8-MSG. Si no
+# llegan, tampoco llegaría un WARNING, así que su ausencia es un fallo.
+EXPECTED_NOTICES=("ok - R8-MSG:" "ok - P6:" "ok - R8-BASE:" "ok - P6:" "ok - R8-MSG:")
+
+# Solo antes de conectar: entradas, modo y SHA-256.
 die() {
   echo "ERROR: $1" >&2
   echo "RESULTADO: actualización de la Fase 4 NO ejecutada (nada aplicado)" >&2
@@ -106,12 +122,12 @@ case "$MODE" in
 esac
 check_inputs "$MODE"
 
-pinned=("$PHASE3_BASELINE" "$PHASE4_BASELINE_CHECKS")
+pinned=("$PHASE3_BASELINE" "$PHASE4_BASELINE_CHECKS" "$PHASE4_FINAL_PREFLIGHT")
 for entry in "${PHASE4_MIGRATIONS[@]}"; do
   pinned+=("supabase/migrations/${entry}")
 done
 check_pinned "${pinned[@]}"
-echo "phase4-upgrade: modo ${MODE}; SHA-256 de las 3 migraciones y del estado de partida verificados"
+echo "phase4-upgrade: modo ${MODE}; SHA-256 de las 3 migraciones, del estado de partida y del preflight vigente verificados"
 
 # 3. Guarda F1.
 # shellcheck source=tests/supabase/guard.sh
@@ -123,13 +139,30 @@ source "$ROOT/tests/supabase/sql-suite-lib.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# R8-MSG: los WARNING solo se detectan si llegan a psql. Un client_min_messages
+# más alto (warning o error) en el rol o en la base de datos los ocultaría.
+msg_check() {
+  cat <<SQL
+do \$\$
+begin
+  if current_setting('client_min_messages') <> 'notice' then
+    raise exception 'FALLO R8-MSG (%): client_min_messages = %; los WARNING no llegarían a psql',
+      '${1}', current_setting('client_min_messages');
+  end if;
+  raise notice 'ok - R8-MSG: client_min_messages = notice ${1}; los WARNING llegan a psql';
+end \$\$;
+SQL
+}
+
 # 4. El flujo de una pasada, terminado en ROLLBACK o COMMIT.
 stream() {
   local ending="$1" entry
   echo "\\echo '== R8 · transacción abierta (termina en ${ending})'"
   echo "begin;"
+  echo "set local client_min_messages = notice;"
   echo "set local lock_timeout = '10s';"
   echo "set local statement_timeout = '5min';"
+  msg_check "al empezar"
   echo "\\echo '== R8 · estado de partida: preflight congelado de la Fase 3'"
   cat "$ROOT/${PHASE3_BASELINE% *}"
   echo "\\echo '== R8 · estado de partida: R8-BASE'"
@@ -140,26 +173,35 @@ stream() {
     echo
   done
   echo "\\echo '== R8 · preflight vigente sobre el resultado, antes de ${ending}'"
-  cat "$ROOT/tests/supabase/preflight.sql"
+  cat "$ROOT/${PHASE4_FINAL_PREFLIGHT% *}"
+  msg_check "antes de ${ending}"
   echo "${ending};"
   echo "\\echo '== R8 · ${ending} hecho'"
 }
 
-# Una pasada: 0 si psql terminó bien y sin WARNING.
+# Una pasada: 0 si psql terminó bien, sin WARNING y con EXPECTED_NOTICES;
+# 1 si psql falló; 2 si psql terminó bien pero hubo WARNING o faltan avisos.
 run_pass() {
-  local ending="$1" out="$WORK/pass-$1.log" status=0 warn=0
+  local ending="$1" out="$WORK/pass-$1.log" status=0 warn=0 seen expected
   stream "$ending" | psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc \
     -d "$SUPABASE_VALIDATION_DB_URL" >"$out" 2>&1 || status=$?
   roomly_sql_filter_output "$out" || warn=1
   if [ "$status" -ne 0 ]; then
     if ! grep -qE '^(psql:<stdin>:[0-9]+: )?(ERROR|NOTICE|WARNING):' "$out"; then
-      echo "   ERROR: psql terminó sin ejecutar la transacción (conexión u otro fallo; detalle omitido)"
+      echo "   ERROR: psql terminó sin mensajes del servidor (conexión u otro fallo; detalle omitido)"
     fi
-    echo "   la transacción se ha revertido: no se ha aplicado nada"
+    echo "   psql terminó con código ${status} en la pasada (${ending})"
     return 1
   fi
   if [ "$warn" -ne 0 ]; then
     echo "   WARNING en la pasada (${ending}): fallo cerrado"
+    return 2
+  fi
+  # Solo cuentan las líneas NOTICE del servidor, no un texto dentro de otra.
+  seen="$(sed -nE 's/^(psql:<stdin>:[0-9]+: )?NOTICE:  (ok - (R8-[A-Z]+|P6):).*$/\2/p' "$out")"
+  expected="$(printf '%s\n' "${EXPECTED_NOTICES[@]}")"
+  if [ "$seen" != "$expected" ]; then
+    echo "   faltan avisos de éxito en la pasada (${ending}): se esperaban, en orden, R8-MSG, P6 (congelado), R8-BASE, P6 (vigente) y R8-MSG; fallo cerrado"
     return 2
   fi
   return 0
@@ -168,7 +210,8 @@ run_pass() {
 status=0
 run_pass rollback || status=$?
 if [ "$status" -ne 0 ]; then
-  echo "RESULTADO: ensayo FALLIDO; nada aplicado" >&2
+  # Esta pasada no envía COMMIT: todo su contenido está fijado por SHA-256.
+  echo "RESULTADO: ensayo FALLIDO; nada confirmado (la pasada termina en ROLLBACK y no envía COMMIT)" >&2
   exit 1
 fi
 if [ "$MODE" = "dry_run" ]; then
@@ -179,11 +222,11 @@ fi
 echo "phase4-upgrade: ensayo limpio; se repite con COMMIT"
 run_pass commit || status=$?
 if [ "$status" -eq 1 ]; then
-  echo "RESULTADO: apply FALLIDO; la transacción se ha revertido, nada aplicado" >&2
+  echo "RESULTADO: apply NO CONFIRMADO: la pasada con COMMIT falló y su resultado es incierto (si la conexión se perdió durante el COMMIT, la actualización pudo quedar aplicada o no; al ser una sola transacción, está entera o no está). Antes de volver a ejecutar nada, comprueba el estado con el preflight vigente (tests/supabase/run-preflight.sh)" >&2
   exit 1
 fi
 if [ "$status" -eq 2 ]; then
-  echo "RESULTADO: apply CONFIRMADO, pero con WARNING en la segunda pasada: revísalo antes de seguir" >&2
+  echo "RESULTADO: apply NO VÁLIDO: psql terminó sin error, así que el COMMIT se ejecutó, pero la segunda pasada tuvo WARNING o le faltan avisos de éxito. Antes de seguir, comprueba el estado con el preflight vigente (tests/supabase/run-preflight.sh)" >&2
   exit 1
 fi
 echo "RESULTADO: apply correcto: las 3 migraciones de la Fase 4 aplicadas y P0–P6 superadas antes del COMMIT"

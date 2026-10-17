@@ -638,8 +638,13 @@ demás siguen sin tomar:
     de la Fase 4 sobre el esquema de la Fase 3, con `dry_run` (siempre
     `ROLLBACK`) y `apply` (confirmación aparte). Detalle en
     `docs/SUPABASE_VALIDATION.md`.
-  - **Pendiente:** revisar la herramienta, las reglas del Environment y cada
-    ejecución, con su autorización.
+  - **Revisión de seguridad (2026-10-17):** sin hallazgos críticos. Sus
+    cuatro hallazgos menores ya están corregidos y probados en local: entrega
+    de WARNING (`client_min_messages`, `R8-MSG` y avisos de éxito
+    obligatorios), mensajes de resultado incierto en la pasada con `COMMIT`,
+    SHA-256 del preflight vigente y `timeout-minutes: 20`.
+  - **Pendiente:** las reglas del Environment y cada ejecución, con su
+    autorización.
 - **R9.** Qué significa `total_roommates`, que el esquema marca como ambigua.
   - **Decidido e implementado (2026-10-15, 4.1):** `total_roommates` es el
     número de personas con las que convivirá quien entre, sin contarse a sí

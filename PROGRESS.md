@@ -6,6 +6,101 @@ próximos pasos.**
 
 ---
 
+## 2026-10-17 — Sesión 48: R8, correcciones de la revisión de seguridad de la herramienta, solo en local (Fase 4 EN CURSO; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- **Revisión de seguridad del PR #27** (solo lectura, sesión anterior): sin
+  hallazgos críticos y cuatro menores. El propietario autoriza corregirlos,
+  con pruebas, en un commit nuevo de la misma rama. No autoriza workflows,
+  conexiones con Supabase, migraciones remotas ni merges.
+- **Estado de Git al empezar:** rama `claude/phase4-r8-upgrade-tool`, HEAD
+  `9dd333d` (PR #27, draft, sobre el PR #26), árbol limpio.
+
+**Qué se hizo** (`tests/supabase/phase4-upgrade.sh`, con sus pruebas)
+1. **Entrega de WARNING:**
+   - `set local client_min_messages = notice` justo después del `begin`. En
+     local, con `client_min_messages = error` en la base de datos, un WARNING
+     anterior al `set local` no llegaba a psql;
+   - `R8-MSG`, al empezar y antes del `ROLLBACK` o el `COMMIT`: falla si el
+     valor no es `notice`. Así una migración que lo suba se detecta;
+   - `EXPECTED_NOTICES`: cada pasada tiene que mostrar, en orden y como
+     líneas NOTICE del servidor, `R8-MSG`, el `P6` del preflight congelado,
+     `R8-BASE`, el `P6` del vigente y `R8-MSG`. Si falta alguno, la pasada
+     falla aunque psql termine bien. Los WARNING siguen haciendo fallar.
+2. **Mensajes de la pasada con `COMMIT`:**
+   - un fallo ya no dice «nada aplicado» ni «se ha revertido». Dice «apply NO
+     CONFIRMADO… incierto», el código de salida de psql y que se compruebe el
+     estado con el preflight vigente antes de repetir;
+   - con WARNING o sin los avisos, pero con psql terminado bien: «apply NO
+     VÁLIDO», porque el `COMMIT` sí se ejecutó;
+   - la primera pasada dice «nada confirmado»: no envía `COMMIT`, y todo su
+     contenido está fijado por SHA-256.
+3. **SHA-256 del preflight vigente:** `PHASE4_FINAL_PREFLIGHT`, comprobado
+   antes de conectar junto con los otros cinco archivos, y aparte del
+   preflight congelado. Cómo actualizarlo: comentario en el script y
+   `docs/SUPABASE_VALIDATION.md`.
+4. **`timeout-minutes: 20`** en el job `phase4-upgrade`.
+- **Selftest** (`phase4-upgrade-selftest.sh`, de 31 a 45 comprobaciones):
+  - un psql falso en el `PATH`, con su control: demuestra que las entradas
+    rechazadas y los SHA-256 distintos no llegan a llamar a psql;
+  - G: el preflight vigente cambiado se rechaza antes de conectar;
+  - I: el caso existente vuelve a fijar el SHA-256 de su preflight cambiado;
+  - J: el WARNING con `client_min_messages = error` en la base de datos, el
+    `dry_run` limpio en esa misma base de datos, y una migración que sube
+    `client_min_messages` (`FALLO R8-MSG`);
+  - L: sin el `P6` del vigente, la pasada falla;
+  - M: un error solo en la segunda pasada (una secuencia distingue las
+    pasadas) y la conexión perdida durante el `COMMIT` (un trigger diferido
+    termina su propio backend). Los dos dan «NO CONFIRMADO… incierto».
+- **`validation-infra`:** 4 pruebas nuevas (preflight vigente fijado,
+  `client_min_messages` y avisos, mensajes de la pasada con `COMMIT`,
+  `timeout-minutes: 20` en el job correcto). Ninguna aserción existente se ha
+  quitado.
+- **Documentación:** `docs/SUPABASE_VALIDATION.md` (pasos, resultados y qué
+  hacer con un resultado incierto, el selftest y sus límites),
+  `docs/TESTING.md`, `docs/ROADMAP.md` (R8) y esta entrada.
+- **No se ha ejecutado ningún workflow** ni se ha conectado con ningún
+  proyecto Supabase. Todo se probó contra el PostgreSQL 16 local.
+
+**Problemas encontrados** (en mis propias pruebas, corregidos)
+- **`repin` del selftest reescribía dos SHA-256:** su patrón
+  `preflight.sql <hash>"` coincidía también con
+  `phase3-baseline-preflight.sql <hash>"`. Los casos I y L fallaban porque el
+  script rechazaba el árbol antes de conectar (fallo cerrado, no un falso
+  verde). Ahora el nombre va precedido de `"` o `/`, y `repin` aborta si no
+  encuentra exactamente una entrada.
+
+**Resultados** (en local, PostgreSQL 16)
+- `phase4-upgrade-selftest` 45/45. Logs de L, M y J revisados en una copia en
+  el scratchpad: cada caso falla por el motivo esperado.
+- `test:infra` en verde: guarda 28, `sql-suite-selftest` 78,
+  `preflight-selftest` 69, `migration-upgrade-selftest` 26 y
+  `phase4-upgrade-selftest` 45.
+- `test:db` 651/651, sin cambios. `npm run test` 1064/1064 (4 nuevos).
+- `lint`, `typecheck`, `format:check`, `git diff --check` y `bash -n` de los
+  dos scripts, sin errores. `shellcheck` no está instalado en el entorno.
+- **Mutaciones de las correcciones: 5/5 detectadas**, sobre copias en el
+  scratchpad: sin `set local client_min_messages`, sin comprobar los avisos,
+  el mensaje antiguo, el preflight vigente sin SHA-256 y sin el `R8-MSG`
+  final.
+
+**Límites** (no se han podido probar)
+- Los de la sesión 47 siguen: PostgreSQL 17, un rol no superusuario, el
+  Session pooler, el estado real de `roomly-validation-3`, el Environment y
+  las entradas nuevas desde una rama.
+- La pérdida de conexión durante el `COMMIT` se simula terminando el propio
+  backend. No es un corte de red ni del pooler.
+- Que `R8-MSG` y los avisos de éxito lleguen a través del pooler de Supabase:
+  lo mostrará el `dry_run`.
+
+**Pendiente**
+- La CI del PR #27 con este commit.
+- La decisión del propietario sobre el `dry_run` y después el `apply`, cada
+  uno con su autorización.
+- La licencia del dataset y el merge de los PR #26 y #27.
+
+---
+
 ## 2026-10-17 — Sesión 47: R8, herramienta de actualización de la Fase 4, solo en local (Fase 4 EN CURSO; PR #26 sin fusionar)
 
 **Contexto**

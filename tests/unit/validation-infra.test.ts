@@ -507,6 +507,69 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     }
   });
 
+  it("el preflight vigente está fijado con su SHA-256 real, aparte del congelado, y se comprueba antes de conectar", () => {
+    const [, file, hash] = pinnedFile("preflight.sql") ?? [];
+    expect(file).toBe("tests/supabase/preflight.sql");
+    expect(sha256(file)).toBe(hash);
+    expect(script).toMatch(
+      /^PHASE4_FINAL_PREFLIGHT="tests\/supabase\/preflight\.sql [0-9a-f]{64}"$/m
+    );
+    const [, , frozenHash] = pinnedFile("phase3-baseline-preflight.sql") ?? [];
+    expect(frozenHash).not.toBe(hash);
+    expect(script).toContain(
+      'pinned=("$PHASE3_BASELINE" "$PHASE4_BASELINE_CHECKS" "$PHASE4_FINAL_PREFLIGHT")'
+    );
+    expect(script.indexOf('check_pinned "${pinned[@]}"')).toBeLessThan(
+      script.indexOf('source "$ROOT/tests/supabase/guard.sh"')
+    );
+    // El flujo lee el archivo fijado, no una ruta aparte.
+    expect(script).toContain('cat "$ROOT/${PHASE4_FINAL_PREFLIGHT% *}"');
+    expect(script).not.toContain('cat "$ROOT/tests/supabase/preflight.sql"');
+  });
+
+  it("WARNING: client_min_messages = notice dentro de la transacción, R8-MSG al empezar y al final, y avisos de éxito obligatorios", () => {
+    const begin = script.indexOf('echo "begin;"');
+    const cmm = script.indexOf('echo "set local client_min_messages = notice;"');
+    expect(begin).toBeGreaterThan(-1);
+    expect(cmm).toBeGreaterThan(begin);
+    expect(cmm).toBeLessThan(script.indexOf('msg_check "al empezar"'));
+    expect(script.indexOf('msg_check "al empezar"')).toBeLessThan(
+      script.indexOf('cat "$ROOT/${PHASE3_BASELINE% *}"')
+    );
+    expect(script.indexOf('cat "$ROOT/${PHASE4_FINAL_PREFLIGHT% *}"')).toBeLessThan(
+      script.indexOf('msg_check "antes de ${ending}"')
+    );
+    expect(script.indexOf('msg_check "antes de ${ending}"')).toBeLessThan(
+      script.indexOf('echo "${ending};"')
+    );
+    expect(script).toContain(
+      'EXPECTED_NOTICES=("ok - R8-MSG:" "ok - P6:" "ok - R8-BASE:" "ok - P6:" "ok - R8-MSG:")'
+    );
+    // Ningún archivo del flujo cambia client_min_messages: ocultaría WARNING.
+    const streamFiles = [
+      "tests/supabase/phase3-baseline-preflight.sql",
+      "tests/supabase/phase4-upgrade-baseline.sql",
+      "tests/supabase/preflight.sql",
+      ...pinned.map((p) => `supabase/migrations/${p.file}`),
+    ];
+    for (const file of streamFiles) {
+      expect(read(file), file).not.toMatch(/client_min_messages/i);
+    }
+  });
+
+  it("un fallo en la pasada con COMMIT no afirma que no se aplicó nada: pide el preflight antes de repetir", () => {
+    const afterCommit = script.slice(script.indexOf("run_pass commit"));
+    expect(afterCommit).toContain("apply NO CONFIRMADO");
+    expect(afterCommit).toContain("incierto");
+    expect(afterCommit).toContain("tests/supabase/run-preflight.sh");
+    expect(afterCommit).not.toMatch(/nada aplicado|se ha revertido/);
+    const runPass = script.slice(
+      script.indexOf("run_pass() {"),
+      script.indexOf("\n}\n", script.indexOf("run_pass() {"))
+    );
+    expect(runPass).not.toMatch(/nada aplicado|se ha revertido|no se ha aplicado/);
+  });
+
   it("dry_run termina siempre en ROLLBACK; apply ensaya antes y exige la confirmación exacta", () => {
     expect(script).toMatch(/^run_pass rollback \|\| status=\$\?$/m);
     expect(script.indexOf("run_pass rollback")).toBeLessThan(
@@ -550,6 +613,15 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     ]);
     expect(upgrade).toContain(
       'run: bash tests/supabase/phase4-upgrade.sh "$PHASE4_UPGRADE"'
+    );
+  });
+
+  it("workflow: el job phase4-upgrade tiene timeout-minutes: 20 a nivel de job", () => {
+    const upgrade = job("phase4-upgrade");
+    expect(upgrade).toMatch(/\n {4}timeout-minutes: 20\n/);
+    expect([...upgrade.matchAll(/timeout-minutes:/g)]).toHaveLength(1);
+    expect(upgrade.indexOf("timeout-minutes: 20")).toBeLessThan(
+      upgrade.indexOf("    steps:")
     );
   });
 
