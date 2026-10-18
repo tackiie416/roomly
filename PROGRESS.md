@@ -6,6 +6,123 @@ próximos pasos.**
 
 ---
 
+## 2026-10-17/18 — Sesión 49: R8, segunda ronda de correcciones (B1–B5) de la herramienta, solo en local (Fase 4 EN CURSO; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- **Segunda revisión de seguridad del PR #27** (solo lectura, sobre
+  `2278cf7`): sin hallazgos críticos, altos ni medios, y cinco bajos (B1–B5).
+  Además, una frase de `docs/SUPABASE_VALIDATION.md` podía leerse como si
+  las 45 comprobaciones estuvieran verificadas en CI.
+- **El propietario autoriza** corregirlos, con pruebas, en un commit nuevo de
+  la misma rama. No autoriza workflows manuales, conexiones con Supabase,
+  migraciones remotas, merges ni el `dry_run`.
+- **Estado de Git al empezar:** rama `claude/phase4-r8-upgrade-tool`, HEAD
+  `2278cf7` (PR #27, draft), árbol limpio, igual que `origin`.
+
+**Qué se hizo** (`tests/supabase/phase4-upgrade.sh`)
+- **B1, el flujo se construye entero antes de conectar:**
+  - cada archivo fijado se copia a un directorio temporal, y su SHA-256 se
+    vuelve a comprobar sobre la copia (se conservan las comprobaciones
+    anteriores);
+  - `roomly_sql_transform` sobre cada copia, y se rechazan además los bloques
+    `begin;`/`rollback;`;
+  - un cuerpo común y un archivo por pasada (cabecera + cuerpo + final),
+    comprobados byte a byte por `concat_verified`, con un único `ROLLBACK` o
+    `COMMIT`, en la penúltima línea;
+  - psql lee ese archivo (`<archivo`): ya no hay un generador que pueda
+    fallar a mitad y seguir enviando el `COMMIT`. En bash, `set -e` no actúa
+    dentro de `stream | psql || status=$?`, comprobado en local;
+  - en `dry_run` no se construye el archivo con `COMMIT`.
+- **Marca de final:** una pasada solo vale si psql llega a
+  `== R8 · <final> hecho`, que solo imprime si el `ROLLBACK` o el `COMMIT`
+  terminaron bien. Sin ella, la pasada con `COMMIT` da «incierto». «NO VÁLIDO»
+  queda reservado al caso en que el `COMMIT` se ejecutó.
+- **B3, señales:** traps de HUP, INT y TERM con la etapa.
+  - Durante la pasada con `COMMIT`: «apply INTERRUMPIDO… incierto».
+  - Antes: «INTERRUMPIDO… nada confirmado».
+  - Sale con 128 + el número de la señal.
+- **B4, mensajes:** los de resultado incierto y NO VÁLIDO dicen que no se repita
+  `apply` y remiten a «Recuperación».
+- **Documentación** (`docs/SUPABASE_VALIDATION.md`):
+  - el paso del flujo y la tabla de resultados, incluido el log sin
+    `RESULTADO:`;
+  - **«Recuperación»** (B3–B4):
+    - las interrupciones: que falte la línea no demuestra un `ROLLBACK`, y la
+      sesión del servidor puede seguir viva;
+    - `dry_run`, la validación normal con `phase4_upgrade=none` (que lanza las
+      suites si el preflight pasa) y `apply`, que no sirve para investigar;
+    - el orden para investigar;
+  - **«Cambiar el SHA-256 del preflight vigente»** (B5): revisar el diff, el
+    comando del validador (probado en local), cambiar solo la línea
+    `PHASE4_FINAL_PREFLIGHT`, pruebas y nueva revisión del diff;
+  - **CI:** se separan las 67 comprobaciones locales del verde de la CI #64
+    (sobre `2278cf7`, versión de 45), cuyo log no se pudo leer.
+  - También `docs/TESTING.md`, `docs/ROADMAP.md` (R8) y esta entrada.
+- **Selftest** (de 45 a 67 comprobaciones; ninguna aserción quitada):
+  - G: un `sha256sum` envoltorio retira el preflight vigente o le añade
+    `commit;` a una migración justo después de comprobarlo;
+  - G: `commit;`, un bloque `begin;`/`rollback;` o `\connect` con el SHA-256
+    al día; un `cat` que omite una parte; un `commit;` dentro de `$$`. Todo
+    rechazado sin llamar a psql;
+  - N: un psql envoltorio retira archivos entre las pasadas (la segunda
+    sigue completa), o corta la entrada antes del `COMMIT` o del `ROLLBACK`;
+  - V: «apply NO VÁLIDO» con un WARNING o un aviso que falta solo en la
+    segunda pasada, y el `COMMIT` ejecutado (73 barrios);
+  - S: SIGINT durante la pasada con `COMMIT` y SIGTERM durante el ensayo, al
+    grupo de procesos;
+  - R: una sola línea `RESULTADO:` por caso, la de su clase.
+- **`validation-infra`:** 4 pruebas nuevas (B1, B2, B3, y las secciones de la
+  documentación que cita el script). Dos existentes adaptadas a la nueva
+  estructura, con aserciones equivalentes o más estrictas: ningún
+  `cat "$ROOT/…"`, y el orden cabecera, cuerpo y final.
+- **No se ha ejecutado ningún workflow manual** ni se ha conectado con
+  Supabase. Todo se probó contra el PostgreSQL 16 local.
+
+**Problemas encontrados** (en mis propias pruebas, corregidos)
+- **SIGINT en segundo plano:** un proceso lanzado en segundo plano desde un
+  script no interactivo arranca con SIGINT ignorado, y bash no deja capturar
+  una señal ignorada al arrancar. El primer diseño del caso S no habría
+  probado nada. El selftest lanza la herramienta con
+  `env --default-signal=INT`, comprobado en local. En Actions, el paso
+  arranca el script en primer plano. No verificado.
+- **Aserción demasiado amplia en V2:** `! logged … 'WARNING'` encontraba la
+  palabra en el propio mensaje de NO VÁLIDO. Ahora busca `WARNING: ` (las
+  líneas del servidor).
+- **El código de salida 1** en una copia de diagnóstico venía de su trap de
+  salida modificado. El selftest real termina con 0. Los archivos de PGID ya
+  no terminan en `.log` y no entran en el recuento del caso K.
+
+**Resultados** (en local, PostgreSQL 16)
+- `phase4-upgrade-selftest` 67/67, y los logs de G, N, V, S y R revisados en
+  una copia.
+- `test:infra` en verde: guarda 28, `sql-suite-selftest` 78,
+  `preflight-selftest` 69, `migration-upgrade-selftest` 26 y
+  `phase4-upgrade-selftest` 67.
+- `test:db` 651/651, sin cambios. `npm run test` 1068/1068 (4 nuevos).
+- `lint`, `typecheck`, `format:check`, `git diff --check` y `bash -n` de los
+  dos scripts, sin errores. `shellcheck` no está instalado en el entorno.
+- **Mutaciones: 12/12 detectadas**, sobre copias en el scratchpad.
+- **El selftest nuevo contra el script de `2278cf7`** falla en 16 de 67
+  comprobaciones, las de los casos nuevos.
+
+**Límites** (no se han podido probar)
+- Los de las sesiones 47 y 48 siguen: PostgreSQL 17, un rol no superusuario,
+  el Session pooler, el estado real de `roomly-validation-3`, el
+  Environment y las entradas nuevas desde una rama.
+- Qué señales envía GitHub Actions al cancelar un job o agotar
+  `timeout-minutes`, y con qué margen. Un SIGKILL no deja línea `RESULTADO:`.
+- La pérdida de conexión durante el `COMMIT` se sigue simulando terminando el
+  propio backend.
+- Los logs de la CI siguen sin poder leerse desde el entorno de Claude.
+
+**Pendiente**
+- La CI del PR #27 con este commit.
+- La decisión del propietario sobre el `dry_run` y después el `apply`, cada
+  uno con su autorización.
+- La licencia del dataset y el merge de los PR #26 y #27.
+
+---
+
 ## 2026-10-17 — Sesión 48: R8, correcciones de la revisión de seguridad de la herramienta, solo en local (Fase 4 EN CURSO; PR #26 y #27 sin fusionar)
 
 **Contexto**

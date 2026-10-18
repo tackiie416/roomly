@@ -643,6 +643,16 @@ demás siguen sin tomar:
     de WARNING (`client_min_messages`, `R8-MSG` y avisos de éxito
     obligatorios), mensajes de resultado incierto en la pasada con `COMMIT`,
     SHA-256 del preflight vigente y `timeout-minutes: 20`.
+  - **Segunda revisión (2026-10-17):** sin hallazgos críticos, altos ni
+    medios. Sus hallazgos bajos B1–B5 están corregidos y probados en local:
+    - el flujo se construye entero antes de conectar, desde copias
+      verificadas, y las dos pasadas leen el mismo cuerpo;
+    - el `COMMIT` solo cuenta si psql llega a la última línea del flujo;
+    - las señales dan «nada confirmado» o «incierto» según la etapa;
+    - procedimientos de recuperación y de cambio del SHA-256 en
+      `docs/SUPABASE_VALIDATION.md`;
+    - la documentación de la CI separa lo verificado en local del verde de
+      la CI.
   - **Pendiente:** las reglas del Environment y cada ejecución, con su
     autorización.
 - **R9.** Qué significa `total_roommates`, que el esquema marca como ambigua.

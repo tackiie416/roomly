@@ -18,7 +18,12 @@
 #      otro rol, un usuario de prueba);
 #   G. un archivo con otro SHA-256 (una migración, el preflight congelado o el
 #      vigente) se rechaza antes de conectar: un psql falso demuestra que no
-#      se llega a llamar a psql;
+#      se llega a llamar a psql. Tampoco conecta si un archivo desaparece o
+#      cambia justo después de su comprobación, ni si un archivo fijado
+#      contiene control de transacciones o meta-comandos de psql;
+#   N. el flujo se construye entero antes de conectar: retirar archivos entre
+#      las dos pasadas no cambia la segunda, y una entrada cortada antes del
+#      ROLLBACK o del COMMIT no se da por buena;
 #   H. un error a mitad (en la segunda migración) revierte todo;
 #   I. si el preflight vigente falla, apply no confirma nada;
 #   J. un WARNING hace fallar el ensayo y apply no llega a confirmar, también
@@ -28,6 +33,12 @@
 #   M. un fallo solo en la pasada con COMMIT (un error, o la conexión perdida
 #      durante el propio COMMIT) da «NO CONFIRMADO» e «incierto», y pide el
 #      preflight antes de repetir: nunca «nada aplicado»;
+#   V. un WARNING o un aviso que falta solo en la segunda pasada, con el COMMIT
+#      ya ejecutado, da «apply NO VÁLIDO»;
+#   S. una señal (SIGINT o SIGTERM al grupo de procesos, como al cancelar un
+#      job) durante la pasada con COMMIT da «INTERRUMPIDO… incierto»; durante el
+#      ensayo, «nada confirmado»;
+#   R. cada resultado tiene una sola línea RESULTADO, la suya;
 #   K. ninguna salida contiene la contraseña ni la cadena de conexión.
 #
 # Conexión: variables estándar de libpq con un usuario que pueda crear roles
@@ -142,6 +153,100 @@ offline() {
   PATH="$STUB:$PATH" upgrade "$tree" sin_conexion "$mode" "$log" "$@"
 }
 psql_called() { [ -e "$WORK/psql-calls" ]; }
+# Herramientas reales, para los envoltorios de abajo.
+export R8_REAL_PSQL R8_REAL_SHA256SUM R8_HOOK_TMP="$WORK"
+R8_REAL_PSQL="$(command -v psql)"
+R8_REAL_SHA256SUM="$(command -v sha256sum)"
+# sha256sum que, justo después de calcular el de R8_TOCTOU_FILE, lo cambia
+# (R8_TOCTOU_ACTION=append: le añade «commit;») o lo retira (move): un archivo
+# que cambia o desaparece después de su comprobación.
+TOCTOU="$WORK/toctou-bin"
+mkdir -p "$TOCTOU"
+cat >"$TOCTOU/sha256sum" <<'STUB_SHA'
+#!/usr/bin/env bash
+status=0
+"$R8_REAL_SHA256SUM" "$@" || status=$?
+if [ "${1:-}" = "${R8_TOCTOU_FILE:-}" ]; then
+  case "${R8_TOCTOU_ACTION:-}" in
+    append) echo "commit;" >>"$1" ;;
+    move) mv "$1" "$1.retirado" ;;
+  esac
+fi
+exit "$status"
+STUB_SHA
+chmod +x "$TOCTOU/sha256sum"
+# psql de verdad con dos ganchos, solo en las llamadas que leen el flujo por la
+# entrada estándar (la guarda usa -c y pasa directa):
+#   R8_HOOK_CUT=<línea>: la entrada se corta justo antes de esa línea;
+#   R8_HOOK_AFTER_ROLLBACK="<archivos>": después de la pasada de ensayo, esos
+#     archivos se retiran del árbol.
+HOOK="$WORK/hook-bin"
+mkdir -p "$HOOK"
+cat >"$HOOK/psql" <<'HOOK_PSQL'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "$arg" = -c ] && exec "$R8_REAL_PSQL" "$@"
+done
+input="$(mktemp -p "$R8_HOOK_TMP" hook-input.XXXXXX)"
+cat >"$input"
+if [ -n "${R8_HOOK_CUT:-}" ]; then
+  awk -v cut="$R8_HOOK_CUT" '$0 == cut { exit } { print }' "$input" >"$input.cut"
+  mv "$input.cut" "$input"
+fi
+status=0
+"$R8_REAL_PSQL" "$@" <"$input" || status=$?
+if [ -n "${R8_HOOK_AFTER_ROLLBACK:-}" ] && grep -qx 'rollback;' "$input"; then
+  for file in $R8_HOOK_AFTER_ROLLBACK; do mv "$file" "$file.retirado"; done
+fi
+exit "$status"
+HOOK_PSQL
+chmod +x "$HOOK/psql"
+hooked() { # hooked <árbol> <bd> <modo> <log> [VAR=valor ...]
+  local tree="$1" db="$2" mode="$3" log="$4"
+  shift 4
+  PATH="$HOOK:$PATH" upgrade "$tree" "$db" "$mode" "$log" "$@"
+}
+# upgrade_signal <árbol> <bd> <modo> <log> <señal> <condición SQL> [VAR=valor ...]:
+# lanza la herramienta en su propio grupo de procesos, como un job de Actions,
+# espera a que la condición se cumpla y envía la señal a todo el grupo.
+# Después termina lo que el cliente dejó a medias en el servidor (con SIGTERM,
+# la sesión puede seguir viva un rato) y devuelve el código de la herramienta.
+# Un proceso en segundo plano de un script arranca con SIGINT ignorado, y bash
+# no deja capturar una señal ignorada al arrancar: env --default-signal=INT la
+# devuelve a su comportamiento normal, como en un job de Actions.
+upgrade_signal() {
+  local tree="$1" db="$2" mode="$3" log="$4" sig="$5" cond="$6" pid rc=0 i
+  shift 6
+  setsid -w env --default-signal=INT bash -c 'echo $$ >"$0"; exec "$@"' "$WORK/${log%.log}.pgid" \
+    env -u PHASE4_UPGRADE_CONFIRM -u APPLY_MIGRATIONS -u RUN_E2E_REAL "$@" \
+    SUPABASE_VALIDATION_PROJECT_REF="$REF" SUPABASE_VALIDATION_DB_URL="$(url "$db")" \
+    bash "$tree/tests/supabase/phase4-upgrade.sh" "$mode" >"$WORK/$log" 2>&1 &
+  pid=$!
+  for i in $(seq 1 150); do
+    [ "$("${ADMIN[@]}" -At -c "$cond")" = t ] && break
+    sleep 0.2
+  done
+  kill "-$sig" -- "-$(cat "$WORK/${log%.log}.pgid")"
+  wait "$pid" || rc=$?
+  "${ADMIN[@]}" -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '${db}'" >/dev/null
+  return "$rc"
+}
+# result_of <log>: la clase de su única línea RESULTADO («varias» si hay más de
+# una o ninguna).
+result_of() {
+  [ "$(grep -c '^RESULTADO:' "$WORK/$1")" = 1 ] || { echo varias; return; }
+  case "$(grep '^RESULTADO:' "$WORK/$1")" in
+    "RESULTADO: apply correcto"*) echo correcto ;;
+    "RESULTADO: dry_run correcto"*) echo dry_run_correcto ;;
+    "RESULTADO: apply NO VÁLIDO"*) echo no_valido ;;
+    "RESULTADO: apply NO CONFIRMADO"*) echo no_confirmado ;;
+    "RESULTADO: apply INTERRUMPIDO"*) echo interrumpido_incierto ;;
+    "RESULTADO: INTERRUMPIDO"*) echo interrumpido_sin_commit ;;
+    "RESULTADO: ensayo FALLIDO"*) echo ensayo_fallido ;;
+    "RESULTADO: actualización de la Fase 4 NO ejecutada"*) echo no_ejecutada ;;
+    *) echo desconocido ;;
+  esac
+}
 # Copia del árbol que usa la herramienta, para cambiar un archivo sin tocar el
 # repositorio. repin <árbol> <ruta>: actualiza su SHA-256 en el script copiado.
 tree_copy() {
@@ -298,6 +403,55 @@ check "con el psql falso: el preflight vigente cambiado no llega a llamar a psql
 offline "$WORK/tree-sha-mig" dry_run g5.log || true
 check "con el psql falso: la migración cambiada tampoco llega a llamar a psql" \
   "logged g5.log 'supabase/migrations/${M3} no es el fijado' && ! psql_called"
+# El flujo se copia y se vuelve a comprobar antes de conectar: un archivo que
+# desaparece o cambia justo después de su comprobación no llega a psql.
+tree="$(tree_copy toctou-move)"
+PATH="$TOCTOU:$PATH" offline "$tree" apply g6.log PHASE4_UPGRADE_CONFIRM="$PHRASE" \
+  R8_TOCTOU_FILE="$tree/tests/supabase/preflight.sql" R8_TOCTOU_ACTION=move || true
+check "el preflight vigente retirado justo después de su SHA-256: se rechaza sin llamar a psql" \
+  "logged g6.log 'no se pudo copiar tests/supabase/preflight.sql' && [ -e '$tree/tests/supabase/preflight.sql.retirado' ] \
+   && ! psql_called"
+tree="$(tree_copy toctou-append)"
+PATH="$TOCTOU:$PATH" offline "$tree" apply g7.log PHASE4_UPGRADE_CONFIRM="$PHRASE" \
+  R8_TOCTOU_FILE="$tree/supabase/migrations/$M3" R8_TOCTOU_ACTION=append || true
+check "una migración con «commit;» añadido justo después de su SHA-256: se rechaza sin llamar a psql" \
+  "logged g7.log 'la copia de supabase/migrations/${M3} no tiene el SHA-256 fijado' \
+   && [ \"\$(tail -n 1 '$tree/supabase/migrations/$M3')\" = 'commit;' ] && ! psql_called"
+# Con el SHA-256 al día, roomly_sql_transform rechaza el control de
+# transacciones y los meta-comandos antes de conectar.
+validator_case() { # <log> <archivo del árbol> <texto añadido> <motivo esperado>
+  local tree
+  tree="$(tree_copy "validator-$1")"
+  printf '%b' "$3" >>"$tree/$2"
+  repin "$tree" "$2"
+  offline "$tree" apply "$1" PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+  check "$2 con $(printf '%b' "$3" | head -n 1) (SHA-256 al día): se rechaza sin llamar a psql" \
+    "logged '$1' '$4' && ! logged '$1' 'guard:' && ! psql_called"
+}
+validator_case g8.log "supabase/migrations/$M3" 'commit;\n' 'no supera roomly_sql_transform'
+validator_case g9.log "supabase/migrations/$M2" 'begin;\nselect 1;\nrollback;\n' 'bloque begin;/rollback;'
+validator_case g10.log "tests/supabase/preflight.sql" '\\connect postgres\n' 'no supera roomly_sql_transform'
+# Un cat que, al juntar varias partes, omite la última sin dar error: el flujo
+# incompleto se detecta al comprobarlo byte a byte, antes de conectar.
+SHORT_CAT="$WORK/short-cat-bin"
+mkdir -p "$SHORT_CAT"
+cat >"$SHORT_CAT/cat" <<SHORT
+#!/usr/bin/env bash
+[ "\$#" -gt 1 ] && set -- "\${@:1:\$((\$# - 1))}"
+exec "$(command -v cat)" "\$@"
+SHORT
+chmod +x "$SHORT_CAT/cat"
+PATH="$SHORT_CAT:$PATH" offline "$ROOT" apply g11.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "un cat que omite la última parte sin error: el flujo incompleto se rechaza sin llamar a psql" \
+  "logged g11.log 'el cuerpo del flujo no se ha construido completo' && ! psql_called"
+# Una línea «commit;» dentro de un cuerpo $$ pasa roomly_sql_transform, pero el
+# flujo de cada pasada solo puede tener un ROLLBACK o un COMMIT: el del final.
+tree="$(tree_copy inner-commit)"
+printf 'do $$\nbegin\ncommit;\nend $$;\n' >>"$tree/supabase/migrations/$M3"
+repin "$tree" "supabase/migrations/$M3"
+offline "$tree" apply g12.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "un «commit;» dentro de un cuerpo \$\$ (pasa el validador): el flujo se rechaza sin llamar a psql" \
+  "logged g12.log 'no termina en un único rollback seguido de su última línea' && ! psql_called"
 
 echo "== H. error a mitad de la transacción"
 tree="$(tree_copy mid-error)"
@@ -407,6 +561,109 @@ upgrade "$tree" "$db" apply m2.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
 check "la conexión perdida durante el COMMIT: NO CONFIRMADO, incierto y preflight antes de repetir" \
   "pass2_message m2.log && logged m2.log 'código 2' && ! logged m2.log 'FATAL' && ! logged m2.log 'server closed'"
 check "(en local se ve que no se aplicó: misma huella)" "[ \"\$(fp \"$db\")\" = '$before' ]"
+
+echo "== N. el flujo se construye entero antes de conectar"
+# Retirar el preflight vigente y la tercera migración después de la pasada de
+# ensayo no cambia la pasada con COMMIT: lee el flujo ya construido.
+tree="$(tree_copy between-passes)"
+clone
+before="$(fp "$db")"
+check "archivos retirados entre las dos pasadas: apply correcto con el mismo flujo completo" \
+  "hooked '$tree' '$db' apply n1.log PHASE4_UPGRADE_CONFIRM='$PHRASE' \
+     R8_HOOK_AFTER_ROLLBACK='$tree/tests/supabase/preflight.sql $tree/supabase/migrations/$M3' \
+   && [ -e '$tree/tests/supabase/preflight.sql.retirado' ] && [ -e '$tree/supabase/migrations/$M3.retirado' ] \
+   && [ \"\$(grep -c 'ok - P6:' '$WORK/n1.log')\" = 4 ] && [ \"\$(grep -c 'migración ${M3}' '$WORK/n1.log')\" = 2 ] \
+   && logged n1.log 'commit hecho' && logged n1.log 'apply correcto' \
+   && [ \"\$(q \"$db\" 'select count(*) from public.neighborhoods')\" = 73 ]"
+# Una entrada cortada justo antes del COMMIT (o del ROLLBACK): psql termina
+# bien, pero no llega a la última línea del flujo.
+clone
+before="$(fp "$db")"
+hooked "$ROOT" "$db" apply n2.log PHASE4_UPGRADE_CONFIRM="$PHRASE" R8_HOOK_CUT="commit;" || true
+check "entrada cortada antes del COMMIT: NO CONFIRMADO e incierto, nunca NO VÁLIDO ni correcto" \
+  "logged n2.log 'rollback hecho' && logged n2.log 'falta «== R8 · commit hecho»' && logged n2.log 'apply NO CONFIRMADO' \
+   && logged n2.log 'incierto' && ! logged n2.log 'NO VÁLIDO' && ! logged n2.log 'apply correcto' \
+   && [ \"\$(fp \"$db\")\" = '$before' ]"
+hooked "$ROOT" "$db" apply n3.log PHASE4_UPGRADE_CONFIRM="$PHRASE" R8_HOOK_CUT="rollback;" || true
+check "entrada cortada antes del ROLLBACK: ensayo FALLIDO, sin pasada con COMMIT" \
+  "logged n3.log 'falta «== R8 · rollback hecho»' && logged n3.log 'ensayo FALLIDO' && ! logged n3.log 'ensayo limpio' \
+   && [ \"\$(fp \"$db\")\" = '$before' ]"
+
+echo "== V. apply NO VÁLIDO: el COMMIT se ejecutó, pero la segunda pasada no vale"
+tree="$(tree_copy pass2-warning)"
+echo "do \$\$ begin if nextval('r8_selftest.pass') > 1 then raise warning 'r8 selftest: solo en la segunda pasada'; end if; end \$\$;" \
+  >>"$tree/supabase/migrations/$M3"
+repin "$tree" "supabase/migrations/$M3"
+clone
+q "$db" "create schema r8_selftest; create sequence r8_selftest.pass" >/dev/null
+rc=0
+upgrade "$tree" "$db" apply v1.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || rc=$?
+check "un WARNING solo en la pasada con COMMIT: NO VÁLIDO, con error, y el COMMIT sí se ejecutó (73 barrios)" \
+  "[ $rc -ne 0 ] && logged v1.log 'WARNING: r8 selftest: solo en la segunda pasada' && logged v1.log 'commit hecho' \
+   && logged v1.log 'apply NO VÁLIDO' && logged v1.log 'el COMMIT se ejecutó' && ! logged v1.log 'NO CONFIRMADO' \
+   && ! logged v1.log 'apply correcto' && [ \"\$(q \"$db\" 'select count(*) from public.neighborhoods')\" = 73 ]"
+# Sin WARNING: en la segunda pasada, el preflight vigente corre con los NOTICE
+# ocultos y vuelve a notice al final, así que R8-MSG pasa pero falta su P6.
+tree="$(tree_copy pass2-missing-notice)"
+echo "do \$\$ begin if nextval('r8_selftest.pass') > 1 then perform set_config('client_min_messages', 'warning', true); end if; end \$\$;" \
+  >>"$tree/supabase/migrations/$M3"
+echo "set local client_min_messages = notice;" >>"$tree/tests/supabase/preflight.sql"
+repin "$tree" "supabase/migrations/$M3"
+repin "$tree" "tests/supabase/preflight.sql"
+clone
+q "$db" "create schema r8_selftest; create sequence r8_selftest.pass" >/dev/null
+rc=0
+upgrade "$tree" "$db" apply v2.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || rc=$?
+check "un aviso de éxito que falta solo en la pasada con COMMIT: NO VÁLIDO, con error, y el COMMIT sí se ejecutó" \
+  "[ $rc -ne 0 ] && ! logged v2.log 'WARNING: ' && logged v2.log 'faltan avisos de éxito en la pasada (commit)' \
+   && logged v2.log 'commit hecho' && logged v2.log 'apply NO VÁLIDO' && ! logged v2.log 'NO CONFIRMADO' \
+   && ! logged v2.log 'apply correcto' && [ \"\$(q \"$db\" 'select count(*) from public.neighborhoods')\" = 73 ]"
+
+echo "== S. interrupciones (señal al grupo de procesos)"
+sleeping() { echo "select exists (select 1 from pg_stat_activity where datname = '$1' and wait_event = 'PgSleep')"; }
+tree="$(tree_copy signal-pass2)"
+echo "do \$\$ begin if nextval('r8_selftest.pass') > 1 then perform pg_sleep(30); end if; end \$\$;" \
+  >>"$tree/supabase/migrations/$M3"
+repin "$tree" "supabase/migrations/$M3"
+clone
+q "$db" "create schema r8_selftest; create sequence r8_selftest.pass" >/dev/null
+before="$(fp "$db")"
+rc=0
+upgrade_signal "$tree" "$db" apply s1.log INT "$(sleeping "$db")" PHASE4_UPGRADE_CONFIRM="$PHRASE" || rc=$?
+check "SIGINT durante la pasada con COMMIT: INTERRUMPIDO e incierto, nunca «nada confirmado»" \
+  "[ $rc -eq 130 ] && logged s1.log 'ensayo limpio' && logged s1.log 'apply INTERRUMPIDO (señal INT) durante la pasada con COMMIT' \
+   && logged s1.log 'incierto' && logged s1.log 'Recuperación' && ! logged s1.log 'nada confirmado' \
+   && ! logged s1.log 'nada aplicado' && ! logged s1.log 'commit hecho'"
+check "(en local, cancelada la consulta, no se aplicó: misma huella)" "[ \"\$(fp \"$db\")\" = '$before' ]"
+tree="$(tree_copy signal-pass1)"
+echo "do \$\$ begin if nextval('r8_selftest.pass') = 1 then perform pg_sleep(30); end if; end \$\$;" \
+  >>"$tree/supabase/migrations/$M3"
+repin "$tree" "supabase/migrations/$M3"
+clone
+q "$db" "create schema r8_selftest; create sequence r8_selftest.pass" >/dev/null
+before="$(fp "$db")"
+rc=0
+upgrade_signal "$tree" "$db" apply s2.log TERM "$(sleeping "$db")" PHASE4_UPGRADE_CONFIRM="$PHRASE" || rc=$?
+check "SIGTERM durante la pasada de ensayo: INTERRUMPIDO y nada confirmado, sin pasada con COMMIT" \
+  "[ $rc -eq 143 ] && logged s2.log 'INTERRUMPIDO (señal TERM) durante la pasada de ensayo (ROLLBACK): nada confirmado' \
+   && ! logged s2.log 'ensayo limpio' && ! logged s2.log 'incierto' && [ \"\$(fp \"$db\")\" = '$before' ]"
+
+echo "== R. cada resultado tiene una sola línea RESULTADO, la suya"
+outcome() { # <clase> <log>...
+  local class="$1" log
+  shift
+  for log in "$@"; do [ "$(result_of "$log")" = "$class" ] || return 1; done
+}
+check "correcto: solo el apply válido (c, n1)" "outcome correcto c.log n1.log"
+check "dry_run correcto (b)" "outcome dry_run_correcto b.log"
+check "NO VÁLIDO: COMMIT ejecutado y segunda pasada sin validar (v1, v2)" "outcome no_valido v1.log v2.log"
+check "NO CONFIRMADO: incierto tras la pasada con COMMIT (m1, m2, n2)" "outcome no_confirmado m1.log m2.log n2.log"
+check "ensayo FALLIDO: antes de cualquier COMMIT (d, h2, i, j2, j4, j6, l2, n3)" \
+  "outcome ensayo_fallido d.log h2.log i.log j2.log j4.log j6.log l2.log n3.log"
+check "NO ejecutada: antes de conectar (a3, g2, g3, g6, g7, g8, g9, g10, g11, g12)" \
+  "outcome no_ejecutada a3.log g2.log g3.log g6.log g7.log g8.log g9.log g10.log g11.log g12.log"
+check "INTERRUMPIDO: incierto en la pasada con COMMIT (s1), sin COMMIT en el ensayo (s2)" \
+  "outcome interrumpido_incierto s1.log && outcome interrumpido_sin_commit s2.log"
 
 echo "== K. sin secretos en la salida"
 # Solo las salidas (*.log): las copias del árbol contienen, como texto, la

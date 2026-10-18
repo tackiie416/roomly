@@ -475,6 +475,12 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     script.match(
       new RegExp(`^[A-Z0-9_]+="(tests/supabase/${name}) ([0-9a-f]{64})"$`, "m")
     );
+  /** Cuerpo de una función de bash del script, hasta su `}` de cierre. */
+  const fn = (name: string) => {
+    const start = script.indexOf(`\n${name}() {\n`);
+    expect(start, name).toBeGreaterThan(-1);
+    return script.slice(start, script.indexOf("\n}\n", start));
+  };
   const job = (name: string) => {
     const start = workflow.indexOf(`\n  ${name}:\n`);
     const next = workflow.slice(start + 1).search(/\n {2}[a-z0-9-]+:\n/);
@@ -522,8 +528,10 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     expect(script.indexOf('check_pinned "${pinned[@]}"')).toBeLessThan(
       script.indexOf('source "$ROOT/tests/supabase/guard.sh"')
     );
-    // El flujo lee el archivo fijado, no una ruta aparte.
-    expect(script).toContain('cat "$ROOT/${PHASE4_FINAL_PREFLIGHT% *}"');
+    // El flujo lee la copia verificada del archivo fijado, nunca el
+    // repositorio directamente ni una ruta aparte.
+    expect(script).toContain('body_parts+=("$(src_of "$PHASE4_FINAL_PREFLIGHT")")');
+    expect(script).not.toMatch(/cat "\$ROOT\//);
     expect(script).not.toContain('cat "$ROOT/tests/supabase/preflight.sql"');
   });
 
@@ -533,11 +541,23 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     expect(begin).toBeGreaterThan(-1);
     expect(cmm).toBeGreaterThan(begin);
     expect(cmm).toBeLessThan(script.indexOf('msg_check "al empezar"'));
-    expect(script.indexOf('msg_check "al empezar"')).toBeLessThan(
-      script.indexOf('cat "$ROOT/${PHASE3_BASELINE% *}"')
+    // Cabecera (con R8-MSG al empezar), cuerpo común y final, en ese orden.
+    expect(fn("pass_head").indexOf('echo "begin;"')).toBeLessThan(
+      fn("pass_head").indexOf('msg_check "al empezar"')
     );
-    expect(script.indexOf('cat "$ROOT/${PHASE4_FINAL_PREFLIGHT% *}"')).toBeLessThan(
-      script.indexOf('msg_check "antes de ${ending}"')
+    expect(fn("build_pass")).toContain('concat_verified "$pass" "$head" "$BODY" "$foot"');
+    // En el cuerpo, el preflight congelado va primero y el vigente, el último.
+    const bodyOrder = [
+      'body_parts+=("$(src_of "$PHASE3_BASELINE")")',
+      'body_parts+=("$(src_of "$PHASE4_BASELINE_CHECKS")")',
+      'body_parts+=("$SRC/${entry% *}")',
+      'body_parts+=("$(src_of "$PHASE4_FINAL_PREFLIGHT")")',
+      'concat_verified "$BODY" "${body_parts[@]}"',
+    ].map((s) => script.indexOf(s));
+    expect(bodyOrder[0]).toBeGreaterThan(-1);
+    expect(bodyOrder).toEqual([...bodyOrder].sort((a, b) => a - b));
+    expect(fn("pass_foot").indexOf('msg_check "antes de ${ending}"')).toBeLessThan(
+      fn("pass_foot").indexOf('echo "${ending};"')
     );
     expect(script.indexOf('msg_check "antes de ${ending}"')).toBeLessThan(
       script.indexOf('echo "${ending};"')
@@ -568,6 +588,113 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
       script.indexOf("\n}\n", script.indexOf("run_pass() {"))
     );
     expect(runPass).not.toMatch(/nada aplicado|se ha revertido|no se ha aplicado/);
+  });
+
+  it("B1: el flujo se construye entero antes de conectar, desde copias verificadas, y psql lo lee de un archivo", () => {
+    const guardAt = script.indexOf('source "$ROOT/tests/supabase/guard.sh"');
+    for (const step of [
+      'source "$ROOT/tests/supabase/sql-suite-lib.sh"',
+      'stage_pinned "$entry"',
+      'concat_verified "$BODY" "${body_parts[@]}"',
+      "build_pass rollback",
+      "build_pass commit",
+    ]) {
+      expect(script.indexOf(step), step).toBeGreaterThan(-1);
+      expect(script.indexOf(step), step).toBeLessThan(guardAt);
+    }
+    const stage = fn("stage_pinned");
+    expect(stage).toContain('cp "$ROOT/$path" "$copy"');
+    expect(stage).toContain('[ "$(sha256sum "$copy" | cut -c1-64)" = "$expected" ]');
+    expect(stage).toContain('roomly_sql_transform "$copy"');
+    expect(stage).toContain('grep -q "roomly_file"');
+    const concat = fn("concat_verified");
+    expect(concat).toContain(
+      'cmp -s <(tail -c "+$((offset + 1))" "$out" | head -c "$size") "$part"'
+    );
+    expect(concat).toContain('[ "$(stat -c %s "$out")" -eq "$offset" ]');
+    // Un solo ROLLBACK o COMMIT por pasada, el penúltimo, y después su línea.
+    expect(fn("build_pass")).toContain("(commit|rollback)[[:space:]]*;");
+    expect(fn("pass_foot")).toContain('section "${ending} hecho"');
+    // psql lee el archivo de la pasada; nada se canaliza hacia psql.
+    expect(fn("run_pass")).toContain('<"$WORK/pass-${ending}.sql"');
+    expect(script).not.toMatch(/\|\s*psql\b/);
+  });
+
+  it("B2: el COMMIT solo cuenta si psql llega a la última línea del flujo; NO VÁLIDO exige esa línea", () => {
+    const runPass = fn("run_pass");
+    const marker = runPass.indexOf('grep -qxF "== R8 · ${ending} hecho" "$out"');
+    expect(marker).toBeGreaterThan(runPass.indexOf('if [ "$status" -ne 0 ]; then'));
+    expect(marker).toBeLessThan(runPass.indexOf('if [ "$warn" -ne 0 ]; then'));
+    expect(marker).toBeLessThan(runPass.indexOf('if [ "$seen" != "$expected" ]; then'));
+    const afterCommit = script.slice(script.indexOf("run_pass commit || status=$?"));
+    expect(afterCommit).toMatch(
+      /"\$status" -eq 1 \]; then\n {2}echo "RESULTADO: apply NO CONFIRMADO/
+    );
+    expect(afterCommit).toMatch(
+      /"\$status" -eq 2 \]; then\n {2}echo "RESULTADO: apply NO VÁLIDO: el COMMIT se ejecutó/
+    );
+  });
+
+  it("B3: una señal durante la pasada con COMMIT da un resultado incierto; antes, nada confirmado", () => {
+    const guardAt = script.indexOf('source "$ROOT/tests/supabase/guard.sh"');
+    for (const [sig, num] of [
+      ["HUP", 1],
+      ["INT", 2],
+      ["TERM", 15],
+    ]) {
+      const trap = `trap 'on_signal ${sig} ${num}' ${sig}`;
+      expect(script).toContain(trap);
+      expect(script.indexOf(trap)).toBeLessThan(guardAt);
+    }
+    const [commitBranch, otherBranch] = fn("on_signal").split("\n  else\n");
+    expect(commitBranch).toContain('if [ "$STAGE" = "la pasada con COMMIT" ]; then');
+    expect(commitBranch).toContain("incierto");
+    expect(commitBranch).not.toMatch(/nada confirmado|nada aplicado/);
+    expect(otherBranch).toContain("nada confirmado");
+    // La etapa pasa a «con COMMIT» entre las dos pasadas, y ya no cambia.
+    const stageCommit = script.indexOf('STAGE="la pasada con COMMIT"');
+    expect(stageCommit).toBeGreaterThan(script.indexOf("run_pass rollback || status=$?"));
+    expect(stageCommit).toBeLessThan(script.indexOf("run_pass commit || status=$?"));
+    expect(script.slice(stageCommit + 1)).not.toContain('STAGE="');
+  });
+
+  it("B4–B5: las secciones de docs/SUPABASE_VALIDATION.md que cita el script existen y separan los procedimientos", () => {
+    const doc = read("docs/SUPABASE_VALIDATION.md");
+    const cited = new Set(
+      [
+        ...script.matchAll(
+          /«([^»]+)» en docs\/SUPABASE_VALIDATION\.md|docs\/SUPABASE_VALIDATION\.md, «([^»]+)»/g
+        ),
+      ].map((m) => m[1] ?? m[2])
+    );
+    expect([...cited].sort()).toEqual([
+      "Cambiar el SHA-256 del preflight vigente",
+      "Recuperación",
+    ]);
+    for (const name of cited) {
+      expect(doc, name).toMatch(new RegExp(`^#{3,4} ${name}$`, "m"));
+    }
+    const section = (name: string) => {
+      const start = doc.indexOf(`#### ${name}\n`);
+      const next = doc.slice(start + 1).search(/\n#{2,4} /);
+      return doc.slice(start, next === -1 ? undefined : start + 1 + next);
+    };
+    const recovery = section("Recuperación");
+    expect(recovery).toContain("phase4_upgrade=none");
+    expect(recovery).toContain(
+      "**Si el preflight pasa, siguen la suite SQL, la api-suite y AU3/AU5**"
+    );
+    expect(recovery).toContain("Que falte esa línea no demuestra que la transacción se");
+    expect(recovery).toContain("**no se repite `apply`**");
+    const pin = section("Cambiar el SHA-256 del preflight vigente");
+    for (const step of [
+      "roomly_sql_transform",
+      "PHASE3_BASELINE",
+      "phase4-upgrade-selftest.sh",
+      "una sola",
+    ]) {
+      expect(pin, step).toContain(step);
+    }
   });
 
   it("dry_run termina siempre en ROLLBACK; apply ensaya antes y exige la confirmación exacta", () => {
