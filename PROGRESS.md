@@ -6,6 +6,119 @@ próximos pasos.**
 
 ---
 
+## 2026-10-18 — Sesión 50: R8, tercera ronda de correcciones (M1 y L1), solo en local (Fase 4 EN CURSO; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- **Tercera revisión de seguridad del PR #27** (solo lectura, sobre
+  `3e4cdee`):
+  - un hallazgo medio, M1: el validador compartido solo rechazaba los
+    meta-comandos de psql al principio de la línea, y psql los ejecuta en
+    cualquier posición (comprobado en local con `\echo`,
+    `\set ON_ERROR_STOP 0` y `\!`). No era explotable con los seis archivos
+    fijados, que no contienen ninguno;
+  - un hallazgo bajo, L1: una línea `ERROR:` con psql terminado en 0 no hacía
+    fallar la pasada.
+- **El propietario autoriza** corregir solo M1 y L1, con pruebas, en un
+  commit nuevo. No autoriza workflows manuales, conexiones con Supabase,
+  migraciones remotas, merges, el `dry_run` ni el `apply`.
+- **Estado de Git al empezar:** rama `claude/phase4-r8-upgrade-tool`, HEAD
+  `3e4cdee`, igual que `origin`, árbol limpio.
+
+**Qué se hizo**
+- **M1** (`tests/supabase/sql-suite-lib.sh`, el validador que usan la suite
+  SQL remota y R8):
+  - se rechaza toda barra invertida fuera de cadenas, identificadores
+    `"..."`, comentarios `--` y cuerpos `$$`. En SQL no tiene otro uso, y
+    dentro de esos contextos psql la trata como texto (comprobado en local);
+  - como la regla depende de reconocer bien esos contextos, se rechaza
+    también lo ambiguo:
+    - `\'` dentro de una cadena: con `standard_conforming_strings`
+      desactivado, no cerraría la cadena;
+    - **`$$` pegado a un nombre:** para psql, `x$$` es un identificador, no el
+      principio de un cuerpo `$$`. Lo encontré al revisar los contextos, y lo
+      comprobé en local: el validador anterior aceptaba
+      `select 1 as x$$; commit; select 2 as y$$;` (un `COMMIT` oculto), y psql
+      ejecuta lo que hay entre los dos;
+  - límite documentado: no analiza la interpolación de variables de psql
+    (`:nombre`). Los seis archivos de R8 no tienen ninguna.
+  - Los 20 archivos de `tests/db` y los seis del flujo de R8 siguen pasando.
+- **L1** (`tests/supabase/phase4-upgrade.sh`, `run_pass`):
+  - con psql terminado en 0, una línea que empiece por `ERROR:` hace fallar
+    la pasada con el código 1: incierto con `COMMIT`, y «ensayo FALLIDO» en
+    la primera pasada;
+  - no se usa el código 2, porque «NO VÁLIDO» afirma que el `COMMIT` se
+    ejecutó, y un `COMMIT` sobre una transacción abortada es un `ROLLBACK`;
+  - la búsqueda está anclada al principio de la línea: las filas de
+    resultados empiezan por un espacio, y los avisos, por `NOTICE`.
+  - El mensaje «NO CONFIRMADO» dice ahora «falló, mostró un ERROR o no llegó
+    al final».
+- **Pruebas:**
+  - **`sql-suite-selftest`, de 78 a 89 comprobaciones** (sección D3):
+    - 9 entradas rechazadas antes de conectar: `\connect`,
+      `\set ON_ERROR_STOP 0`, `\!` y `\gset` a mitad de línea; un
+      meta-comando tras una cadena, un identificador y un cuerpo `$$`; y dos
+      con `$$` pegado a un nombre;
+    - `\'` dentro de una cadena, con su motivo propio, porque el validador
+      anterior también lo rechazaba, pero como «cadena sin cerrar»;
+    - un control: las barras invertidas de comentarios, cadenas,
+      identificadores y cuerpos `$$` se aceptan y se ejecutan, y ninguna como
+      meta-comando (un `\echo` ejecutado aparecería en el log).
+  - **Selftest de R8, de 67 a 76 comprobaciones:**
+    - G: meta-comandos a mitad de línea en una migración, el preflight
+      vigente y R8-BASE, y `$$` pegado a un nombre, todos con el SHA-256 al
+      día y rechazados sin llamar a psql. Además, el control de las barras
+      invertidas legítimas, que llega a la guarda;
+    - O: el psql envoltorio, con un gancho nuevo, antepone
+      `\set ON_ERROR_STOP 0` e inserta `select 1 / 0;` justo antes del final.
+      - Con `COMMIT` da «NO CONFIRMADO… incierto», y en local la huella no
+        cambia: ese `COMMIT` fue un `ROLLBACK`.
+      - En el ensayo, «ensayo FALLIDO».
+      - El control, con «ERROR:» dentro de un aviso y de un resultado, da
+        «apply correcto»;
+    - R: los registros nuevos, en su clase.
+  - **`validation-infra`:** 1 prueba nueva. La comprobación de `ERROR:` va
+    entre el código de salida y la línea final, y su rama devuelve 1.
+  - Ninguna aserción existente se ha quitado.
+- **Documentación:** `docs/SUPABASE_VALIDATION.md` (el validador de la suite
+  y de R8, la condición nueva de una pasada, la fila «NO CONFIRMADO», lo
+  probado en local, las mutaciones y la CI #65), `docs/TESTING.md`,
+  `docs/ROADMAP.md` (R8) y esta entrada.
+- **No se ha ejecutado ningún workflow manual** ni se ha conectado con
+  Supabase. Todo se probó contra el PostgreSQL 16 local.
+
+**Resultados** (en local, PostgreSQL 16)
+- `sql-suite-selftest` 89/89 y `phase4-upgrade-selftest` 76/76.
+- `test:infra` en verde: guarda 28, `sql-suite-selftest` 89,
+  `preflight-selftest` 69, `migration-upgrade-selftest` 26 y
+  `phase4-upgrade-selftest` 76.
+- `test:db` 651/651, sin cambios. `npm run test` 1069/1069 (1 nuevo).
+- `lint`, `typecheck`, `format:check`, `git diff --check` y `bash -n` de los
+  cuatro scripts modificados, sin errores. `shellcheck` no está instalado.
+- **Contra el código de `3e4cdee`:** `sql-suite-selftest` falla en 10 (D3) y
+  el de R8, en 9: los casos nuevos.
+- **Mutaciones: 6/6 detectadas**, sobre copias en el scratchpad:
+  - sin la regla de la barra invertida, sin la de `\'`, sin la de `$$` pegado
+    a un nombre;
+  - sin la comprobación de `ERROR:`, con su rama devolviendo 2, y con la
+    búsqueda sin anclar (la detecta el control de falsos positivos).
+
+**Límites**
+- Los de las sesiones 47–49 siguen: PostgreSQL 17, un rol no superusuario, el
+  Session pooler, el estado real de `roomly-validation-3`, el Environment,
+  las entradas nuevas desde una rama y las señales de Actions.
+- El validador no analiza la interpolación de variables de psql.
+- `\'` y `$$` pegado a un nombre se rechazan aunque, con la configuración
+  habitual, serían inofensivos: es la opción conservadora.
+- Los logs de la CI siguen sin poder leerse desde el entorno de Claude.
+
+**Pendiente**
+- La CI del PR #27 con este commit.
+- La decisión del propietario sobre las comprobaciones manuales, el
+  `dry_run` y después el `apply`, cada uno con su autorización.
+- La licencia del dataset y el merge de los PR #26 y #27.
+
+---
+
 ## 2026-10-17/18 — Sesión 49: R8, segunda ronda de correcciones (B1–B5) de la herramienta, solo en local (Fase 4 EN CURSO; PR #26 y #27 sin fusionar)
 
 **Contexto**

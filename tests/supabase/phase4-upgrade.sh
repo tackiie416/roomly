@@ -285,10 +285,10 @@ STAGE="la guarda"
 source "$ROOT/tests/supabase/guard.sh" SUPABASE_VALIDATION_DB_URL
 export PGSSLMODE="${PGSSLMODE:-require}"
 
-# Una pasada: 0 si psql terminó bien, llegó a «== R8 · <final> hecho», sin
-# WARNING y con EXPECTED_NOTICES; 1 si psql falló o no llegó a esa línea (con
-# COMMIT: resultado incierto); 2 si llegó (el COMMIT se ejecutó) pero hubo
-# WARNING o faltan avisos.
+# Una pasada: 0 si psql terminó bien, sin ningún ERROR del servidor, llegó a
+# «== R8 · <final> hecho», sin WARNING y con EXPECTED_NOTICES; 1 si psql falló,
+# mostró un ERROR o no llegó a esa línea (con COMMIT: resultado incierto); 2 si
+# llegó (el COMMIT se ejecutó) pero hubo WARNING o faltan avisos.
 run_pass() {
   local ending="$1" out="$WORK/out-$1.log" status=0 warn=0 seen expected
   psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc -d "$SUPABASE_VALIDATION_DB_URL" \
@@ -299,6 +299,15 @@ run_pass() {
       echo "   ERROR: psql terminó sin mensajes del servidor (conexión u otro fallo; detalle omitido)"
     fi
     echo "   psql terminó con código ${status} en la pasada (${ending})"
+    return 1
+  fi
+  # Con ON_ERROR_STOP, un error corta psql: un ERROR con código 0 significa que
+  # algo lo desactivó, y entonces la línea final no prueba nada (un COMMIT sobre
+  # una transacción abortada es un ROLLBACK). Solo cuentan las líneas que
+  # empiezan por ERROR (las filas de resultados empiezan por un espacio y los
+  # avisos, por NOTICE).
+  if grep -qE '^(psql:<stdin>:[0-9]+: )?ERROR:  ' "$out"; then
+    echo "   ERROR del servidor en la pasada (${ending}) aunque psql terminó con código 0: fallo cerrado"
     return 1
   fi
   # psql solo imprime esta línea después de que el ROLLBACK o el COMMIT
@@ -339,7 +348,7 @@ STAGE="la pasada con COMMIT"
 echo "phase4-upgrade: ensayo limpio; se repite el mismo cuerpo con COMMIT"
 run_pass commit || status=$?
 if [ "$status" -eq 1 ]; then
-  echo "RESULTADO: apply NO CONFIRMADO: la pasada con COMMIT falló o no llegó al final, y su resultado es incierto (si la conexión se perdió durante el COMMIT, la actualización pudo quedar aplicada o no; al ser una sola transacción, está entera o no está). No repitas apply: investiga antes el estado según «Recuperación» en docs/SUPABASE_VALIDATION.md (primero un dry_run, que no confirma nada; si falla en el estado de partida, el preflight vigente, tests/supabase/run-preflight.sh, que en el workflow lanza también las suites)" >&2
+  echo "RESULTADO: apply NO CONFIRMADO: la pasada con COMMIT falló, mostró un ERROR o no llegó al final, y su resultado es incierto (si la conexión se perdió durante el COMMIT, la actualización pudo quedar aplicada o no; al ser una sola transacción, está entera o no está). No repitas apply: investiga antes el estado según «Recuperación» en docs/SUPABASE_VALIDATION.md (primero un dry_run, que no confirma nada; si falla en el estado de partida, el preflight vigente, tests/supabase/run-preflight.sh, que en el workflow lanza también las suites)" >&2
   exit 1
 fi
 if [ "$status" -eq 2 ]; then

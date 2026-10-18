@@ -635,6 +635,21 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     );
   });
 
+  it("L1: una línea ERROR del servidor con psql terminado en 0 da resultado incierto (1), no válido ni NO VÁLIDO", () => {
+    const runPass = fn("run_pass");
+    const errorCheck = runPass.indexOf(
+      "if grep -qE '^(psql:<stdin>:[0-9]+: )?ERROR:  ' \"$out\"; then"
+    );
+    expect(errorCheck).toBeGreaterThan(runPass.indexOf('if [ "$status" -ne 0 ]; then'));
+    expect(errorCheck).toBeLessThan(runPass.indexOf('if [ "$warn" -ne 0 ]; then'));
+    expect(errorCheck).toBeLessThan(
+      runPass.indexOf('if [ "$seen" != "$expected" ]; then')
+    );
+    // Su rama devuelve 1 (incierto con COMMIT), nunca 2 (NO VÁLIDO: COMMIT ejecutado).
+    const branch = runPass.slice(errorCheck, runPass.indexOf("\n  fi\n", errorCheck));
+    expect(branch).toMatch(/\n {4}return 1$/);
+  });
+
   it("B3: una señal durante la pasada con COMMIT da un resultado incierto; antes, nada confirmado", () => {
     const guardAt = script.indexOf('source "$ROOT/tests/supabase/guard.sh"');
     for (const [sig, num] of [

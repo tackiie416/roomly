@@ -601,10 +601,22 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
   - un `BEGIN`/`ROLLBACK` que no esté solo en su línea, o bloques anidados
     o sin cerrar;
   - `SET SESSION`/`SET TRANSACTION`;
-  - meta-comandos de `psql`;
+  - meta-comandos de `psql`, **en cualquier posición de la línea**: psql
+    reconoce una barra invertida como meta-comando también a mitad de línea
+    (`select 1; \connect postgres`). Desde la tercera revisión de R8 se
+    rechaza toda barra invertida fuera de cadenas, identificadores `"..."`,
+    comentarios `--` y cuerpos `$$`, donde psql sí la trata como texto;
   - lo que el validador no sabe analizar con seguridad: `$tag$`,
     comentarios `/* */`, cadenas `E'...'` (sus escapes `\'`
-    desincronizarían el análisis) o una sentencia final sin `;`.
+    desincronizarían el análisis) o una sentencia final sin `;`;
+  - lo que psql podría leer de otra manera que el validador: `\'` dentro de
+    una cadena (con `standard_conforming_strings` desactivado no la
+    cerraría) y `$$` pegado a un nombre (`x$$` es, para psql, parte del
+    identificador, no el principio de un cuerpo `$$`, así que podía ocultar un
+    `COMMIT` o un meta-comando).
+  - Límite: no analiza la interpolación de variables de psql (`:nombre`).
+    Sin meta-comandos no se pueden definir variables nuevas, y los seis
+    archivos del flujo de R8 no contienen ninguna.
 - **Qué sabe analizar el validador:** comentarios `--`, cadenas `'...'`,
   identificadores `"..."` y cuerpos `$$...$$`. Un `'`, `--` o `$$` dentro de
   un identificador entre comillas dobles no abre nada.
@@ -613,8 +625,8 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
     reproduce exactamente ese caso.
 - **Los `WARNING` se muestran y hacen fallar la suite.** Las salidas de
   error de conexión no se imprimen, porque podrían contener el host.
-- **Auto-test local:** `tests/supabase/sql-suite-selftest.sh` (78
-  comprobaciones, en CI).
+- **Auto-test local:** `tests/supabase/sql-suite-selftest.sh` (89
+  comprobaciones desde la tercera revisión de R8, antes 78; en CI).
   - Ejecuta el `run-sql-suite.sh` real, con la guarda, contra un PostgreSQL
     local con la marca, y obtiene las mismas aserciones que `run.sh` (651
     desde la carga de barrios de R1; 265 cuando se escribió).
@@ -917,7 +929,7 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
   aislamiento: unos secrets coherentes de un proyecto con la marca
   `roomly-validation-2` no pasan la guarda, y migraciones, P0 y suite SQL
   abortan sin crear nada.
-- **`sql-suite-selftest.sh` (78) y `preflight-selftest.sh` (69 desde R1; 65
+- **`sql-suite-selftest.sh` (89 desde la tercera revisión de R8, antes 78) y `preflight-selftest.sh` (69 desde R1; 65
   con la 4.1, 50 con la 4.0, antes 44):** ver arriba. Desde la Fase 3.1, el
   primero cuenta los archivos de `tests/db` en vez de fijar el número.
 - **`migration-upgrade-selftest.sh` (Fase 3.1):** aplica las migraciones de
@@ -933,7 +945,7 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
   - R1, instalación limpia: en otra base de datos, las migraciones solas
     crean Barcelona y sus 73 barrios, el seed se aplica después sin duplicar
     nada, y la carga repetida tampoco cambia nada.
-- **`phase4-upgrade-selftest.sh` (R8, 67 comprobaciones):** la herramienta de
+- **`phase4-upgrade-selftest.sh` (R8, 76 comprobaciones):** la herramienta de
   la Fase 4 contra bases de datos locales temporales que clonan el esquema de
   la Fase 3. Ver «Fase 4: herramienta de actualización (R8)».
 
@@ -1042,7 +1054,9 @@ Pasos, con fallo cerrado en cada uno:
      cambia después de su comprobación aborta;
    - `roomly_sql_transform` sobre cada copia: sin control de transacciones
      (`COMMIT`, `ROLLBACK`, `BEGIN`, `SAVEPOINT`…), sin bloques
-     `begin;`/`rollback;` y sin meta-comandos de psql;
+     `begin;`/`rollback;` y sin meta-comandos de psql en ninguna posición
+     de la línea (también se rechazan `\'` dentro de una cadena y `$$`
+     pegado a un nombre, que psql podría leer de otra manera);
    - un cuerpo común y, para cada pasada, un archivo con ese mismo cuerpo
      entre su cabecera y su final. Cada archivo se comprueba byte a byte
      (cada parte en su posición, y nada más). Su único `ROLLBACK` o `COMMIT`
@@ -1077,6 +1091,10 @@ Pasos, con fallo cerrado en cada uno:
    - **llega a la última línea del flujo** (`== R8 · rollback hecho` o
      `== R8 · commit hecho`). psql solo la imprime si el `ROLLBACK` o el
      `COMMIT` terminaron bien;
+   - no hay ninguna línea `ERROR:` del servidor, aunque psql termine con 0.
+     Con `ON_ERROR_STOP`, un error corta psql: si algo lo desactivara, un
+     `COMMIT` sobre la transacción abortada sería en realidad un `ROLLBACK`, y
+     la línea final no probaría nada;
    - no hay WARNING;
    - aparecen los avisos de éxito esperados, en orden: `ok - R8-MSG`, el
      `ok - P6:` del preflight congelado, `ok - R8-BASE`, el `ok - P6:` del
@@ -1099,7 +1117,7 @@ Pasos, con fallo cerrado en cada uno:
    | «INTERRUMPIDO (señal …) durante …: nada confirmado» | Una señal antes de la pasada con `COMMIT` |
    | «apply correcto» | Las dos pasadas valen: la Fase 4 está aplicada |
    | «apply NO VÁLIDO» | El `COMMIT` se ejecutó (psql llegó a `== R8 · commit hecho`), pero la segunda pasada tuvo WARNING o le faltan avisos |
-   | «apply NO CONFIRMADO… incierto» | La pasada con `COMMIT` falló o no llegó a su última línea. La actualización pudo quedar aplicada o no |
+   | «apply NO CONFIRMADO… incierto» | La pasada con `COMMIT` falló, mostró una línea `ERROR:` aunque psql terminara con 0, o no llegó a su última línea. La actualización pudo quedar aplicada o no |
    | «apply INTERRUMPIDO (señal …) durante la pasada con COMMIT… incierto» | Una señal (cancelación o timeout del job) durante esa pasada |
    | Ninguna línea `RESULTADO:` en un `apply` (salvo el caso de la guarda) | El proceso murió sin poder escribirla, o el log se cortó: **incierto** |
 
@@ -1118,7 +1136,7 @@ Pasos, con fallo cerrado en cada uno:
   Vercel. No imprime la cadena de conexión: solo NOTICE, WARNING y ERROR
   filtrados.
 
-**Probado en local** (`phase4-upgrade-selftest.sh`, 67 comprobaciones, contra
+**Probado en local** (`phase4-upgrade-selftest.sh`, 76 comprobaciones, contra
 PostgreSQL 16 local; el mismo selftest está en `test:infra`):
 - entradas incompatibles, `dry_run` sin efectos, `apply` y el preflight
   vigente después, la segunda aplicación rechazada, otra marca o ninguna, y
@@ -1132,6 +1150,10 @@ PostgreSQL 16 local; el mismo selftest está en `test:infra`):
     de su comprobación;
   - `commit;`, un bloque `begin;`/`rollback;` o `\connect` con el SHA-256 al
     día;
+  - meta-comandos a mitad de línea (`\connect`, `\set ON_ERROR_STOP 0`, `\!`)
+    y `$$` pegado a un nombre, con el SHA-256 al día. Como control, las barras
+    invertidas de un comentario, una cadena, un identificador y un cuerpo
+    `$$` se aceptan;
   - un `cat` que omite una parte sin dar error;
   - una línea `commit;` dentro de un cuerpo `$$`.
 
@@ -1147,6 +1169,11 @@ PostgreSQL 16 local; el mismo selftest está en `test:infra`):
 - fallos solo en la pasada con `COMMIT`: un error, y la conexión perdida
   durante el propio `COMMIT` (un trigger diferido que termina su backend).
   Los dos dan «NO CONFIRMADO… incierto», nunca «nada aplicado»;
+- una línea `ERROR:` con psql terminado en 0 (un psql envoltorio desactiva
+  `ON_ERROR_STOP` e inserta un error justo antes del final): en la pasada con
+  `COMMIT` da «NO CONFIRMADO… incierto», y en la de ensayo, «ensayo
+  FALLIDO». Como control, el texto «ERROR:» dentro de un aviso o de un
+  resultado no hace fallar la pasada;
 - «apply NO VÁLIDO», con un WARNING o un aviso que falta solo en la segunda
   pasada: el `COMMIT` se ejecutó (73 barrios) y el script sale con error;
 - señales al grupo de procesos, como al cancelar un job: SIGINT durante la
@@ -1156,9 +1183,11 @@ PostgreSQL 16 local; el mismo selftest está en `test:infra`):
 - ninguna salida contiene la contraseña ni la cadena de conexión.
 
 Mutaciones: 14/14 de la versión inicial, 5/5 de la primera ronda de
-correcciones y 12/12 de la segunda (`docs/TESTING.md`). Además, el selftest
-actual, ejecutado contra el script anterior (`2278cf7`), falla en 16 de sus 67
-comprobaciones: las de los casos nuevos.
+correcciones, 12/12 de la segunda y 6/6 de la tercera (M1 y L1;
+`docs/TESTING.md`). Además, cada selftest se ejecutó contra el código
+anterior: el de 67 contra el script de `2278cf7` falla en 16 comprobaciones,
+y el de 76 contra el validador y el script de `3e4cdee`, en 9.
+`sql-suite-selftest` (89), contra el validador de `3e4cdee`, falla en 10.
 
 **En la CI:** el selftest corre en el job `db-security` de la CI del PR.
 - CI #64, sobre `2278cf7` (la versión con 45 comprobaciones en local),
@@ -1168,6 +1197,7 @@ comprobaciones: las de los casos nuevos.
   eso el número de comprobaciones que se ejecutaron en la CI **no está
   verificado directamente**. Solo consta que el paso terminó bien, y el
   selftest sale con error si falla cualquiera de ellas.
+- La versión con 67 (`3e4cdee`): CI #65 en verde, con el mismo límite.
 - Para las versiones posteriores, ver la CI de su commit, con el mismo
   límite.
 

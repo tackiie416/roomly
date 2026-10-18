@@ -653,6 +653,13 @@ demás siguen sin tomar:
       `docs/SUPABASE_VALIDATION.md`;
     - la documentación de la CI separa lo verificado en local del verde de
       la CI.
+  - **Tercera revisión (2026-10-18):** un hallazgo medio y uno bajo,
+    corregidos y probados en local:
+    - M1: el validador compartido rechaza los meta-comandos de psql en
+      cualquier posición de la línea, y lo que psql podría leer de otra
+      manera (`\'` en una cadena, `$$` pegado a un nombre);
+    - L1: una línea `ERROR:` con psql terminado en 0 ya no deja una pasada
+      como válida.
   - **Pendiente:** las reglas del Environment y cada ejecución, con su
     autorización.
 - **R9.** Qué significa `total_roommates`, que el esquema marca como ambigua.

@@ -21,6 +21,8 @@
 #      se llega a llamar a psql. Tampoco conecta si un archivo desaparece o
 #      cambia justo después de su comprobación, ni si un archivo fijado
 #      contiene control de transacciones o meta-comandos de psql;
+#      Desde M1, también los meta-comandos a mitad de línea y $$ pegado a un
+#      nombre; las barras invertidas de literales y comentarios se aceptan;
 #   N. el flujo se construye entero antes de conectar: retirar archivos entre
 #      las dos pasadas no cambia la segunda, y una entrada cortada antes del
 #      ROLLBACK o del COMMIT no se da por buena;
@@ -38,6 +40,9 @@
 #   S. una señal (SIGINT o SIGTERM al grupo de procesos, como al cancelar un
 #      job) durante la pasada con COMMIT da «INTERRUMPIDO… incierto»; durante el
 #      ensayo, «nada confirmado»;
+#   O. una línea ERROR con psql terminado en 0 (ON_ERROR_STOP desactivado)
+#      no vale: incierta en la pasada con COMMIT, ensayo FALLIDO en la primera;
+#      el texto «ERROR:» en un aviso o en un resultado no cuenta;
 #   R. cada resultado tiene una sola línea RESULTADO, la suya;
 #   K. ninguna salida contiene la contraseña ni la cadena de conexión.
 #
@@ -175,11 +180,15 @@ fi
 exit "$status"
 STUB_SHA
 chmod +x "$TOCTOU/sha256sum"
-# psql de verdad con dos ganchos, solo en las llamadas que leen el flujo por la
+# psql de verdad con tres ganchos, solo en las llamadas que leen el flujo por la
 # entrada estándar (la guarda usa -c y pasa directa):
 #   R8_HOOK_CUT=<línea>: la entrada se corta justo antes de esa línea;
 #   R8_HOOK_AFTER_ROLLBACK="<archivos>": después de la pasada de ensayo, esos
-#     archivos se retiran del árbol.
+#     archivos se retiran del árbol;
+#   R8_HOOK_PASS=<rollback|commit>: solo en esa pasada, R8_HOOK_PREPEND va al
+#     principio de la entrada y R8_HOOK_INSERT, justo antes de la línea
+#     R8_HOOK_INSERT_BEFORE (simula un flujo que desactiva ON_ERROR_STOP sin
+#     que la herramienta lo haya generado).
 HOOK="$WORK/hook-bin"
 mkdir -p "$HOOK"
 cat >"$HOOK/psql" <<'HOOK_PSQL'
@@ -192,6 +201,12 @@ cat >"$input"
 if [ -n "${R8_HOOK_CUT:-}" ]; then
   awk -v cut="$R8_HOOK_CUT" '$0 == cut { exit } { print }' "$input" >"$input.cut"
   mv "$input.cut" "$input"
+fi
+if [ -n "${R8_HOOK_PASS:-}" ] && grep -qx "${R8_HOOK_PASS};" "$input"; then
+  awk 'BEGIN { pre = ENVIRON["R8_HOOK_PREPEND"]; if (pre != "") print pre }
+       ENVIRON["R8_HOOK_INSERT_BEFORE"] != "" && $0 == ENVIRON["R8_HOOK_INSERT_BEFORE"] { print ENVIRON["R8_HOOK_INSERT"] }
+       { print }' "$input" >"$input.mod"
+  mv "$input.mod" "$input"
 fi
 status=0
 "$R8_REAL_PSQL" "$@" <"$input" || status=$?
@@ -452,6 +467,25 @@ repin "$tree" "supabase/migrations/$M3"
 offline "$tree" apply g12.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
 check "un «commit;» dentro de un cuerpo \$\$ (pasa el validador): el flujo se rechaza sin llamar a psql" \
   "logged g12.log 'no termina en un único rollback seguido de su última línea' && ! psql_called"
+# Meta-comandos a mitad de línea (psql los ejecuta igual) y $$ pegado a un
+# nombre (para psql, parte del identificador): rechazados sin llamar a psql.
+validator_case g13.log "supabase/migrations/$M3" 'select 1; \\connect postgres\nselect 2;\n' 'meta-comando de psql no permitido'
+validator_case g14.log "tests/supabase/preflight.sql" 'select 1; \\set ON_ERROR_STOP 0\nselect 2;\n' 'meta-comando de psql no permitido'
+validator_case g15.log "tests/supabase/phase4-upgrade-baseline.sql" 'select 1; \\! echo r8-selftest;\n' 'meta-comando de psql no permitido'
+validator_case g16.log "supabase/migrations/$M2" 'select 1 as x$$;\ncommit;\nselect 2 as y$$;\n' '$$ pegado a un nombre'
+# Control: barras invertidas en un comentario, una cadena, un identificador y
+# un cuerpo $$ (con el SHA-256 al día) no se rechazan: el script llega a la
+# guarda.
+tree="$(tree_copy literal-backslashes)"
+cat >>"$tree/supabase/migrations/$M3" <<'SQL'
+-- comentario con \connect y \set ON_ERROR_STOP 0
+select regexp_replace('public.x', '^public\.', '') as sin_esquema, 1 as "con\barra";
+do $$ begin perform '\echo dentro de un cuerpo'; end $$;
+SQL
+repin "$tree" "supabase/migrations/$M3"
+offline "$tree" apply g17.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "control: barras invertidas en comentario, cadena, identificador y cuerpo \$\$ se aceptan (llega a la guarda)" \
+  "logged g17.log 'flujo construido y comprobado antes de conectar' && psql_called"
 
 echo "== H. error a mitad de la transacción"
 tree="$(tree_copy mid-error)"
@@ -648,20 +682,54 @@ check "SIGTERM durante la pasada de ensayo: INTERRUMPIDO y nada confirmado, sin 
   "[ $rc -eq 143 ] && logged s2.log 'INTERRUMPIDO (señal TERM) durante la pasada de ensayo (ROLLBACK): nada confirmado' \
    && ! logged s2.log 'ensayo limpio' && ! logged s2.log 'incierto' && [ \"\$(fp \"$db\")\" = '$before' ]"
 
+echo "== O. un ERROR con psql terminado en 0 no vale"
+# El psql envoltorio desactiva ON_ERROR_STOP en una pasada e inserta un error
+# justo antes de su ROLLBACK o COMMIT: psql sigue, imprime la línea final y
+# termina con 0. Sin la comprobación de ERROR, la pasada parecería válida
+# aunque el COMMIT sobre la transacción abortada sea en realidad un ROLLBACK.
+clone
+before="$(fp "$db")"
+hooked "$ROOT" "$db" apply o1.log PHASE4_UPGRADE_CONFIRM="$PHRASE" R8_HOOK_PASS=commit \
+  R8_HOOK_PREPEND='\set ON_ERROR_STOP 0' R8_HOOK_INSERT_BEFORE='commit;' R8_HOOK_INSERT='select 1 / 0;' || true
+check "ERROR en la pasada con COMMIT y psql en 0: NO CONFIRMADO e incierto, nunca correcto ni NO VÁLIDO" \
+  "logged o1.log 'ERROR: division by zero' && logged o1.log 'commit hecho' \
+   && logged o1.log 'aunque psql terminó con código 0' && logged o1.log 'apply NO CONFIRMADO' && logged o1.log 'incierto' \
+   && ! logged o1.log 'NO VÁLIDO' && ! logged o1.log 'apply correcto'"
+check "(en local, el COMMIT sobre la transacción abortada no aplicó nada: misma huella)" "[ \"\$(fp \"$db\")\" = '$before' ]"
+hooked "$ROOT" "$db" apply o2.log PHASE4_UPGRADE_CONFIRM="$PHRASE" R8_HOOK_PASS=rollback \
+  R8_HOOK_PREPEND='\set ON_ERROR_STOP 0' R8_HOOK_INSERT_BEFORE='rollback;' R8_HOOK_INSERT='select 1 / 0;' || true
+check "ERROR en la pasada de ensayo y psql en 0: ensayo FALLIDO, sin pasada con COMMIT" \
+  "logged o2.log 'ERROR: division by zero' && logged o2.log 'rollback hecho' \
+   && logged o2.log 'aunque psql terminó con código 0' && logged o2.log 'ensayo FALLIDO' && ! logged o2.log 'ensayo limpio' \
+   && [ \"\$(fp \"$db\")\" = '$before' ]"
+# Control: el texto «ERROR:» dentro de un aviso o en el resultado de una
+# consulta no es un error del servidor y no hace fallar la pasada.
+tree="$(tree_copy error-text)"
+cat >>"$tree/supabase/migrations/$M3" <<'SQL'
+do $$ begin raise notice 'ERROR:  solo es el texto de un aviso'; end $$;
+select 'ERROR:  solo es un valor' as texto;
+SQL
+repin "$tree" "supabase/migrations/$M3"
+clone
+check "control: «ERROR:» en un aviso o en un resultado no es un error: apply correcto (73 barrios)" \
+  "upgrade '$tree' '$db' apply o3.log PHASE4_UPGRADE_CONFIRM='$PHRASE' && logged o3.log 'solo es el texto de un aviso' \
+   && ! logged o3.log 'aunque psql terminó con código 0' && logged o3.log 'apply correcto' \
+   && [ \"\$(q \"$db\" 'select count(*) from public.neighborhoods')\" = 73 ]"
+
 echo "== R. cada resultado tiene una sola línea RESULTADO, la suya"
 outcome() { # <clase> <log>...
   local class="$1" log
   shift
   for log in "$@"; do [ "$(result_of "$log")" = "$class" ] || return 1; done
 }
-check "correcto: solo el apply válido (c, n1)" "outcome correcto c.log n1.log"
+check "correcto: solo el apply válido (c, n1, o3)" "outcome correcto c.log n1.log o3.log"
 check "dry_run correcto (b)" "outcome dry_run_correcto b.log"
 check "NO VÁLIDO: COMMIT ejecutado y segunda pasada sin validar (v1, v2)" "outcome no_valido v1.log v2.log"
-check "NO CONFIRMADO: incierto tras la pasada con COMMIT (m1, m2, n2)" "outcome no_confirmado m1.log m2.log n2.log"
-check "ensayo FALLIDO: antes de cualquier COMMIT (d, h2, i, j2, j4, j6, l2, n3)" \
-  "outcome ensayo_fallido d.log h2.log i.log j2.log j4.log j6.log l2.log n3.log"
-check "NO ejecutada: antes de conectar (a3, g2, g3, g6, g7, g8, g9, g10, g11, g12)" \
-  "outcome no_ejecutada a3.log g2.log g3.log g6.log g7.log g8.log g9.log g10.log g11.log g12.log"
+check "NO CONFIRMADO: incierto tras la pasada con COMMIT (m1, m2, n2, o1)" "outcome no_confirmado m1.log m2.log n2.log o1.log"
+check "ensayo FALLIDO: antes de cualquier COMMIT (d, h2, i, j2, j4, j6, l2, n3, o2)" \
+  "outcome ensayo_fallido d.log h2.log i.log j2.log j4.log j6.log l2.log n3.log o2.log"
+check "NO ejecutada: antes de conectar (a3, g2, g3, g6–g16)" \
+  "outcome no_ejecutada a3.log g2.log g3.log g6.log g7.log g8.log g9.log g10.log g11.log g12.log g13.log g14.log g15.log g16.log"
 check "INTERRUMPIDO: incierto en la pasada con COMMIT (s1), sin COMMIT en el ensayo (s2)" \
   "outcome interrumpido_incierto s1.log && outcome interrumpido_sin_commit s2.log"
 
