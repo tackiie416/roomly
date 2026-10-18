@@ -628,9 +628,40 @@ demás siguen sin tomar:
   - **Pendiente:** la visibilidad de las habitaciones de cuentas
     desactivadas, que se decidirá antes de la búsqueda.
 - **R8.** Cómo validar en Supabase real las migraciones de la Fase 4.
-  `roomly-validation-3` ya tiene el esquema y el workflow no aplica
-  migraciones sobre uno existente. Mientras no se decida, un run nuevo
-  fallaría en P3.
+  `roomly-validation-3` ya tiene el esquema y `apply_migrations` no aplica
+  migraciones sobre uno existente. Un run actual fallaría ya en P1.
+  - **Decidido (2026-10-17):** R8 antes de decidir el merge del PR #26.
+    Primero se implementa y prueba en local una herramienta; todavía no se
+    actualiza `roomly-validation-3` ni se crea `roomly-validation-4`.
+  - **Herramienta preparada, sin ejecutar** (`tests/supabase/phase4-upgrade.sh`,
+    entrada `phase4_upgrade` del workflow): aplica solo las tres migraciones
+    de la Fase 4 sobre el esquema de la Fase 3, con `dry_run` (siempre
+    `ROLLBACK`) y `apply` (confirmación aparte). Detalle en
+    `docs/SUPABASE_VALIDATION.md`.
+  - **Revisión de seguridad (2026-10-17):** sin hallazgos críticos. Sus
+    cuatro hallazgos menores ya están corregidos y probados en local: entrega
+    de WARNING (`client_min_messages`, `R8-MSG` y avisos de éxito
+    obligatorios), mensajes de resultado incierto en la pasada con `COMMIT`,
+    SHA-256 del preflight vigente y `timeout-minutes: 20`.
+  - **Segunda revisión (2026-10-17):** sin hallazgos críticos, altos ni
+    medios. Sus hallazgos bajos B1–B5 están corregidos y probados en local:
+    - el flujo se construye entero antes de conectar, desde copias
+      verificadas, y las dos pasadas leen el mismo cuerpo;
+    - el `COMMIT` solo cuenta si psql llega a la última línea del flujo;
+    - las señales dan «nada confirmado» o «incierto» según la etapa;
+    - procedimientos de recuperación y de cambio del SHA-256 en
+      `docs/SUPABASE_VALIDATION.md`;
+    - la documentación de la CI separa lo verificado en local del verde de
+      la CI.
+  - **Tercera revisión (2026-10-18):** un hallazgo medio y uno bajo,
+    corregidos y probados en local:
+    - M1: el validador compartido rechaza los meta-comandos de psql en
+      cualquier posición de la línea, y lo que psql podría leer de otra
+      manera (`\'` en una cadena, `$$` pegado a un nombre);
+    - L1: una línea `ERROR:` con psql terminado en 0 ya no deja una pasada
+      como válida.
+  - **Pendiente:** las reglas del Environment y cada ejecución, con su
+    autorización.
 - **R9.** Qué significa `total_roommates`, que el esquema marca como ambigua.
   - **Decidido e implementado (2026-10-15, 4.1):** `total_roommates` es el
     número de personas con las que convivirá quien entre, sin contarse a sí
