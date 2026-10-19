@@ -6,6 +6,70 @@ próximos pasos.**
 
 ---
 
+## 2026-10-19 — Sesión 52: R8, log del run 20 leído (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Después de la sesión 51 (push de `a8e5028`, solo documentación), en el
+  chat y sin cambios en el repositorio:
+  - una revisión de solo lectura de las precondiciones del `apply`;
+  - una guía manual para comprobarlas en los paneles de GitHub, Supabase,
+    Netlify y Vercel.
+- El propietario pidió «hazlo tú y ejecuta». La orden era ambigua y el
+  `apply` es irreversible, así que Claude preguntó qué ejecutar. El
+  propietario eligió **documentar el log del run 20**, con un commit local y
+  sin push.
+
+**Qué se hizo**
+- Leído el log del run 20 con el conector de GitHub (`get_job_logs`), jobs
+  «Guarda de destino» (`117819202723`) y «R8 — …» (`117819232941`). El
+  2026-10-18, `gh api` no seguía la redirección al almacenamiento de logs.
+- Documentado en `docs/SUPABASE_VALIDATION.md` (R8: «Run 20», «Lo que no se
+  había podido probar en local» y «Procedimiento») y en esta entrada.
+- No se lanzó ningún workflow ni se conectó con Supabase, Netlify ni Vercel.
+
+**Lo que muestra el log**
+- Guarda: entradas válidas para `dry_run` y destino verificado como
+  `roomly-validation-3`.
+- Paso de R8, en orden:
+  - SHA-256 verificados y flujo construido antes de conectar, con el cuerpo
+    común `0c9cadd0597a…`;
+  - la guarda F1;
+  - `ok - R8-MSG`;
+  - el preflight congelado, P0–P6 en `ok` (37 políticas);
+  - `ok - R8-BASE`;
+  - las tres migraciones;
+  - el preflight vigente, P0–P6 en `ok` (73 barrios, 44 políticas);
+  - `ok - R8-MSG`;
+  - `== R8 · rollback hecho` y «RESULTADO: dry_run correcto».
+- PostgreSQL 17.11. Ninguna línea `WARNING:`, `ERROR:` ni `FALLO` en el paso.
+- Lo que la sesión 51 infería del éxito del paso, ahora consta en el log.
+
+**Observaciones**
+- En los dos preflights, las líneas informativas `P1 info`, `P2 info` y
+  `P5 info`, esperadas.
+- Seis líneas `tail: … Broken pipe` al construir el flujo. En
+  `concat_verified`, `head -c` deja de leer cuando tiene sus bytes y `tail`
+  recibe EPIPE; `cmp` compara la salida de `head`, así que la comprobación no
+  se ve afectada. Es ruido en el log. Se podría silenciar o comparar con
+  desplazamiento; no se ha tocado el código.
+
+**Pendiente** (del informe de precondiciones, solo en el chat; nada de esto
+está comprobado)
+- Netlify: según los estados de GitHub, el sitio `lovely-tulumba-009360`
+  publicó Deploy Previews en los PR #20–#26, todos contra `master`. No se
+  sabe a qué proyecto de Supabase se conectan.
+- Vercel, el Auth y los usuarios de Supabase, sus URL de redirección, los
+  secrets del repositorio (incluidos los `NEXT_PUBLIC_SUPABASE_*` de
+  `ci.yml`) y los colaboradores: los comprueba el propietario en sus paneles.
+- Según la API, ni `master` ni las ramas de los PR #26 y #27 tienen
+  protección ni rulesets.
+- Decisiones del propietario: la licencia del dataset de barrios, la falta
+  de una vía de reversión tras el `apply`, congelar las migraciones del PR
+  #26 y los controles del Environment.
+- El `apply`, con su autorización aparte, y el merge de los PR #26 y #27.
+
+---
+
 ## 2026-10-18/19 — Sesión 51: R8, `dry_run` real (run 20) y su documentación (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
 
 **Contexto**

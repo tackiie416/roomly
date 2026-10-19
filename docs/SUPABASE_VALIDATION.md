@@ -1029,7 +1029,8 @@ limpia, `tests/db/run.sh` y ese mismo selftest.
 
 **Probada en local (2026-10-17) y ejecutada en `dry_run` real contra
 `roomly-validation-3` el 2026-10-18 (run 20, sin efectos: la transacción
-termina en ROLLBACK). El `apply` NO se ha autorizado ni ejecutado.** Cada
+termina en ROLLBACK; su log se leyó el 2026-10-19). El `apply` NO se ha
+autorizado ni ejecutado.** Cada
 ejecución, `dry_run` o `apply`, necesita la autorización expresa del
 propietario.
 
@@ -1055,21 +1056,43 @@ Distinguiendo niveles de evidencia:
     transacción que termina en ROLLBACK— en `success`.
   - `migrate`, `preflight`, `sql-suite`, `api-suite`, `auth-redirects` y
     `e2e-real`: `skipped`, como debe ser en `dry_run`.
-- **Respaldado por líneas concretas del log:** **nada.** El log del job no
-  se pudo obtener desde el entorno de Claude (GitHub lo sirve desde otros
-  hosts a los que el cliente no se conecta; las anotaciones del check-run
-  solo traen avisos genéricos de GitHub, no la salida del script). Las
-  líneas internas (`dry_run correcto`, los dos `ok - R8-MSG`, `ok - R8-BASE`,
-  los dos `ok - P6:`, ausencia de WARNING/ERROR) **no se han observado.** Se
-  pueden leer en la UI del run.
-- **Inferido del código, no observado:** `phase4-upgrade.sh dry_run` solo
-  sale con código 0 (y por tanto el paso solo es `success`) por el camino de
-  «dry_run correcto», que exige que pasen R8-BASE, las tres migraciones, el
-  preflight vigente (P0–P6) y `R8-MSG`, sin WARNING ni ERROR, y que la
-  transacción termine en ROLLBACK. Por la lógica de fallo cerrado (verificada
-  en local y con mutaciones), el éxito del paso implica que esas
-  comprobaciones pasaron; es una inferencia del código, **no** una lectura
-  del log.
+- **Respaldado por líneas concretas del log** (leído el 2026-10-19 con el
+  conector de GitHub, `get_job_logs`, jobs `117819202723` y `117819232941`;
+  el 2026-10-18, `gh api` no seguía la redirección al almacenamiento de
+  logs):
+  - guarda: `phase4_upgrade=dry_run: combinación de entradas válida` y
+    `guard: destino verificado como roomly-validation-3 (coherencia local +
+    marca del proyecto)`;
+  - paso de R8, en este orden:
+    - los SHA-256 de los archivos fijados, verificados, y el flujo
+      construido antes de conectar, con el SHA-256 del cuerpo común
+      `0c9cadd0597a…`;
+    - la guarda F1 otra vez, dentro del paso;
+    - `ok - R8-MSG` al empezar;
+    - el preflight congelado: P0–P6 en `ok`, con P3 «exactamente las 37
+      políticas esperadas»;
+    - `ok - R8-BASE`;
+    - las tres secciones de migración, en orden y sin ningún aviso;
+    - el preflight vigente: P0–P6 en `ok`, con P1 «Barcelona con sus 73
+      barrios oficiales, restricciones de rooms de la Fase 4.1 presentes» y
+      P3 «exactamente las 44 políticas esperadas y las escrituras de
+      habitaciones exigen cuenta activa»;
+    - `ok - R8-MSG` antes del ROLLBACK;
+    - `== R8 · rollback hecho` y «RESULTADO: dry_run correcto»;
+  - PostgreSQL 17.11 (línea `P1 info`). Ninguna línea `WARNING:`, `ERROR:`
+    ni `FALLO` en el paso; el único `##[warning]` es el aviso genérico de
+    GitHub sobre Node.js 20, en la limpieza del job;
+  - también aparecen, en los dos preflights, las líneas informativas
+    `P1 info`, `P2 info` (dueño `postgres`, `rolbypassrls=t`) y `P5 info`
+    (vista `public_profile_previews`, H3, aceptada);
+  - seis líneas `tail: … Broken pipe` al construir el flujo. Salen de
+    `concat_verified`: `head -c` deja de leer cuando tiene sus bytes y `tail`
+    recibe EPIPE. `cmp` compara la salida de `head`, así que la comprobación
+    no se ve afectada: es ruido en el log (explicación por el código; no se
+    ha reproducido aparte).
+- **Lo que antes era una inferencia:** por la lógica de fallo cerrado, el
+  éxito del paso ya implicaba que esas comprobaciones pasaron; ahora, además,
+  el log las muestra.
 
 **Lo que este run NO valida:**
 - **`dry_run` no equivale a haber aplicado las migraciones.** La transacción
@@ -1084,11 +1107,11 @@ Distinguiendo niveles de evidencia:
   ejecutaron.)
 - El runtime completo de Next.js con la clave real sigue sin validar.
 
-Lo que el éxito de la guarda y del paso de R8 sí respalda en real (frente a
-lo solo probado en local) es que la herramienta conecta al proyecto, lee su
-marca y ejecuta el flujo completo contra el Supabase real sin que el paso
-falle. La confirmación textual de cada aviso queda pendiente de leer el log
-en la UI.
+Lo que el run 20 sí respalda en real (frente a lo solo probado en local),
+con el estado de los jobs y con el log: la herramienta conecta al proyecto y
+lee su marca; el estado de partida era el de la Fase 3; las tres migraciones
+se aplican dentro de la transacción sin ningún WARNING; el resultado pasa el
+preflight vigente, y todo se revierte.
 
 `tests/supabase/phase4-upgrade.sh` aplica a `roomly-validation-3` solo las
 tres migraciones de la Fase 4 sobre el esquema que dejaron los runs 16–19:
@@ -1260,30 +1283,28 @@ y el de 76 contra el validador y el script de `3e4cdee`, en 9.
 - Para las versiones posteriores, ver la CI de su commit, con el mismo
   límite.
 
-**Lo que no se había podido probar en local** (y cómo lo tocó el run 20; en
-todos los casos, lo que respalda el run 20 es el **éxito del paso**, no la
-lectura del log):
+**Lo que no se había podido probar en local** (y cómo lo tocó el run 20, con
+su log leído el 2026-10-19):
 - Supabase real con PostgreSQL 17: el selftest usa PostgreSQL 16 y un rol
   **superusuario**, así que no reproduce los avisos de privilegios de un rol
   no superusuario como el de Supabase. En el run 20 el paso de R8 corrió
-  contra el Supabase real (PG17, rol de Supabase) y terminó en `success`; no
-  se ha leído el log, así que la ausencia de avisos de privilegios se infiere
-  del éxito del paso, no se ha observado.
+  contra el Supabase real (el log muestra PostgreSQL 17.11) sin ninguna línea
+  `WARNING:`: en real, las tres migraciones no dieron avisos de privilegios.
 - Que el estado real de `roomly-validation-3` sea el esperado: lo comprueba
   la herramienta al ejecutarse (R8-BASE + preflight congelado de la Fase 3).
-  En el run 20 el paso pasó, lo que —por la lógica de fallo cerrado, no por
-  el log— implica que el estado de partida era el de la Fase 3.
+  En el run 20, el log muestra el preflight congelado en `ok` (37 políticas)
+  y `ok - R8-BASE`: el estado de partida era el de la Fase 3.
 - El Session pooler de Supabase, que debe mantener la sesión durante toda la
   transacción (modo sesión): en el run 20 la transacción completa corrió en
-  una sola sesión sin que el paso fallara; el detalle del pooler no se ha
-  observado en el log.
+  una sola sesión de psql, del primer `ok - R8-MSG` a `== R8 · rollback
+  hecho`. El modo del pooler no aparece en el log; lo respalda que el flujo
+  llegara entero a su final.
 - Una pérdida de red real durante el `COMMIT`: en local se simula con un
   trigger diferido que termina su propio backend, que no es lo mismo que un
   corte del pooler o de la red.
-- `client_min_messages` en Supabase: en el run 20 el paso pasó, lo que —por
-  la lógica de fallo cerrado, no por el log— implica que `R8-MSG` y los avisos
-  de éxito llegan a través del pooler. La confirmación textual queda pendiente
-  de leer el log en la UI.
+- `client_min_messages` en Supabase: el log del run 20 muestra los dos
+  `ok - R8-MSG` y los cinco avisos de éxito esperados, en orden: llegan a
+  psql a través del pooler.
 - Las señales de GitHub Actions al cancelar un job o agotar
   `timeout-minutes`: qué señales envía y con qué margen no se ha comprobado.
   En local se envían SIGINT y SIGTERM al grupo de procesos. Un SIGKILL no se
@@ -1313,9 +1334,11 @@ lectura del log):
 1. Revisar las incertidumbres de arriba.
 2. `dry_run`: `confirm_project=roomly-validation-3`, `apply_migrations=false`,
    `run_e2e_real=false`, `phase4_upgrade=dry_run`. **Ejecutado en el run 20
-   (2026-10-18), `completed/success`** (ver «Run 20», arriba). Revisar el log
-   en la UI: las dos líneas `ok - R8-MSG`, `ok - R8-BASE`, los dos `ok - P6:`,
-   ningún WARNING y «dry_run correcto» (no leídas desde el entorno de Claude).
+   (2026-10-18), `completed/success`, y su log leído el 2026-10-19:** las dos
+   líneas `ok - R8-MSG`, `ok - R8-BASE`, los dos `ok - P6:`, ningún WARNING y
+   «dry_run correcto» (ver «Run 20», arriba). El cuerpo común no depende del
+   modo: si el head no cambia, el `apply` debería mostrar el mismo SHA-256
+   (`0c9cadd0597a…`).
 3. Con otra autorización —**todavía no concedida**—, `apply`, con
    `confirm_phase4_upgrade`. Después corren el preflight y las suites; el E2
    no. Si no termina en «apply correcto», no se repite: «Recuperación».
