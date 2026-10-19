@@ -1409,28 +1409,86 @@ su log leído el 2026-10-19):
     service_role y no necesita el registro abierto, y AU2 comprueba esa lista
     de redirecciones. Desde el run 19 no se ha ejecutado ninguna suite, y el
     `apply` no se ha autorizado.
-- **Sin comprobar todavía** (ninguna se da por resuelta por analogía con
-  Netlify, Vercel o Auth):
-  - GitHub:
-    - los cinco secrets requeridos en el Environment (declarados por el
-      propietario el 2026-10-18, arriba; no verificados por Claude);
-    - posibles duplicados a nivel de repositorio u organización, incluidos
-      los `NEXT_PUBLIC_SUPABASE_*` que usa `ci.yml`;
-    - las reglas del Environment y los permisos de escritura;
-  - los colaboradores, las invitaciones y las deploy keys;
+- **GitHub (secrets, accesos y protecciones): verificado por el propietario
+  (2026-10-19).** Claude no ha visto esos paneles: desde su entorno, las rutas
+  de la API de Environments, secrets y variables devuelven HTTP 403 a través
+  del proxy.
+  - **Observado por el propietario:**
+    - los cinco secrets requeridos (`SUPABASE_VALIDATION_PROJECT_REF`,
+      `_DB_URL`, `_URL`, `_ANON_KEY` y `_SERVICE_ROLE_KEY`) están en el
+      Environment `roomly-validation-3`, junto con `E2E_EMAIL_TEMPLATE` y
+      `E2E_MAILBOX_CONFIG`; todos aparecen actualizados «last week» (fecha
+      relativa de GitHub);
+    - no hay secrets ni variables a nivel de repositorio, así que no hay
+      duplicados, y no hay secrets de organización aplicables;
+    - el Environment no tiene reglas de ramas («No restriction») ni required
+      reviewers. Es la configuración observada, no una prueba de que esos
+      controles sobren;
+    - el único colaborador es el propietario; no hay invitaciones pendientes
+      ni deploy keys;
+    - no hay protecciones de rama ni rulesets;
+    - apps con acceso al repositorio: Claude (con escritura; la usa esta
+      sesión, que solo publica con autorización expresa), Netlify y
+      `lovable.dev` (ver «Lovable», abajo).
+  - **Comprobado por Claude:**
+    - los cinco nombres coinciden con los que usan el workflow y
+      `docs/ENVIRONMENT.md`;
+    - en el log del run 20 (2026-10-18 23:21 UTC), los cinco aparecen como
+      `***` en la guarda. La guarda comprobó el formato del ref, que la URL y
+      la conexión de BD corresponden a ese ref y que la BD lleva la marca
+      `roomly-validation-3`. De `_ANON_KEY` y `_SERVICE_ROLE_KEY` solo
+      comprueba que no estén vacías. El log no indica de qué ámbito sale cada
+      valor;
+    - en el CI #67 (`pull_request`, 2026-10-19), el paso `npm run build`
+      recibe `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+      vacías: no hay secrets de repositorio con esos nombres;
+    - en la API de GitHub: el repositorio es de una cuenta personal
+      (`owner.type = User`), y ni `master` ni las ramas de los PR #26 y #27
+      tienen protección ni rulesets.
+  - **Inferencia:** ningún secret se ha actualizado después del run 20 (GitHub
+    mostraría «yesterday» o «hours ago»), así que los valores actuales son los
+    que usó ese run.
+  - **Sin poder verificar con metadatos:** que `_ANON_KEY` y
+    `_SERVICE_ROLE_KEY` correspondan al proyecto. Solo lo prueba la
+    api-suite, que corre después del COMMIT del `apply`.
+- **Lovable (`lovable.dev`): sin acceso a `roomly` según la comprobación del
+  propietario; no bloqueante según el estado comunicado (2026-10-19).**
+  - **Observado por el propietario:** la app de GitHub `lovable.dev` tenía
+    acceso a todos los repositorios, con *Contents: read and write*, y había
+    un proyecto de Lovable conectado a `roomly`, sin Supabase conectado y sin
+    publicar. El propietario desinstaló o suspendió la app en GitHub. Lovable
+    no aparece autorizado en la organización de Supabase.
+  - **Comprobado por Claude:** en el repositorio no hay ramas, commits ni
+    autores de Lovable; todas las ramas remotas son `claude/*` o `master`.
+  - **Limitación:** Claude no ha visto la acción ni esos paneles. Una app
+    suspendida se puede reactivar. Si Lovable recupera el acceso a `roomly` o
+    se autoriza en Supabase, hay que repetir la comprobación antes de
+    cualquier `apply`.
+- **Permisos de la app de Netlify en GitHub: pendiente.** Netlify aparece
+  entre las apps con acceso, pero no se han revisado sus permisos efectivos
+  (si puede escribir en el código o administrar el repositorio) ni quién los
+  concedió. No se clasifica como bloqueante ni como no bloqueante.
+- **Sin comprobar todavía** (ninguna se da por resuelta por analogía con las
+  demás):
+  - los permisos efectivos de la app de Netlify en GitHub (arriba);
   - justo antes de cualquier ejecución futura:
     - que no haya ejecuciones activas ni en cola (solo se ha comprobado en
       un momento puntual);
+    - que la cabeza de la rama sea el commit revisado, porque no hay
+      protección de rama;
     - que el proyecto siga activo, el registro siga cerrado y siga habiendo
       0 usuarios;
-    - volver a revisar el aislamiento de Netlify, Vercel, las previews y los
-      entornos locales: Netlify y Vercel son no bloqueantes según la
-      comprobación actual, y los entornos locales no se han revisado;
+    - que ningún despliegue conectado use `roomly-validation-3`: volver a
+      revisar Netlify, Vercel, las previews, Lovable y los entornos locales.
+      Netlify y Vercel son no bloqueantes según la comprobación actual, y los
+      entornos locales no se han revisado;
   - las decisiones del propietario:
+    - mantener el Environment sin reglas de ramas ni required reviewers, o
+      añadir controles;
     - la licencia y la atribución del conjunto oficial de barrios;
     - el reconocimiento expreso de que no hay una vía de reversión sencilla
       para las migraciones;
-    - congelar las migraciones del PR #26 y los controles del Environment;
+    - congelar las migraciones del PR #26 para R8;
     - quién revisará el log del `apply` y documentará su resultado.
 
 **Procedimiento (el `dry_run` ya se ejecutó en el run 20):**
