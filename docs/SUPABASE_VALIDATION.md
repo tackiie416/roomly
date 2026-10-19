@@ -1027,9 +1027,68 @@ limpia, `tests/db/run.sh` y ese mismo selftest.
 
 ### Fase 4: herramienta de actualización (R8)
 
-**Preparada y probada solo en local (2026-10-17). No se ha ejecutado contra
-ningún proyecto.** Cada ejecución, `dry_run` o `apply`, necesita la
-autorización expresa del propietario.
+**Probada en local (2026-10-17) y ejecutada en `dry_run` real contra
+`roomly-validation-3` el 2026-10-18 (run 20, sin efectos: la transacción
+termina en ROLLBACK). El `apply` NO se ha autorizado ni ejecutado.** Cada
+ejecución, `dry_run` o `apply`, necesita la autorización expresa del
+propietario.
+
+#### Run 20: `dry_run` real (2026-10-18)
+
+- GitHub Actions run #20, id `39176175018`, workflow_dispatch sobre
+  `claude/phase4-r8-upgrade-tool` (head_sha `1543718`), entradas
+  `confirm_project=roomly-validation-3`, `apply_migrations=false`,
+  `run_e2e_real=false`, `phase4_upgrade=dry_run`, `confirm_phase4_upgrade`
+  vacío. `completed/success`, ~23 s.
+  URL: https://github.com/tackiie416/roomly/actions/runs/39176175018
+
+Distinguiendo niveles de evidencia:
+
+- **Demostrado por el estado del workflow y de sus jobs** (observado vía
+  API de GitHub):
+  - `guard` (Guarda de destino): `success`, con sus pasos «entradas
+    compatibles (sin conectar)», «confirmación explícita del proyecto» y
+    «secrets + marca de identidad roomly-validation-3» en `success`. Es
+    decir, la guarda **sí conectó** al proyecto reactivado y **aceptó su
+    marca** como `roomly-validation-3` (F1).
+  - `phase4-upgrade` (R8): `success`, con su paso único —el flujo en una
+    transacción que termina en ROLLBACK— en `success`.
+  - `migrate`, `preflight`, `sql-suite`, `api-suite`, `auth-redirects` y
+    `e2e-real`: `skipped`, como debe ser en `dry_run`.
+- **Respaldado por líneas concretas del log:** **nada.** El log del job no
+  se pudo obtener desde el entorno de Claude (GitHub lo sirve desde otros
+  hosts a los que el cliente no se conecta; las anotaciones del check-run
+  solo traen avisos genéricos de GitHub, no la salida del script). Las
+  líneas internas (`dry_run correcto`, los dos `ok - R8-MSG`, `ok - R8-BASE`,
+  los dos `ok - P6:`, ausencia de WARNING/ERROR) **no se han observado.** Se
+  pueden leer en la UI del run.
+- **Inferido del código, no observado:** `phase4-upgrade.sh dry_run` solo
+  sale con código 0 (y por tanto el paso solo es `success`) por el camino de
+  «dry_run correcto», que exige que pasen R8-BASE, las tres migraciones, el
+  preflight vigente (P0–P6) y `R8-MSG`, sin WARNING ni ERROR, y que la
+  transacción termine en ROLLBACK. Por la lógica de fallo cerrado (verificada
+  en local y con mutaciones), el éxito del paso implica que esas
+  comprobaciones pasaron; es una inferencia del código, **no** una lectura
+  del log.
+
+**Lo que este run NO valida:**
+- **`dry_run` no equivale a haber aplicado las migraciones.** La transacción
+  se revierte; el proyecto sigue en el estado de la Fase 3 y no se escribió
+  nada.
+- **El `apply` no se ha autorizado ni ejecutado.** Requiere su propia
+  autorización.
+- **Las suites que se omitieron no están validadas por este run:** el job
+  `preflight` (P0–P6 como job propio), la suite SQL, la api-suite, AU3/AU5 y
+  el E2 quedaron `skipped`. (El preflight vigente P0–P6 sí corre **dentro**
+  de la transacción del `dry_run`, pero los jobs posteriores no se
+  ejecutaron.)
+- El runtime completo de Next.js con la clave real sigue sin validar.
+
+Lo que el éxito de la guarda y del paso de R8 sí respalda en real (frente a
+lo solo probado en local) es que la herramienta conecta al proyecto, lee su
+marca y ejecuta el flujo completo contra el Supabase real sin que el paso
+falle. La confirmación textual de cada aviso queda pendiente de leer el log
+en la UI.
 
 `tests/supabase/phase4-upgrade.sh` aplica a `roomly-validation-3` solo las
 tres migraciones de la Fase 4 sobre el esquema que dejaron los runs 16–19:
@@ -1201,54 +1260,65 @@ y el de 76 contra el validador y el script de `3e4cdee`, en 9.
 - Para las versiones posteriores, ver la CI de su commit, con el mismo
   límite.
 
-**Lo que no se ha podido probar en local:**
+**Lo que no se había podido probar en local** (y cómo lo tocó el run 20; en
+todos los casos, lo que respalda el run 20 es el **éxito del paso**, no la
+lectura del log):
 - Supabase real con PostgreSQL 17: el selftest usa PostgreSQL 16 y un rol
   **superusuario**, así que no reproduce los avisos de privilegios de un rol
-  no superusuario como el de Supabase. Es justo lo que tiene que comprobar
-  el `dry_run`.
+  no superusuario como el de Supabase. En el run 20 el paso de R8 corrió
+  contra el Supabase real (PG17, rol de Supabase) y terminó en `success`; no
+  se ha leído el log, así que la ausencia de avisos de privilegios se infiere
+  del éxito del paso, no se ha observado.
 - Que el estado real de `roomly-validation-3` sea el esperado: lo comprueba
-  la herramienta al ejecutarse; nadie se ha conectado.
+  la herramienta al ejecutarse (R8-BASE + preflight congelado de la Fase 3).
+  En el run 20 el paso pasó, lo que —por la lógica de fallo cerrado, no por
+  el log— implica que el estado de partida era el de la Fase 3.
 - El Session pooler de Supabase, que debe mantener la sesión durante toda la
-  transacción (modo sesión).
+  transacción (modo sesión): en el run 20 la transacción completa corrió en
+  una sola sesión sin que el paso fallara; el detalle del pooler no se ha
+  observado en el log.
 - Una pérdida de red real durante el `COMMIT`: en local se simula con un
   trigger diferido que termina su propio backend, que no es lo mismo que un
   corte del pooler o de la red.
-- `client_min_messages` en Supabase: el `dry_run` mostrará si `R8-MSG` y los
-  avisos de éxito llegan a través del pooler.
+- `client_min_messages` en Supabase: en el run 20 el paso pasó, lo que —por
+  la lógica de fallo cerrado, no por el log— implica que `R8-MSG` y los avisos
+  de éxito llegan a través del pooler. La confirmación textual queda pendiente
+  de leer el log en la UI.
 - Las señales de GitHub Actions al cancelar un job o agotar
   `timeout-minutes`: qué señales envía y con qué margen no se ha comprobado.
   En local se envían SIGINT y SIGTERM al grupo de procesos. Un SIGKILL no se
   puede capturar y no deja línea `RESULTADO:`.
 
 **Incertidumbres antes de ejecutar** (las resuelve el propietario):
-- **Reglas del Environment `roomly-validation-3`:** no se han podido
-  consultar (la API de Environments no es accesible desde el entorno de
-  Claude). Revisar en Settings → Environments → `roomly-validation-3`:
-  - «Deployment branches»: si solo permite `master`, el job no correrá desde
-    otra rama;
-  - si exige revisores para aprobar el job.
-- **`workflow_dispatch` desde una rama distinta de `master`:**
-  - comprobado en este repositorio: los runs 13 y 15 se lanzaron desde
-    `claude/gifted-noether-y98vc6` y ejecutaron la definición de jobs de esa
-    rama (su job se llamaba «01–13», y el de `master` entonces, «01–12»);
-  - no comprobado: si GitHub acepta entradas nuevas definidas solo en la rama,
-    como `phase4_upgrade`, y si el Environment lo permite;
-  - cómo verificarlo sin ejecutar nada: en Actions → Supabase validation →
-    Run workflow, elegir la rama y ver si aparece `phase4_upgrade`; cerrar
-    sin pulsar Run. Si no aparece, la herramienta tiene que estar antes en
-    `master`.
-- **Deploy Previews de Netlify:** comprobar que ninguno usa
-  `roomly-validation-3` durante el run.
+- **Reglas del Environment `roomly-validation-3`:** comprobadas por el
+  propietario el 2026-10-18 (la API de Environments sigue sin ser accesible
+  desde el entorno de Claude; esto lo verificó él en la UI): «Deployment
+  branches and tags» = **No restriction** (cualquier rama puede desplegar),
+  **sin required reviewers**, y los cinco secretos presentes en el Environment
+  (`SUPABASE_VALIDATION_PROJECT_REF`, `_DB_URL`, `_URL`, `_ANON_KEY`,
+  `_SERVICE_ROLE_KEY`).
+- **`workflow_dispatch` desde una rama distinta de `master` con entradas
+  nuevas:** resuelto. El 2026-10-18 el propietario confirmó en el formulario
+  (rama `claude/phase4-r8-upgrade-tool`) que aparecen las cinco entradas,
+  incluida `phase4_upgrade` con `dry_run`, y el run 20 se lanzó desde la rama
+  con esas entradas. El workflow existe en `master` (requisito para que
+  `workflow_dispatch` aparezca), pero las entradas de R8 solo están en la
+  rama; aun así GitHub las ofreció al elegirla.
+- **Deploy Previews de Netlify:** **sigue sin comprobarse.** El run 20 se
+  lanzó sin verificar Netlify; como el `dry_run` termina en ROLLBACK no
+  escribe nada, pero antes del `apply` conviene confirmar que ningún Deploy
+  Preview ni build usa `roomly-validation-3`.
 
-**Procedimiento cuando el propietario lo autorice:**
+**Procedimiento (el `dry_run` ya se ejecutó en el run 20):**
 1. Revisar las incertidumbres de arriba.
 2. `dry_run`: `confirm_project=roomly-validation-3`, `apply_migrations=false`,
-   `run_e2e_real=false`, `phase4_upgrade=dry_run`. Revisar el log: las dos
-   líneas `ok - R8-MSG`, `ok - R8-BASE`, los dos `ok - P6:`, ningún WARNING
-   y «dry_run correcto».
-3. Con otra autorización, `apply`, con `confirm_phase4_upgrade`. Después corren
-   el preflight y las suites; el E2 no. Si no termina en «apply correcto»,
-   no se repite: «Recuperación».
+   `run_e2e_real=false`, `phase4_upgrade=dry_run`. **Ejecutado en el run 20
+   (2026-10-18), `completed/success`** (ver «Run 20», arriba). Revisar el log
+   en la UI: las dos líneas `ok - R8-MSG`, `ok - R8-BASE`, los dos `ok - P6:`,
+   ningún WARNING y «dry_run correcto» (no leídas desde el entorno de Claude).
+3. Con otra autorización —**todavía no concedida**—, `apply`, con
+   `confirm_phase4_upgrade`. Después corren el preflight y las suites; el E2
+   no. Si no termina en «apply correcto», no se repite: «Recuperación».
 4. Comprobar la limpieza y documentar el run.
 
 #### Recuperación

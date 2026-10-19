@@ -6,6 +6,84 @@ próximos pasos.**
 
 ---
 
+## 2026-10-18/19 — Sesión 51: R8, `dry_run` real (run 20) y su documentación (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Cerrada la revisión estática de M1/L1 (sesión 50, HEAD `1543718`), el
+  propietario completó los prerrequisitos del `dry_run` por los paneles
+  privados (no observables desde el entorno de Claude) y autorizó
+  **expresamente** lanzar el `dry_run` («lánzalo tú»).
+- Comprobaciones del propietario el 2026-10-18 (vía capturas que él revisó):
+  - formulario de Actions desde `claude/phase4-r8-upgrade-tool`: las cinco
+    entradas presentes, `phase4_upgrade` con `dry_run`;
+  - Environment `roomly-validation-3`: «No restriction», sin required
+    reviewers, los cinco secretos presentes en el Environment;
+  - Supabase: el proyecto estaba **en pausa**; lo reactivó (Restore) y quedó
+    activo; registro público de Auth **desactivado**;
+  - Netlify: **no comprobado** (se procedió sin verificarlo; el `dry_run` no
+    escribe, pero queda pendiente antes del `apply`).
+
+**Qué se hizo**
+- **Lanzado el `dry_run`** vía API (`mcp__github__actions_run_trigger`), con
+  `confirm_project=roomly-validation-3`, `apply_migrations=false`,
+  `run_e2e_real=false`, `phase4_upgrade=dry_run`, `confirm_phase4_upgrade`
+  vacío, sobre `claude/phase4-r8-upgrade-tool` (head_sha `1543718`).
+- **Run 20** (id `39176175018`, workflow_dispatch): `completed/success`,
+  ~23 s. URL:
+  https://github.com/tackiie416/roomly/actions/runs/39176175018
+- **Documentado** en `docs/SUPABASE_VALIDATION.md` (sección R8: subsección
+  «Run 20», ajuste de «Lo que no se había podido probar en local»,
+  «Incertidumbres» y «Procedimiento») y en esta entrada, distinguiendo
+  niveles de evidencia.
+
+**Niveles de evidencia del run 20**
+- **Demostrado por el estado del workflow/jobs (observado vía API):** `guard`
+  `success` (conectó al proyecto reactivado y aceptó su marca
+  `roomly-validation-3`); `phase4-upgrade` `success` (la transacción que
+  termina en ROLLBACK); `migrate`, `preflight`, `sql-suite`, `api-suite`,
+  `auth-redirects` y `e2e-real` `skipped`.
+- **Respaldado por líneas del log:** **nada.** El log no se pudo obtener
+  desde el entorno de Claude (redirección a hosts externos, confirmada por
+  dos vías; las anotaciones del check-run solo traen avisos genéricos de
+  GitHub —Node 20, ubuntu-latest—). Las líneas internas (`dry_run correcto`,
+  `ok - R8-MSG` ×2, `ok - R8-BASE`, `ok - P6:` ×2, sin WARNING/ERROR) **no se
+  han observado**; se leen en la UI.
+- **Inferido del código, no observado:** el paso de R8 solo es `success` por
+  el camino «dry_run correcto», que exige que pasen esas comprobaciones y el
+  ROLLBACK. Por la lógica de fallo cerrado (verificada en local y con
+  mutaciones), el éxito del paso implica que pasaron; es inferencia, no
+  lectura del log.
+
+**Lo que el run 20 NO valida (explícito)**
+- `dry_run` **no equivale** a haber aplicado las migraciones: la transacción
+  se revierte, el proyecto sigue en el estado de la Fase 3, no se escribió
+  nada.
+- El **`apply` no se ha autorizado ni ejecutado**.
+- Las suites omitidas (`preflight` como job, suite SQL, api-suite, AU3/AU5,
+  E2) quedaron `skipped`: **no validadas** por este run. (El preflight vigente
+  P0–P6 sí corre dentro de la transacción del `dry_run`, pero los jobs
+  posteriores no.)
+- El runtime completo de Next.js con la clave real sigue sin validar.
+
+**Problemas / discrepancias**: ninguna. HEAD `1543718` sin cambios; árbol
+limpio; el run 20 es sobre ese mismo SHA.
+
+**Límites de evidencia**
+- El log del run no es legible desde el entorno de Claude; el detalle textual
+  depende de leerlo en la UI de GitHub.
+- La configuración del Environment y el formulario de Actions los verificó el
+  propietario, no Claude (la API de Environments da 403 por el proxy).
+- Netlify sin comprobar.
+
+**Pendiente**
+- Decidir si se autoriza el `apply` (autorización aparte), con su propia
+  checklist (incluida la comprobación de Netlify).
+- Nota operativa: el proyecto quedó reactivado; si no se usa, el propietario
+  puede volver a pausarlo.
+- El merge de los PR #26 y #27.
+
+---
+
 ## 2026-10-18 — Sesión 50: R8, tercera ronda de correcciones (M1 y L1), solo en local (Fase 4 EN CURSO; PR #26 y #27 sin fusionar)
 
 **Contexto**
