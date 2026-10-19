@@ -6,6 +6,89 @@ próximos pasos.**
 
 ---
 
+## 2026-10-19 — Sesión 57: R8, auditoría de permisos de la app de Netlify en GitHub (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Quedaba pendiente si la app de Netlify, que aparece entre las apps con
+  acceso a `roomly`, puede escribir en el código o administrar el
+  repositorio.
+- Auditoría de solo lectura. Las rutas de instalaciones de la API no son
+  accesibles desde el entorno de Claude: `user/installations` está bloqueada
+  y `repos/…/installation` devuelve 401, porque exige un token de la app.
+
+**Observado directamente por la API**
+- Los *check runs* de Netlify llevan adjunto un objeto `app` (app `Netlify`,
+  de la organización `netlify`, actualizada el 2025-07-17). Se leyeron en los
+  del head del PR #26. Sus permisos declarados:
+
+  | Permiso | Nivel declarado |
+  |---|---|
+  | `contents` | `read` |
+  | `metadata` | `read` |
+  | `checks` | `write` |
+  | `statuses` | `write` |
+  | `pull_requests` | `write` |
+  | `issues` | `write` |
+  | `emails` | `read` |
+
+- No declara permisos de workflows, administración, secrets, Environments ni
+  Actions, ni un permiso explícito de deployments.
+- La app ha publicado checks, estados y comentarios en `roomly`; lo más
+  reciente, en el PR #26, el 2026-10-16 a las 19:58 UTC.
+
+**Comunicado por el propietario** (revisión de accesos, sesión 56)
+- Netlify aparece entre las apps con acceso al repositorio.
+
+**Inferencia**
+- Sin `contents: write` ni permiso de workflows, ese conjunto declarado no le
+  da las capacidades necesarias para modificar el código ni los workflows.
+- Los permisos de escritura que declara (checks, estados, issues y pull
+  requests) sirven para publicar resultados, comentar y editar PR; no son
+  escritura de código.
+
+**Sin verificar en la instalación**
+- Si la instalación cubre todos los repositorios o solo algunos.
+- Quién instaló o autorizó la app.
+- Si hay solicitudes de permisos nuevos pendientes.
+- La lista exacta de permisos concedidos a la instalación.
+- Que la API no permita ver la instalación no demuestra que falten permisos.
+
+**Resultado**
+- App de Netlify: **no bloqueante según los permisos declarados y la
+  comprobación actual; alcance y configuración efectivos de la instalación no
+  verificados directamente.** No es una garantía permanente.
+
+**Qué se hizo**
+- Documentado en `docs/SUPABASE_VALIDATION.md` («Incertidumbres antes de
+  ejecutar», R8) y en esta entrada. Los registros del run 20, de Netlify, de
+  Vercel, de Auth y usuarios, de los secrets y de Lovable no cambian.
+- Ninguna acción externa: ni workflows, ni Supabase, ni cambios de permisos o
+  de configuración.
+
+**Pendiente**
+- Opcional y de bajo riesgo: revisar la página *Configure* de la instalación
+  de Netlify (alcance de repositorios, quién la instaló, permisos pendientes).
+- Justo antes de cualquier ejecución futura:
+  - que no haya ejecuciones activas ni en cola, y que la cabeza de la rama
+    sea el commit revisado;
+  - que el proyecto siga activo, el registro siga cerrado y siga habiendo 0
+    usuarios;
+  - que ningún despliegue ni entorno local use las credenciales de
+    `roomly-validation-3`.
+- Decisiones del propietario:
+  - mantener las reglas actuales del Environment o añadir controles;
+  - la licencia y la atribución de los barrios;
+  - aceptar expresamente que no hay una vía de reversión sencilla para el
+    `apply`;
+  - congelar las migraciones del PR #26;
+  - quién revisará y documentará el log del `apply`.
+- El `apply`, con su autorización aparte; el push de los commits locales; y
+  el merge de los PR #26 y #27.
+- **Siguiente etapa:** cerrar las decisiones y las precondiciones pendientes
+  de R8.
+
+---
+
 ## 2026-10-19 — Sesión 56: R8, revisión de secrets, accesos de GitHub y Lovable (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
 
 **Contexto**

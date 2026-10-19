@@ -1464,13 +1464,44 @@ su log leído el 2026-10-19):
     suspendida se puede reactivar. Si Lovable recupera el acceso a `roomly` o
     se autoriza en Supabase, hay que repetir la comprobación antes de
     cualquier `apply`.
-- **Permisos de la app de Netlify en GitHub: pendiente.** Netlify aparece
-  entre las apps con acceso, pero no se han revisado sus permisos efectivos
-  (si puede escribir en el código o administrar el repositorio) ni quién los
-  concedió. No se clasifica como bloqueante ni como no bloqueante.
+- **Permisos de la app de Netlify en GitHub (2026-10-19): no bloqueante según
+  los permisos declarados y la comprobación actual; alcance y configuración
+  efectivos de la instalación no verificados directamente.** No es una
+  garantía permanente.
+  - **Observado directamente por la API:** los *check runs* que publica
+    Netlify llevan adjunto un objeto `app` (app `Netlify`, de la
+    organización `netlify`, actualizada el 2025-07-17) con estos permisos
+    declarados. Se leyeron en los del head del PR #26:
+    - `contents: read` y `metadata: read`;
+    - `checks: write`, `statuses: write`, `pull_requests: write` e
+      `issues: write`;
+    - `emails: read`.
+
+    No declara permisos de workflows, administración, secrets, Environments
+    ni Actions, ni un permiso explícito de deployments. La app ha publicado
+    checks, estados y comentarios en `roomly`; lo más reciente, en el PR #26,
+    el 2026-10-16 a las 19:58 UTC.
+  - **Comunicado por el propietario:** Netlify aparece entre las apps con
+    acceso al repositorio (revisión de accesos del 2026-10-19, arriba).
+  - **Inferencia:** como la app no declara `contents: write` ni permiso de
+    workflows, ese conjunto declarado no le da las capacidades necesarias para
+    modificar el código ni los workflows del repositorio. Los permisos de
+    escritura que sí declara (checks, estados, issues y pull requests) sirven
+    para publicar resultados, comentar y editar PR; no son escritura de
+    código.
+  - **Sin verificar en la instalación:** la página *Configure* no se ha podido
+    inspeccionar (las rutas de instalaciones de la API no son accesibles desde
+    el entorno de Claude, y eso no demuestra que falten permisos). Quedan sin
+    verificar:
+    - si la instalación cubre todos los repositorios o solo algunos;
+    - quién instaló o autorizó la app;
+    - si hay solicitudes de permisos nuevos pendientes;
+    - la lista exacta de permisos concedidos a esa instalación.
 - **Sin comprobar todavía** (ninguna se da por resuelta por analogía con las
   demás):
-  - los permisos efectivos de la app de Netlify en GitHub (arriba);
+  - opcional y de bajo riesgo: revisar la página *Configure* de la
+    instalación de Netlify (arriba). Sería la verificación directa de la
+    instalación, que hoy no existe;
   - justo antes de cualquier ejecución futura:
     - que no haya ejecuciones activas ni en cola (solo se ha comprobado en
       un momento puntual);
