@@ -6,6 +6,82 @@ próximos pasos.**
 
 ---
 
+## 2026-10-19 — Sesión 55: R8, revisión manual de Auth y usuarios de Supabase (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Precondición del `apply`: identidad, estado, Auth, usuarios, URL
+  Configuration e integraciones de `roomly-validation-3`.
+- Claude no tiene acceso a Supabase. Preparó una checklist de solo lectura y
+  el propietario la hizo en el panel el 2026-10-19.
+
+**Observado por el propietario** (panel de Supabase; «verificado por el
+propietario»)
+- Identidad y estado: un único proyecto de validación llamado
+  `roomly-validation-3`, activo, en el plan Free y en la región de
+  Frankfurt. Su referencia coincide con la del registro privado del
+  propietario.
+- Auth:
+  - el registro público de usuarios nuevos está desactivado y los accesos
+    anónimos también;
+  - el único proveedor habilitado es Email. Es un ajuste distinto del
+    registro: permite iniciar sesión por email, no registrarse;
+  - no hay hooks, proveedores de terceros ni SSO;
+  - el correo sale por el SMTP sandbox de Mailtrap.
+- Usuarios: **0**. No hay ninguno que clasificar ni limpiar.
+- URL Configuration: Site URL `http://localhost:3000` y una única Redirect
+  URL permitida, `http://localhost:3000/callback`.
+- Integraciones: ninguna configurada en el proyecto. No dice nada de
+  servicios externos sin inspeccionar.
+
+**Contrastado por Claude**
+- En el log del run 20, la guarda aceptó la marca `roomly-validation-3` en
+  la base de datos a la que apuntan los secrets (sesión 52). Prueba la marca,
+  no por sí sola que sea el proyecto del panel: la coincidencia de la
+  referencia la comprobó el propietario.
+
+**Inferencia, no ejecutada**
+- La configuración observada es compatible con las suites que corren después
+  del `apply`: la api-suite crea sus usuarios con service_role sin necesitar
+  el registro abierto, y AU2 comprueba esa lista de redirecciones.
+- Desde el run 19 no se ha ejecutado ninguna suite.
+
+**Resultado**
+- Auth y usuarios de `roomly-validation-3`: **verificado por el propietario**
+  a fecha de 2026-10-19. Las precondiciones de R8 siguen sin estar cerradas.
+
+**Qué se hizo**
+- Documentado en `docs/SUPABASE_VALIDATION.md` («Incertidumbres antes de
+  ejecutar», R8) y en esta entrada. Las conclusiones del run 20, de Netlify y
+  de Vercel no cambian.
+- Ninguna acción externa: ni workflows, ni Supabase, ni cambios de
+  configuración.
+
+**Pendiente** (nada se da por resuelto por inferencia)
+- GitHub:
+  - los cinco secrets del Environment (declarados por el propietario el
+    2026-10-18, no verificados por Claude);
+  - posibles duplicados en el repositorio u organización, incluidos los
+    `NEXT_PUBLIC_SUPABASE_*` de `ci.yml`;
+  - las reglas del Environment y los permisos de escritura.
+- Los colaboradores, las invitaciones y las deploy keys.
+- Justo antes de cualquier ejecución futura:
+  - que no haya ejecuciones activas ni en cola;
+  - que el proyecto siga activo, el registro siga cerrado y siga habiendo 0
+    usuarios;
+  - volver a revisar el aislamiento de Netlify, Vercel, las previews y los
+    entornos locales.
+- Decisiones del propietario:
+  - la licencia y la atribución del conjunto oficial de barrios;
+  - la ausencia de una vía de reversión sencilla para las migraciones;
+  - congelar las migraciones del PR #26 y los controles del Environment;
+  - quién revisará el log del `apply` y documentará su resultado.
+- El `apply`, con su autorización aparte; el push de los commits locales; y
+  el merge de los PR #26 y #27.
+- **Siguiente comprobación recomendada:** los secrets del Environment de
+  GitHub y sus posibles duplicados, solo con nombres y fechas, sin valores.
+
+---
+
 ## 2026-10-19 — Sesión 54: R8, comprobación de aislamiento en Vercel (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
 
 **Contexto**

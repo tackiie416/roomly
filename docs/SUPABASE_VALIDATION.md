@@ -1381,11 +1381,36 @@ su log leído el 2026-10-19):
     tercero que despliegue el repositorio (público) desde su propia cuenta.
     Que la app de GitHub no aparezca no demuestra que no haya despliegues de
     esos tipos.
+- **Auth y usuarios de `roomly-validation-3`: verificado por el propietario
+  (2026-10-19).** Claude no lo ha observado: no tiene acceso a Supabase. Es
+  el estado de esa fecha.
+  - **Observado por el propietario en el panel de Supabase:**
+    - identidad y estado: hay un único proyecto de validación llamado
+      `roomly-validation-3`, activo, en el plan Free y en la región de
+      Frankfurt; su referencia coincide con la del registro privado del
+      propietario;
+    - Auth: el registro público de usuarios nuevos está desactivado y los
+      accesos anónimos también. El único proveedor habilitado es Email
+      (permite iniciar sesión por email; no reabre el registro, que es otro
+      ajuste). No hay hooks, proveedores de terceros ni SSO. El correo sale
+      por el SMTP sandbox de Mailtrap;
+    - usuarios: **0**, así que no hay ninguno que clasificar ni limpiar;
+    - URL Configuration: Site URL `http://localhost:3000` y una única Redirect
+      URL permitida, `http://localhost:3000/callback`;
+    - integraciones: ninguna configurada en el proyecto. No dice nada de
+      servicios externos que no se han inspeccionado.
+  - **Contrastado por Claude:** en el log del run 20, la guarda aceptó la
+    marca `roomly-validation-3` en la base de datos a la que apuntan los
+    secrets (ver «Run 20», arriba). Esa línea prueba la marca, no por sí sola
+    que sea el proyecto que el propietario vio en el panel; la coincidencia
+    de la referencia la ha comprobado él.
+  - **Inferencia, no ejecutada:** esta configuración es compatible con las
+    suites que corren después del `apply`. La api-suite crea sus usuarios con
+    service_role y no necesita el registro abierto, y AU2 comprueba esa lista
+    de redirecciones. Desde el run 19 no se ha ejecutado ninguna suite, y el
+    `apply` no se ha autorizado.
 - **Sin comprobar todavía** (ninguna se da por resuelta por analogía con
-  Netlify o Vercel):
-  - Supabase: que el proyecto sea el correcto y esté activo; el estado de
-    Auth, el registro de usuarios, los usuarios existentes, las URL de
-    redirección y las integraciones;
+  Netlify, Vercel o Auth):
   - GitHub:
     - los cinco secrets requeridos en el Environment (declarados por el
       propietario el 2026-10-18, arriba; no verificados por Claude);
@@ -1393,17 +1418,20 @@ su log leído el 2026-10-19):
       los `NEXT_PUBLIC_SUPABASE_*` que usa `ci.yml`;
     - las reglas del Environment y los permisos de escritura;
   - los colaboradores, las invitaciones y las deploy keys;
-  - que no haya ejecuciones activas ni en cola durante la ventana del
-    `apply` (solo se ha comprobado en un momento puntual);
-  - que ninguna preview ni despliegue use `roomly-validation-3`: Netlify y
-    Vercel son no bloqueantes según la comprobación actual, y hay que volver
-    a confirmarlo justo antes del `apply`;
+  - justo antes de cualquier ejecución futura:
+    - que no haya ejecuciones activas ni en cola (solo se ha comprobado en
+      un momento puntual);
+    - que el proyecto siga activo, el registro siga cerrado y siga habiendo
+      0 usuarios;
+    - volver a revisar el aislamiento de Netlify, Vercel, las previews y los
+      entornos locales: Netlify y Vercel son no bloqueantes según la
+      comprobación actual, y los entornos locales no se han revisado;
   - las decisiones del propietario:
     - la licencia y la atribución del conjunto oficial de barrios;
     - el reconocimiento expreso de que no hay una vía de reversión sencilla
-      para el `apply`;
+      para las migraciones;
     - congelar las migraciones del PR #26 y los controles del Environment;
-    - quién revisará y documentará el log del `apply`.
+    - quién revisará el log del `apply` y documentará su resultado.
 
 **Procedimiento (el `dry_run` ya se ejecutó en el run 20):**
 1. Revisar las incertidumbres de arriba.
