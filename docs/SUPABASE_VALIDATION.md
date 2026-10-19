@@ -1354,15 +1354,56 @@ su log leído el 2026-10-19):
     las necesita, así que un preview puede salir «ready» igualmente.
   - **Antes del `apply`:** volver a comprobar que las variables siguen
     ausentes. Se siguen construyendo previews para cada PR contra `master`.
-- **Sin comprobar todavía:**
-  - Vercel;
-  - el Auth, los usuarios y las URL de redirección de `roomly-validation-3`;
-  - los secrets del repositorio, incluidos los `NEXT_PUBLIC_SUPABASE_*` que
-    usa `ci.yml`;
-  - los colaboradores y los permisos de escritura del repositorio;
-  - las decisiones del propietario: la licencia del dataset de barrios, la
-    falta de una vía de reversión tras el `apply`, congelar las migraciones
-    del PR #26 y los controles del Environment.
+- **Vercel: no bloqueante según la comprobación actual (2026-10-19).** **No
+  está verificado:** Claude no tiene acceso al panel de Vercel (ni conector,
+  ni CLI, ni credenciales) y nadie lo ha inspeccionado. Hay que revisar esta
+  clasificación antes de cualquier `apply` si aparece una integración o un
+  despliegue nuevos.
+  - **Comunicado por el propietario:** Vercel no aparece en *Installed GitHub
+    Apps* ni en *Authorized OAuth Apps* de su cuenta de GitHub, y no recuerda
+    haber creado una cuenta de Vercel.
+  - **Comprobado por Claude:**
+    - en el repositorio: no hay configuración de Vercel (`vercel.json`,
+      `.vercel`, dependencias `@vercel/*` ni menciones en los workflows) ni
+      URLs de Supabase en el código. `lib/env.ts` exige
+      `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`, sin
+      valores por defecto. La documentación presenta Vercel como hosting
+      previsto, no como algo configurado;
+    - en la API de GitHub: ningún deployment, estado, check ni comentario de
+      Vercel. Los deployments son solo de los Environments
+      `roomly-validation-2` y `roomly-validation-3`, y el único bot que
+      comenta es `netlify[bot]`. Las rutas de GitHub Apps instaladas y de
+      webhooks del repositorio no son accesibles desde el entorno de Claude.
+  - **Inferencia:** no hay evidencia actual de que el repositorio esté
+    conectado a Vercel mediante la cuenta de GitHub examinada.
+  - **Sin poder verificar:** no se ha accedido al panel de Vercel. No se
+    descartan una cuenta independiente, un despliegue manual con la CLI ni un
+    tercero que despliegue el repositorio (público) desde su propia cuenta.
+    Que la app de GitHub no aparezca no demuestra que no haya despliegues de
+    esos tipos.
+- **Sin comprobar todavía** (ninguna se da por resuelta por analogía con
+  Netlify o Vercel):
+  - Supabase: que el proyecto sea el correcto y esté activo; el estado de
+    Auth, el registro de usuarios, los usuarios existentes, las URL de
+    redirección y las integraciones;
+  - GitHub:
+    - los cinco secrets requeridos en el Environment (declarados por el
+      propietario el 2026-10-18, arriba; no verificados por Claude);
+    - posibles duplicados a nivel de repositorio u organización, incluidos
+      los `NEXT_PUBLIC_SUPABASE_*` que usa `ci.yml`;
+    - las reglas del Environment y los permisos de escritura;
+  - los colaboradores, las invitaciones y las deploy keys;
+  - que no haya ejecuciones activas ni en cola durante la ventana del
+    `apply` (solo se ha comprobado en un momento puntual);
+  - que ninguna preview ni despliegue use `roomly-validation-3`: Netlify y
+    Vercel son no bloqueantes según la comprobación actual, y hay que volver
+    a confirmarlo justo antes del `apply`;
+  - las decisiones del propietario:
+    - la licencia y la atribución del conjunto oficial de barrios;
+    - el reconocimiento expreso de que no hay una vía de reversión sencilla
+      para el `apply`;
+    - congelar las migraciones del PR #26 y los controles del Environment;
+    - quién revisará y documentará el log del `apply`.
 
 **Procedimiento (el `dry_run` ya se ejecutó en el run 20):**
 1. Revisar las incertidumbres de arriba.

@@ -6,6 +6,87 @@ próximos pasos.**
 
 ---
 
+## 2026-10-19 — Sesión 54: R8, comprobación de aislamiento en Vercel (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Precondición de aislamiento del `apply`: si algún proyecto, despliegue o
+  integración de Vercel usa variables de Supabase que apunten a
+  `roomly-validation-3`.
+- Claude no tiene acceso a Vercel: no hay conector (`ListConnectors` sin
+  resultados), ni CLI, ni credenciales en el entorno. El panel de Vercel no se
+  ha inspeccionado.
+
+**Comunicado por el propietario**
+- Vercel no aparece en *Installed GitHub Apps* ni en *Authorized OAuth Apps*
+  de su cuenta de GitHub.
+- No recuerda haber creado una cuenta de Vercel.
+
+**Comprobado por Claude**
+- En el repositorio:
+  - no hay configuración de Vercel (`vercel.json`, `.vercel`, dependencias
+    `@vercel/*` ni menciones en los workflows) ni URLs de Supabase en el
+    código;
+  - `lib/env.ts` exige `NEXT_PUBLIC_SUPABASE_URL` y
+    `NEXT_PUBLIC_SUPABASE_ANON_KEY`, sin valores por defecto;
+  - la documentación presenta Vercel como hosting previsto, no como algo
+    configurado.
+- En la API de GitHub:
+  - ningún deployment, estado, check ni comentario de Vercel. Los
+    deployments son solo de los Environments `roomly-validation-2` y
+    `roomly-validation-3`, y el único bot que comenta es `netlify[bot]`;
+  - las rutas de GitHub Apps instaladas y de webhooks del repositorio no son
+    accesibles desde el entorno de Claude (403 del proxy).
+
+**Inferencia**
+- No hay evidencia actual de que el repositorio esté conectado a Vercel
+  mediante la cuenta de GitHub examinada.
+
+**Sin poder verificar**
+- No se ha accedido al panel de Vercel.
+- No se descartan una cuenta independiente, un despliegue manual con la CLI
+  ni un tercero que despliegue el repositorio (público) desde su propia
+  cuenta. Que la app de GitHub no aparezca no demuestra que no haya
+  despliegues de esos tipos.
+
+**Resultado**
+- Vercel: **no bloqueante según la comprobación actual.** **No está
+  verificado.** Hay que revisar esta clasificación antes de cualquier `apply`
+  si aparece una integración o un despliegue nuevos.
+
+**Qué se hizo**
+- Documentado en `docs/SUPABASE_VALIDATION.md` («Incertidumbres antes de
+  ejecutar», R8) y en esta entrada. Las conclusiones del run 20 y de Netlify
+  no cambian.
+- Ninguna acción externa: ni workflows, ni Supabase, ni Vercel, ni Netlify.
+
+**Pendiente** (nada de esto se da por resuelto por analogía con Netlify o
+Vercel)
+- Supabase: que el proyecto sea el correcto y esté activo; el estado de Auth,
+  el registro de usuarios, los usuarios existentes, las URL de redirección y
+  las integraciones.
+- GitHub:
+  - los cinco secrets requeridos en el Environment (declarados por el
+    propietario el 2026-10-18, no verificados por Claude);
+  - posibles duplicados a nivel de repositorio u organización, incluidos los
+    `NEXT_PUBLIC_SUPABASE_*` de `ci.yml`;
+  - las reglas del Environment y los permisos de escritura.
+- Los colaboradores, las invitaciones y las deploy keys.
+- Que no haya ejecuciones activas ni en cola durante la ventana del `apply`.
+- Que ninguna preview ni despliegue use `roomly-validation-3`: volver a
+  confirmarlo justo antes del `apply`.
+- Decisiones del propietario:
+  - la licencia y la atribución del conjunto oficial de barrios;
+  - el reconocimiento expreso de que no hay una vía de reversión sencilla
+    para el `apply`;
+  - congelar las migraciones del PR #26 y los controles del Environment;
+  - quién revisará y documentará el log del `apply`.
+- El `apply`, con su autorización aparte; el push de los commits locales; y
+  el merge de los PR #26 y #27.
+- **Siguiente precondición recomendada:** revisar a mano el Auth y los
+  usuarios existentes de `roomly-validation-3`.
+
+---
+
 ## 2026-10-19 — Sesión 53: R8, comprobación manual de Netlify (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
 
 **Contexto**
