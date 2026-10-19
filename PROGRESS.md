@@ -6,6 +6,72 @@ próximos pasos.**
 
 ---
 
+## 2026-10-19 — Sesión 53: R8, comprobación manual de Netlify (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Precondición de aislamiento del `apply`: a qué proyecto de Supabase se
+  conectan los Deploy Previews de Netlify.
+- Claude no tiene acceso a Netlify: no hay conector (`ListConnectors` sin
+  resultados), ni CLI, ni credenciales en el entorno. El propietario hizo la
+  comprobación en el panel, con la guía de Claude, y le comunicó el
+  resultado.
+
+**Observado por el propietario** (panel de Netlify, sitio
+`lovely-tulumba-009360`)
+- Las variables de entorno del proyecto están vacías, en todos los
+  contextos.
+- No hay extensiones instaladas ni asociadas.
+- Las variables compartidas del equipo no están disponibles en el plan
+  actual. Es información comunicada, no una inspección independiente.
+- Rama de producción `master`; Branch deploys, solo `master`; Deploy
+  Previews, para los PR contra `master`.
+
+**Comprobado por Claude**
+- En el repositorio:
+  - no hay URLs de Supabase en el código, ni `netlify.toml`, ni archivos
+    `.env` que Next.js cargue en el build. `.env.example` no se carga
+    automáticamente;
+  - `lib/env.ts` exige `NEXT_PUBLIC_SUPABASE_URL` y
+    `NEXT_PUBLIC_SUPABASE_ANON_KEY`, sin valores por defecto.
+- En la API de GitHub: estados `deploy-preview` de ese sitio en los PR
+  #20–#26.
+
+**Inferencia**
+- Con la configuración observada, los previews no tienen un destino de
+  Supabase configurado. Las peticiones que necesitan esas variables fallan en
+  la validación del entorno (`getPublicEnv()`, también desde `proxy.ts`)
+  antes de llegar a ningún proyecto.
+- El build no las necesita, así que un preview puede salir «ready»
+  igualmente.
+
+**Resultado**
+- Netlify: **no bloqueante según la comprobación actual.** No es una
+  garantía permanente ni una validación de Vercel.
+
+**Qué se hizo**
+- Documentado en `docs/SUPABASE_VALIDATION.md` («Incertidumbres antes de
+  ejecutar», R8) y en esta entrada. Ninguna acción externa: ni workflows, ni
+  Supabase, ni cambios en Netlify.
+
+**Pendiente**
+- Antes del `apply`: volver a comprobar que las variables de Netlify siguen
+  ausentes, porque se siguen construyendo previews para cada PR contra
+  `master`.
+- Sin comprobar:
+  - Vercel;
+  - el Auth, los usuarios y las URL de redirección de `roomly-validation-3`;
+  - los secrets del repositorio, incluidos los `NEXT_PUBLIC_SUPABASE_*` de
+    `ci.yml`;
+  - los colaboradores y los permisos de escritura. Según la API, no hay
+    protección de rama ni rulesets.
+- Decisiones del propietario: la licencia del dataset de barrios, la falta
+  de una vía de reversión tras el `apply`, congelar las migraciones del PR
+  #26 y los controles del Environment.
+- El `apply`, con su autorización aparte; el push de los commits locales; y
+  el merge de los PR #26 y #27.
+
+---
+
 ## 2026-10-19 — Sesión 52: R8, log del run 20 leído (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
 
 **Contexto**

@@ -1325,10 +1325,44 @@ su log leído el 2026-10-19):
   con esas entradas. El workflow existe en `master` (requisito para que
   `workflow_dispatch` aparezca), pero las entradas de R8 solo están en la
   rama; aun así GitHub las ofreció al elegirla.
-- **Deploy Previews de Netlify:** **sigue sin comprobarse.** El run 20 se
-  lanzó sin verificar Netlify; como el `dry_run` termina en ROLLBACK no
-  escribe nada, pero antes del `apply` conviene confirmar que ningún Deploy
-  Preview ni build usa `roomly-validation-3`.
+- **Deploy Previews de Netlify (sitio `lovely-tulumba-009360`): no
+  bloqueante según la comprobación actual (2026-10-19).** No es una garantía
+  permanente ni dice nada de Vercel. El run 20 se lanzó antes de esta
+  comprobación (el `dry_run` termina en ROLLBACK y no escribe nada).
+  - **Observado por el propietario en el panel de Netlify** y comunicado a
+    Claude, que no tiene acceso a Netlify (ni conector, ni CLI, ni
+    credenciales):
+    - las variables de entorno del proyecto están vacías, en todos los
+      contextos;
+    - no hay extensiones instaladas ni asociadas;
+    - las variables compartidas del equipo no están disponibles en el plan
+      actual (información comunicada, no una inspección independiente);
+    - rama de producción `master`; Branch deploys, solo `master`; Deploy
+      Previews, para los PR contra `master`.
+  - **Comprobado por Claude:**
+    - en el repositorio: no hay URLs de Supabase en el código, ni
+      `netlify.toml`, ni archivos `.env` que Next.js cargue en el build
+      (`.env.example` no se carga automáticamente). `lib/env.ts` exige
+      `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`, sin
+      valores por defecto;
+    - en la API de GitHub: estados `deploy-preview` de ese sitio en los PR
+      #20–#26.
+  - **Inferencia:** con la configuración observada, los previews no tienen un
+    destino de Supabase configurado. Las peticiones que necesitan esas
+    variables fallan en la validación del entorno (`getPublicEnv()`, que
+    también llama `proxy.ts`) antes de llegar a ningún proyecto. El build no
+    las necesita, así que un preview puede salir «ready» igualmente.
+  - **Antes del `apply`:** volver a comprobar que las variables siguen
+    ausentes. Se siguen construyendo previews para cada PR contra `master`.
+- **Sin comprobar todavía:**
+  - Vercel;
+  - el Auth, los usuarios y las URL de redirección de `roomly-validation-3`;
+  - los secrets del repositorio, incluidos los `NEXT_PUBLIC_SUPABASE_*` que
+    usa `ci.yml`;
+  - los colaboradores y los permisos de escritura del repositorio;
+  - las decisiones del propietario: la licencia del dataset de barrios, la
+    falta de una vía de reversión tras el `apply`, congelar las migraciones
+    del PR #26 y los controles del Environment.
 
 **Procedimiento (el `dry_run` ya se ejecutó en el run 20):**
 1. Revisar las incertidumbres de arriba.
