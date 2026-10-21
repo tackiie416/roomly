@@ -53,7 +53,10 @@
   la validación de la Fase 2 en `roomly-validation-2b`, con la parte
   estructural en el run 13 y el E2 en el run 15, y la validación de la Fase 3
   en `roomly-validation-3`: estructural en el run 16 y E2 en el run 18
-  (2026-10-09; ver `docs/SUPABASE_VALIDATION.md`).
+  (2026-10-09; ver `docs/SUPABASE_VALIDATION.md`). La Fase 4, en el mismo
+  proyecto: el `dry_run` de R8 en el run 20 (2026-10-18, sin efectos) y el
+  `apply` en el run 21 (2026-10-21), seguido del preflight, la suite SQL, la
+  api-suite y AU3/AU5. El E2 no se ha ejecutado con la Fase 4.
 
 
 | Comprobación | Resultado | Dónde |
@@ -86,13 +89,13 @@
 | Mutaciones de la Fase 3.1 contra `test:db` | ✅ 5/5 detectadas (sin S4, UPDATE devuelto a `authenticated`, sin bloqueo de cuentas eliminadas, SELECT para `anon`, bajar de versión permitido) | local, sobre una copia de la migración en el scratchpad |
 | Mutaciones del motor (Fase 3.2) | ✅ 7/7 detectadas (media en vez de `min`, Jaccard, dato ausente como neutro, sin r6, dirección por suma en vez de signos concordantes, sin tope de diferencias, umbral de fortaleza exclusivo) | local, `score.ts` restaurado y comprobado con `diff` |
 | `npm run test:coverage:matching` (cobertura V8 de `lib/matching/`) | ✅ medida, sin umbral: líneas 100 % (212/212), funciones 100 % (58/58), ramas 98,38 % (244/248) y sentencias 99,61 % (258/259), con los 1030 unitarios (ver «Cobertura del motor de matching» abajo) | local (2026-10-13), también desde un `npm ci` limpio; la CI no lo ejecuta |
-| Migraciones + seed en Supabase real | ✅ las 9 migraciones y el seed, en una transacción (run 13) · ✅ las 10 migraciones y el seed, en una transacción (run 16, Fase 3) | `roomly-validation-2b` (`uwxb…`) · `roomly-validation-3` |
-| Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) · ✅ marca `roomly-validation-3`, 18 tablas, 37 políticas, 13 triggers, 11 funciones (run 16; en verde en los runs 17, 18 y 19) | `roomly-validation-2b` · `roomly-validation-3` |
-| Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) · ✅ 305/305 en `01`–`14` (los 14 archivos, cada uno revertido; las 15 comprobaciones del runner, sin restos; runs 16 y 18) · ✅ los 14 archivos completados con el mensaje de éxito y la comprobación final sin restos (run 19; el runner aborta ante cualquier aserción fallida, y las 305 son las de la suite, no un recuento sacado del log) | `roomly-validation` (Fase 1) · `roomly-validation-2b` · `roomly-validation-3` |
-| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ✅ 46/46 (run 13; en verde en el 15) · ✅ 52/52, con CRA1–CRA6 (runs 16 y 18) · ✅ **62/62**, con las 10 nuevas de los servicios del servidor: SVC1–SVC4, los dos casos de SVC5 y GC1–GC4 (run 19, `38106687478`, `92fb757`; su primer run real). Antes del run, en local, sin red y con un `fetch` falso, se comprobó que la config de integración resuelve `server-only` y que la observación de GC4/SVC4 captura la petición y la respuesta cruda con postgrest-js sin cambiarlas; eso no fue una validación real | `roomly-validation` · `roomly-validation-2b` · `roomly-validation-3` |
-| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ✅ 16/16 (run 13; en verde en el 15) · ✅ 16/16 (runs 16 y 18) · ✅ 16/16 (run 19) | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2b` · `roomly-validation-3` |
+| Migraciones + seed en Supabase real | ✅ las 9 migraciones y el seed, en una transacción (run 13) · ✅ las 10 migraciones y el seed, en una transacción (run 16, Fase 3) · ✅ las 3 migraciones de la Fase 4 (`20261013120000`, `20261015120000` y `20261016120000`) sobre el esquema de la Fase 3, con R8: un ensayo con ROLLBACK y después el mismo cuerpo con COMMIT, «RESULTADO: apply correcto» (run 21, `39521485133`, `a8e5028`). Antes, el `dry_run` del run 20 (`39176175018`, `1543718`) terminó en ROLLBACK, sin efectos | `roomly-validation-2b` (`uwxb…`) · `roomly-validation-3` |
+| Preflight P0–P6 en Supabase real | ✅ 37 políticas, 12 triggers, 10 funciones (runs 13 y 15) · ✅ marca `roomly-validation-3`, 18 tablas, 37 políticas, 13 triggers, 11 funciones (run 16; en verde en los runs 17, 18 y 19) · ✅ con la Fase 4: 18 tablas, los 73 barrios oficiales y las restricciones de `rooms` de la 4.1 (P1), 44 políticas (P3), el GRANT de `rooms` (P4), 13 triggers y 11 funciones (P6); job `preflight` del run 21, después del COMMIT. También dentro de la transacción de R8, en los runs 20 y 21 | `roomly-validation-2b` · `roomly-validation-3` |
+| Suite SQL `tests/db` con roles reales | ✅ 58/58 (`01`–`04`, **histórico**) · ✅ `01`–`13` (los 13 archivos, cada uno revertido, sin restos; runs 13 y 15) · ✅ 305/305 en `01`–`14` (los 14 archivos, cada uno revertido; las 15 comprobaciones del runner, sin restos; runs 16 y 18) · ✅ los 14 archivos completados con el mensaje de éxito y la comprobación final sin restos (run 19; el runner aborta ante cualquier aserción fallida, y las 305 son las de la suite, no un recuento sacado del log) · ✅ `01`–`18`, con la Fase 4: los 18 archivos, cada uno revertido; 651 líneas `ok -` en el log, el mismo número que `test:db` en local, ninguna `not ok` ni WARNING, y la comprobación final sin restos (run 21; `15`–`18`, por primera vez en real) | `roomly-validation` (Fase 1) · `roomly-validation-2b` · `roomly-validation-3` |
+| `npm run test:supabase` (supabase-js, JWT reales) | ✅ 46/46 (histórico) · ✅ 46/46 (run 13; en verde en el 15) · ✅ 52/52, con CRA1–CRA6 (runs 16 y 18) · ✅ **62/62**, con las 10 nuevas de los servicios del servidor: SVC1–SVC4, los dos casos de SVC5 y GC1–GC4 (run 19, `38106687478`, `92fb757`; su primer run real). Antes del run, en local, sin red y con un `fetch` falso, se comprobó que la config de integración resuelve `server-only` y que la observación de GC4/SVC4 captura la petición y la respuesta cruda con postgrest-js sin cambiarlas; eso no fue una validación real · ✅ **62/62** con la Fase 4 (run 21, `39521485133`, `a8e5028`): «Tests 62 passed (62)»; RO1–RO9, por primera vez contra el esquema de la 4.1 | `roomly-validation` · `roomly-validation-2b` · `roomly-validation-3` |
+| AU3 / AU5 sin sesión (`auth-redirects.sh`) | ✅ 6/6 (histórico) · ✅ 16/16 (run 13; en verde en el 15) · ✅ 16/16 (runs 16 y 18) · ✅ 16/16 (run 19) · ✅ 16/16 con la Fase 4 (run 21) | `roomly-validation` y local tras `proxy.ts` · `roomly-validation-2b` · `roomly-validation-3` |
 | AU4 magic link / AU5 con sesión | ✅ manual (histórico; login de un usuario creado en el dashboard) | `roomly-validation`, PC del propietario |
-| E2 real (alta por magic link con email real) | ✅ 1/1, run 15 (`37543144825`, `ec7c3fc`): `signInWithOtp` → email en Mailtrap → `/auth/v1/verify` → `/callback?code=` con PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout; limpieza sin residuos (1 usuario borrado, buzón vacío). Run 14: falló antes de enviar nada por `E2E_MAILBOX_CONFIG` mal formado · ✅ 1/1, run 18 (`37999470912`, `6dae75f`, Fase 3): el mismo recorrido, con el onboarding terminando en `/test` («Test de convivencia»); limpieza: 1 usuario borrado, sin datos asociados, y mensajes del buzón borrados. Run 17 (`37998858090`): falló a los 267 ms, antes de abrir `/login`, por `E2E_MAILBOX_CONFIG` no válido; sin emails ni usuarios | workflow manual, job `e2e-real`, `roomly-validation-2b` · `roomly-validation-3` |
+| E2 real (alta por magic link con email real) | ✅ 1/1, run 15 (`37543144825`, `ec7c3fc`): `signInWithOtp` → email en Mailtrap → `/auth/v1/verify` → `/callback?code=` con PKCE → onboarding → `/perfil` → `/preferencias` → `/ajustes` → logout; limpieza sin residuos (1 usuario borrado, buzón vacío). Run 14: falló antes de enviar nada por `E2E_MAILBOX_CONFIG` mal formado · ✅ 1/1, run 18 (`37999470912`, `6dae75f`, Fase 3): el mismo recorrido, con el onboarding terminando en `/test` («Test de convivencia»); limpieza: 1 usuario borrado, sin datos asociados, y mensajes del buzón borrados. Run 17 (`37998858090`): falló a los 267 ms, antes de abrir `/login`, por `E2E_MAILBOX_CONFIG` no válido; sin emails ni usuarios · ⏭️ **sin ejecutar con la Fase 4**: en el run 21, `e2e-real` se omitió (`run_e2e_real=false`) | workflow manual, job `e2e-real`, `roomly-validation-2b` · `roomly-validation-3` |
 | Adaptador de Mailtrap (`tests/unit/mailtrap-mailbox.test.ts`) | ✅ 20/20 sin red; mutaciones 3/3 detectadas (sin decodificar `&amp;`, sin filtrar el destinatario, otra cabecera de autenticación) | local y CI |
 | Ensayo del spec de E2 contra el mock | ✅ 1/1, y 5 fallos esperados (sin adaptador, buzón simulado en Actions, adaptador fuera de `tests/e2e`, id de ejecución inválido, enlace de otro origen) sin email ni enlace en la salida | local, adaptador `tests/e2e/support/mock-mailbox.mjs`; no es la validación real |
 | CI `ci.yml` en GitHub Actions | ✅ `lint-typecheck-test-build`, `db-security` y `e2e-local` en verde en los PR #4, #5 y #6 (`e2e-local` 25/25; CI #11 sobre `f9f08ad` y CI #12 sobre `ec7c3fc`). Fase 3: en verde en el head de los PR #7–#14 (CI #16, #18, #20, #22, #24, #26, #28 y #30) y después de cada merge en `master` (CI #17, #19, #21, #23, #25, #27, #29 y #31). Con la v2 del cuestionario (PR #13): CI #28 y #29, y la última, CI #31 (run `38100362367`, `83d9687`, tras el PR #14): 1013/1013 unitarios y E1 30/30. Antes de la v2, CI #25 (run `38003093188`, `83654eb`): 864/864 unitarios y E1 27/27 | GitHub |
@@ -145,9 +148,27 @@ manual.
 Fase 3»). Es un cierre técnico: el runtime de Next.js desplegado con la
 clave real sigue sin validar, y quedan pendientes otros requisitos antes de
 usar el producto con personas reales. En las filas de Supabase real de esta tabla, lo marcado
-con los runs 16–19 es de la Fase 3 y el resto, de las Fases 1 y 2.
+con los runs 16–19 es de la Fase 3, lo del run 21 (y el `dry_run` del run 20),
+de la Fase 4, y el resto, de las Fases 1 y 2.
 
-**Fase 4.0 (2026-10-13): sin validación real.**
+**Fase 4 en Supabase real: run 21** (`39521485133`, `a8e5028`, 2026-10-21),
+el `apply` de R8 en `roomly-validation-3`, lanzado por el propietario:
+- R8 aplicó las tres migraciones de la Fase 4 («apply correcto»);
+- después, en verde: el preflight P0–P6 con la Fase 4, la suite SQL
+  `01`–`18`, la api-suite 62/62 (RO1–RO9 contra la 4.1) y AU3/AU5 16/16;
+- `migrate` y `e2e-real` se omitieron por los parámetros: **el E2 no está
+  validado con la Fase 4**;
+- la limpieza solo la comprueba el propio workflow (la suite SQL y el
+  teardown de la api-suite): no hay una inspección independiente;
+- no hubo ninguna aprobación del Environment, aunque estaban previstas. Las
+  pruebas corrieron igual, pero el control previsto no funcionó;
+- no valida el runtime completo de Next.js con la clave real.
+
+Detalle, con los niveles de evidencia, en `docs/SUPABASE_VALIDATION.md`
+(«Resultado: run 21, `apply` de R8 (Fase 4)»). Los bloques «Fase 4.0» y
+«Fase 4.1» de abajo describen el estado anterior al run 21.
+
+**Fase 4.0 (2026-10-13): sin validación real** hasta el run 21 (ver arriba).
 - La migración `20261013120000` y `15_rooms_integrity` solo han corrido en
   local y en la CI.
 - Desde ella, el preflight espera 44 políticas y la suite SQL tiene 15
@@ -156,7 +177,7 @@ con los runs 16–19 es de la Fase 3 y el resto, de las Fases 1 y 2.
 - Su workflow no aplica migraciones a un esquema que ya existe. Cómo validar
   en real las migraciones de la Fase 4 lo decide el propietario (R8).
 
-**Fase 4.1 (2026-10-15): sin validación real.**
+**Fase 4.1 (2026-10-15): sin validación real** hasta el run 21 (ver arriba).
 - La migración `20261015120000` y `16_rooms_publication` solo han corrido en
   local y en la CI. La suite SQL pasa a 16 archivos, y P1 y P4 del preflight
   exigen las restricciones y el GRANT de la 4.1, que `roomly-validation-3`
@@ -177,8 +198,11 @@ dicen como "pendiente" puede estar ya superado por esta tabla.
 ## R8 — herramienta de actualización de la Fase 4 (2026-10-17, solo en local)
 
 `tests/supabase/phase4-upgrade.sh` aplica a `roomly-validation-3` las tres
-migraciones de la Fase 4 sobre el esquema de la Fase 3. **No se ha ejecutado
-contra ningún proyecto**; el procedimiento y sus límites están en
+migraciones de la Fase 4 sobre el esquema de la Fase 3. **En la fecha de esta
+sección no se había ejecutado contra ningún proyecto.** Después corrió contra
+`roomly-validation-3` en `dry_run` (run 20, 2026-10-18, sin efectos) y en
+`apply` (run 21, 2026-10-21, «apply correcto»; ver «Fase 4 en Supabase real:
+run 21», arriba). El procedimiento y sus límites están en
 `docs/SUPABASE_VALIDATION.md` («Fase 4: herramienta de actualización»).
 - **Qué se prueba** (`tests/supabase/phase4-upgrade-selftest.sh`, 76
   comprobaciones, en `test:infra`):
@@ -391,7 +415,8 @@ y la 4.1 (`docs/DATABASE.md`, «Estado de la habitación»).
 - **Infraestructura:** P1 (restricciones y catálogo) y P4 (GRANT de `rooms`)
   del preflight, con 15 mutaciones nuevas; `migration-upgrade-selftest`
   (UP8–UP9 y el rechazo con datos inválidos); `validation-infra`; y la
-  api-suite (RO1 y RO6), sin ejecutar.
+  api-suite (RO1 y RO6), sin ejecutar entonces. (Después, en real en el run
+  21: RO1–RO9 en verde.)
 - **Mutaciones locales:** 16/16 de la 4.1 y 11/11 de la 4.0 detectadas (ver
   la tabla).
 

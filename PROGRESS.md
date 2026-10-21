@@ -6,6 +6,214 @@ próximos pasos.**
 
 ---
 
+## 2026-10-21 — Sesión 58: R8, `apply` real (run 21) y su documentación (Fase 4 EN CURSO; las tres migraciones aplicadas en `roomly-validation-3`; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- Tras la sesión 57 quedaban las decisiones del propietario y las
+  precondiciones del `apply`.
+- En esta sesión, por orden:
+  - las decisiones D1–D8;
+  - la auditoría final, de solo lectura, y las confirmaciones del
+    propietario;
+  - la autorización del `apply` y el run 21, que lanzó el propietario;
+  - la auditoría posterior, de solo lectura;
+  - esta documentación, autorizada solo en local y sin commit.
+
+**Decisiones del propietario D1–D8** (2026-10-19, 23:59 UTC, que en hora
+peninsular es el 20 de octubre; no autorizaban el `apply`):
+- **D1, licencia y atribución de los barrios:** aceptada la opción A para el
+  proyecto de validación.
+  - La ficha de datos.gob.es del conjunto `BarcelonaCiutat_Barris.json`
+    (Ajuntament de Barcelona, Open Data BCN) declara CC BY 4.0.
+  - Condiciones:
+    - mantener la atribución, la identificación del conjunto, el enlace a la
+      fuente y el enlace a CC BY 4.0;
+    - indicar que los datos se han adaptado a ROOMLY, cuando corresponda;
+    - no sugerir que el Ayuntamiento avala ROOMLY;
+    - antes del lanzamiento público, confirmar la atribución donde se
+      muestren los datos.
+  - La ficha prueba la licencia declarada. No se ha vuelto a descargar ni a
+    comparar el archivo original.
+- **D2, sin una vía de reversión sencilla:** riesgo residual aceptado.
+  - Solo para `roomly-validation-3`, como proyecto desechable y sin datos que
+    conservar.
+  - No se extiende a producción ni permite improvisar recuperaciones.
+  - No se repite el `apply` automáticamente. Un timeout, una cancelación o la
+    falta de la línea `RESULTADO:` no demuestran un rollback.
+- **D3, congelación:** las tres migraciones, los seis archivos fijados y el
+  preflight congelado no cambian hasta revisar el resultado y decidir el
+  siguiente paso del PR #26. Esta decisión no fusiona el PR #26.
+- **D4, Environment, opción B:**
+  - ramas limitadas a `claude/phase4-r8-upgrade-tool`, sin `master`;
+  - aprobación explícita del propietario antes de los jobs protegidos, con
+    «Prevent self-review» desactivado. Es una pausa deliberada, no una
+    revisión independiente;
+  - la configura el propietario. Si GitHub no lo permite, se para.
+- **D5, revisión del log:**
+  - el propietario lanza, confirma el SHA, observa y decide;
+  - Claude lee el log de R8, lo compara con la documentación, clasifica el
+    resultado y prepara la documentación;
+  - no se declara un éxito por el estado general del workflow.
+- **D6, *Configure* de Netlify:** no hace falta ahora. Es no bloqueante según
+  los permisos declarados.
+- **D7, claves:** volver a copiar `SUPABASE_VALIDATION_ANON_KEY` y
+  `SUPABASE_VALIDATION_SERVICE_ROLE_KEY` desde el panel de
+  `roomly-validation-3`, a mano y sin mostrar los valores.
+- **D8, SHA previsto:** `a8e5028`, sin publicar los seis commits locales de
+  documentación.
+
+**Auditoría final y confirmaciones** (2026-10-20 y 2026-10-21)
+- **Comprobado directamente por Claude** (2026-10-21, 00:25 UTC, justo antes
+  del lanzamiento):
+  - la rama remota en `a8e5028`, con la CI de ese commit en verde (3/3);
+  - ninguna ejecución activa ni en cola;
+  - las tres migraciones previstas y los seis archivos fijados con su
+    SHA-256;
+  - la frase de confirmación;
+  - los ocho jobs con el Environment `roomly-validation-3`;
+  - los seis commits locales, sin publicar.
+- **Que Claude no podía comprobar:** las reglas del Environment, porque la
+  API devuelve HTTP 403.
+- **Confirmado por el propietario** (2026-10-21, de las 00:21 a las 00:22
+  UTC, en respuestas a preguntas cerradas):
+  - D4, aplicada como se pidió;
+  - D7, hecha: las dos claves, del mismo proyecto y del tipo esperado;
+  - Supabase: proyecto activo, registro cerrado, 0 usuarios, nada que
+    conservar y la URL Configuration sin cambios;
+  - el aislamiento revisado y su disponibilidad.
+
+**Autorización y lanzamiento**
+- El propietario autorizó expresamente el `apply` (2026-10-21, 00:24 UTC),
+  con:
+  - las entradas exactas y las aprobaciones en orden;
+  - la orden de parar si Claude no podía garantizar las pausas.
+- **Claude no lo lanzó:** no podía garantizar las pausas (HTTP 403). Le pidió
+  al propietario que lo lanzara desde Actions, que comprobara que el run se
+  quedaba esperando y que lo cancelara si `guard` empezaba sin pedir
+  aprobación.
+- **El propietario lanzó el run 21.** Claude lo supo cuando ya había
+  terminado: el siguiente mensaje del propietario (00:33 UTC) traía las
+  líneas de la api-suite.
+
+**Run 21** (`39521485133`, sobre `a8e50289991b508fcdc121918b96ad13ae4e557d`;
+2026-10-21, de las 00:28:02 a las 00:32:40 UTC, un intento)
+- **Del log y de la API** (verificado directamente; los logs se leyeron el
+  2026-10-21 con `get_job_logs`):
+  - **Entradas:** el paso de R8 recibió `PHASE4_UPGRADE: apply`,
+    `APPLY_MIGRATIONS: false`, `RUN_E2E_REAL: false` y la frase de
+    confirmación. La confirmación del proyecto pasó en la guarda.
+  - **`guard`:** destino verificado como `roomly-validation-3`.
+  - **R8:**
+    - los SHA-256, verificados;
+    - el cuerpo común, `0c9cadd0597a…`, el mismo que en el run 20;
+    - la primera pasada llegó hasta `== R8 · rollback hecho`, seguida de
+      «ensayo limpio»;
+    - la segunda llegó hasta `== R8 · commit hecho`;
+    - «RESULTADO: apply correcto: las 3 migraciones de la Fase 4 aplicadas y
+      P0–P6 superadas antes del COMMIT»;
+    - sin WARNING, ERROR ni FALLO. Las cuatro líneas `tail: … Broken pipe`
+      son el ruido ya conocido.
+  - **Migraciones aplicadas:** `20261013120000` (4.0), `20261015120000` (4.1)
+    y `20261016120000` (R1).
+  - **`preflight`:** «RESULTADO: P0–P6 superadas», con los 73 barrios, las
+    restricciones de la 4.1, 44 políticas, 13 triggers y 11 funciones.
+  - **`sql-suite`:**
+    - los 18 archivos, cada uno revertido;
+    - 651 líneas `ok -` (como `test:db` en local) y ninguna `not ok`;
+    - «sin roomly_test, sin políticas temporales, sin usuarios de test»;
+    - «RESULTADO: suite SQL completa en Supabase real…».
+  - **`api-suite`:** «Tests 62 passed (62)». RO1–RO9 corren por primera vez
+    contra la 4.1.
+  - **`auth-redirects`:** 16 líneas `ok` (AU3a–g y AU5a–i) y «RESULTADO:
+    AU3/AU5 (sin sesión) superados».
+  - **`migrate` y `e2e-real`:** `skipped`. **El E2 no está validado con la
+    Fase 4.**
+  - **`npm ci`:** «9 high severity vulnerabilities», sin relación con R8.
+- **Anomalía: no hubo ninguna aprobación del Environment.**
+  - **Verificado por la API:**
+    - `/approvals` responde `[]`;
+    - los jobs empiezan 2–3 s después de crearse, como en el run 20;
+    - los deployments no pasan por ningún estado de espera.
+  - **Inferencia:** no se aplicó ninguna regla de *required reviewers*. D4 no
+    fue efectiva, aunque se había confirmado aplicada.
+  - **Causa:** sin determinar. La configuración no se puede leer por la API
+    (HTTP 403).
+  - **Impacto:** no hubo la parada prevista antes del `COMMIT`. Después se
+    comprobó que el run ejecutó el SHA revisado y el mismo cuerpo SQL.
+- **Inferencias:**
+  - las dos claves corresponden al proyecto: la api-suite usa las dos y pasó
+    62/62;
+  - el teardown de la api-suite no falló: Vitest lo contaría como un fallo
+    del archivo;
+  - un segundo `apply` no aplicaría nada: así está diseñado y lo prueba el
+    selftest local, no un run real.
+- **Pendiente de verificar:** la limpieza. Falta comprobar 0 usuarios y las
+  tablas vacías, salvo `neighborhoods` (73), `cities` (9) y `universities`
+  (7). No hay una inspección independiente.
+
+**Estado de los PR** (comprobado directamente el 2026-10-21, en la auditoría
+posterior):
+- PR #26: abierto, head `179972c`, base `master`, `mergeable_state=clean`,
+  CI en verde y sin revisiones;
+- PR #27: en borrador, head `a8e5028`, base la rama del PR #26, `clean`, CI en
+  verde y sin revisiones;
+- ninguno aprobado ni fusionado.
+
+**Problemas encontrados**
+- Las aprobaciones del Environment no fueron efectivas (arriba). El control
+  falló, aunque el contenido aplicado era el revisado.
+
+**Decisiones técnicas (de documentación)**
+- En `docs/SUPABASE_VALIDATION.md`, la descripción general de la herramienta
+  quedaba bajo el título «Run 20». Ahora tiene un título propio
+  («Funcionamiento, pruebas y precondiciones»), para no quedar bajo el run 21.
+  No cambia su texto.
+- Los textos que decían que el `apply` no se había ejecutado se conservan,
+  con una nota de actualización. Solo se reescribieron las líneas de estado
+  (cabeceras, títulos y filas de las tablas de resultados).
+
+**Qué se hizo (documentación, solo en local y sin commit)**
+- `docs/SUPABASE_VALIDATION.md`:
+  - el estado de la cabecera;
+  - la sección «Resultado: run 21, `apply` de R8 (Fase 4)» y la subsección
+    «Run 21: `apply` real»;
+  - las filas de la matriz;
+  - las notas en el aviso de la Fase 4, el run 20 y las incertidumbres;
+  - «Pendientes después del run 21» y el Procedimiento.
+- `docs/TESTING.md`: las filas de Supabase real, el bloque «Fase 4 en
+  Supabase real: run 21» y las notas de la 4.0, la 4.1 y R8.
+- `docs/ROADMAP.md`: la 4.0 y la 4.1, validadas en real en el run 21; R8, con
+  los runs 20 y 21, D1–D8 y sus pendientes.
+- `CLAUDE.md`: el estado de la Fase 4 y de R8, y el párrafo de Testing.
+- Tras la revisión del diff, con autorización aparte:
+  - `docs/SECURITY.md` y `docs/DATABASE.md`: una nota de actualización junto
+    a cada «Sin validar en Supabase real (R8)» de la 4.0 y la 4.1. La
+    afirmación histórica de la Fase 3.1 en `docs/DATABASE.md` no cambia;
+  - el SHA de `master` (`7818a15`) se comprobó en la referencia remota con
+    `git ls-remote`, en modo lectura;
+  - la fecha de D1–D8 se escribe igual en todos los documentos: 2026-10-19,
+    23:59 UTC (el 20 en hora peninsular).
+- Sin cambios en el código ejecutable, las migraciones ni los archivos
+  fijados (D3).
+- Ninguna operación externa: solo lecturas de la API y de los logs de GitHub,
+  y `git ls-remote`. Ni workflows, ni Supabase, ni el Environment, ni push.
+
+**Pendiente**
+1. **Aprobaciones del Environment:** revisarlas, solo mirando, y decidir
+   antes de cualquier otro run.
+2. **Limpieza:** la comprobación independiente en el panel de Supabase.
+3. **E2 con la Fase 4:** con su autorización.
+4. **Runtime de Next.js con la clave real:** en staging.
+5. **PR #26 y #27:** la revisión y el merge. La congelación de D3 sigue
+   vigente.
+6. **Commit y push:** el commit de esta documentación y el push de ese commit
+   y de los seis commits locales, cada uno con su autorización.
+7. **Aparte, sin relación con R8:** el aviso de `npm audit`.
+- **Siguiente etapa:** las decisiones del propietario sobre el Environment y
+  la limpieza, y después sobre los PR.
+
+---
+
 ## 2026-10-19 — Sesión 57: R8, auditoría de permisos de la app de Netlify en GitHub (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
 
 **Contexto**

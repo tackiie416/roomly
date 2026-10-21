@@ -43,9 +43,158 @@ corrido en local y en la CI. `roomly-validation-3` sigue con el esquema del
 run 16, y un run actual fallaría ya en P1 (ver «Aviso (Fase 4)»). Cómo
 validarlas en real lo decide el propietario (R8).
 
-Los resultados de los runs 13–19, más abajo, describen el esquema y las
+Estado (2026-10-21, run 21): **las tres migraciones de la Fase 4 están
+aplicadas en `roomly-validation-3`** con R8 (`phase4_upgrade=apply`), que
+terminó en «apply correcto». Después pasaron en real el preflight con la
+Fase 4, la suite SQL `01`–`18`, la api-suite (62/62, RO1–RO9 por primera vez
+con la 4.1) y AU3/AU5. El E2 se omitió: **no está validado con la Fase 4**.
+Esto supera el estado del 2026-10-16. Quedan abiertos la anomalía de las
+aprobaciones del Environment (no hubo ninguna) y una comprobación
+independiente de la limpieza. Ver «Resultado: run 21, `apply` de R8 (Fase
+4)».
+
+Los resultados de los runs 13–21, más abajo, describen el esquema y las
 suites **de cada momento**. La configuración vigente está en «Cómo se
 ejecuta», «Preflight P0–P6» y «Matriz de pruebas».
+
+## Resultado: run 21, `apply` de R8 (Fase 4) (2026-10-21)
+
+| Run | Id | Commit | Parámetros | Resultado |
+|---|---|---|---|---|
+| **21** | `39521485133` | `a8e5028` (rama `claude/phase4-r8-upgrade-tool`, head del PR #27) | `confirm_project=roomly-validation-3`, `apply_migrations=false`, `run_e2e_real=false`, `phase4_upgrade=apply`, `confirm_phase4_upgrade=aplicar-fase4-en-roomly-validation-3` | ✅ Los seis jobs previstos, en verde en el primer intento; `migrate` y `e2e-real` omitidos por diseño |
+
+- URL: https://github.com/tackiie416/roomly/actions/runs/39521485133
+- Commit completo: `a8e50289991b508fcdc121918b96ad13ae4e557d`, el que se
+  revisó para el `apply` (D8).
+- **Lo lanzó el propietario** (`tackiie416`) a mano desde la interfaz de
+  Actions (`workflow_dispatch`), con su autorización expresa del `apply`.
+  Claude no lo lanzó: no podía comprobar que habría pausas de aprobación (la
+  API del Environment devuelve HTTP 403), y la autorización pedía, en ese
+  caso, que lo lanzara el propietario.
+- Según la API de GitHub, empezó el 2026-10-21 a las 00:28:02 UTC y terminó a
+  las 00:32:40 UTC, en un solo intento. La API da ese `head_sha` en los ocho
+  jobs, y en los logs leídos (R8, `preflight`, `api-suite` y
+  `auth-redirects`) el checkout termina en ese commit.
+- **Entradas:** el log del paso de R8 muestra `PHASE4_UPGRADE: apply`,
+  `APPLY_MIGRATIONS: false`, `RUN_E2E_REAL: false` y
+  `PHASE4_UPGRADE_CONFIRM: aplicar-fase4-en-roomly-validation-3`. El paso
+  «Confirmación explícita del proyecto» de la guarda terminó en `success`, y
+  solo lo hace con `confirm_project=roomly-validation-3`.
+
+**Migraciones aplicadas** (con `COMMIT`, en este orden, en una sola
+transacción):
+- `20261013120000_rooms_deleted_account_writes.sql` (4.0);
+- `20261015120000_rooms_integrity_publication.sql` (4.1);
+- `20261016120000_barcelona_neighborhoods.sql` (R1, los 73 barrios
+  oficiales).
+
+**Resultado de cada job** (estado según la API y líneas del log; logs leídos
+el 2026-10-21 con el conector de GitHub, `get_job_logs`):
+
+| Job | Estado | Evidencia en el log |
+|---|---|---|
+| `guard` | ✅ `success` | «guard: destino verificado como roomly-validation-3 (coherencia local + marca del proyecto)» |
+| `phase4-upgrade` (R8) | ✅ `success` | Dos pasadas: `== R8 · rollback hecho`, «ensayo limpio; se repite el mismo cuerpo con COMMIT», `== R8 · commit hecho` y «RESULTADO: apply correcto: las 3 migraciones de la Fase 4 aplicadas y P0–P6 superadas antes del COMMIT». Detalle en «Run 21: `apply` real», más abajo |
+| `preflight` (P0–P6, ya sobre la Fase 4) | ✅ `success` | P1 «18 tablas … Barcelona con sus 73 barrios oficiales, restricciones de rooms de la Fase 4.1 presentes»; P3 «exactamente las 44 políticas esperadas y las escrituras de habitaciones exigen cuenta activa»; P4 «incluidos housing_preferences, compatibility_responses y rooms»; P6 «13 triggers activos, 11 funciones propias»; «RESULTADO: P0–P6 superadas». PostgreSQL 17.11 |
+| `sql-suite` (`tests/db`) | ✅ `success` | Los 18 archivos, `01_profiles_role.sql` a `18_neighborhoods_catalog.sql`, cada uno con «ok - aislamiento: ROLLBACK completo, rol y claims restaurados». 651 líneas `ok -` de aserciones, el mismo número que `test:db` en local (651/651); ninguna `not ok` ni `WARNING`. Al final, «tras la suite: sin roomly_test, sin políticas temporales, sin usuarios de test» y «RESULTADO: suite SQL completa en Supabase real (cada archivo revertido con ROLLBACK)» |
+| `api-suite` (supabase-js, JWT reales) | ✅ `success` | «Test Files 1 passed (1)» y «Tests 62 passed (62)»: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, CRA1–CRA6, SVC (6), GC1–GC4 y AU2 (5). **RO1–RO9 corren por primera vez contra el esquema de la 4.1** |
+| `auth-redirects` (AU3/AU5 sin sesión) | ✅ `success` | AU3a–AU3g y AU5a–AU5i, 16 líneas `ok`, y «RESULTADO: AU3/AU5 (sin sesión) superados» |
+| `migrate` | ⏭️ `skipped` | Por diseño: con `phase4_upgrade=apply` no se aplican migraciones por esa vía |
+| `e2e-real` (E2) | ⏭️ `skipped` | `run_e2e_real=false`. **El E2 no se ha ejecutado con la Fase 4** |
+
+Otras líneas del log, sin efecto en el resultado:
+- en la api-suite, las líneas informativas de PR8, PR10/H3 (la vista
+  `public_profile_previews`, H3, ya aceptada; el preflight la marca como
+  `P5 info`), CH10, RO6, GC4 y AU2;
+- en `npm ci` (api-suite y AU3/AU5): «9 high severity vulnerabilities». No
+  tiene relación con R8; queda para otra tarea;
+- en los logs leídos, el aviso genérico de GitHub sobre Node.js 20.
+
+**Confirmado por el propietario antes del run** (2026-10-21, entre las 00:21
+y las 00:22 UTC, en respuestas a preguntas cerradas; Claude no lo observó):
+- D4: el Environment `roomly-validation-3` quedó con una sola regla de
+  ramas, `claude/phase4-r8-upgrade-tool` (sin `master`), el propietario como
+  *required reviewer* y «Prevent self-review» desactivado;
+- D7: las dos claves, copiadas de nuevo del proyecto `roomly-validation-3`,
+  cada una en su secret y del mismo tipo;
+- Supabase: el proyecto activo, el registro público cerrado, 0 usuarios,
+  nada que conservar y la URL Configuration sin cambios;
+- aislamiento (Netlify, Vercel, Lovable, previews y entornos locales)
+  revisado, y su disponibilidad durante todo el proceso.
+
+**⚠️ Anomalía: no hubo ninguna aprobación del Environment.**
+- **Verificado directamente por la API:**
+  - el registro de aprobaciones del run (`/actions/runs/39521485133/approvals`)
+    responde `[]`, una lista vacía, no un error de acceso;
+  - los seis jobs empezaron entre 2 y 3 s después de crearse. Por ejemplo,
+    `guard` terminó a las 00:28:11 y R8 se creó a las 00:28:11 y empezó a las
+    00:28:14. Es el mismo patrón del run 20, anterior a la opción B de D4;
+  - los seis deployments del Environment `roomly-validation-3` pasan de
+    `in_progress` a `success` sin ningún estado de espera.
+- **Lo previsto:** con D4 (opción B), una aprobación del propietario antes de
+  cada job protegido y, en particular, una parada antes de `phase4-upgrade`
+  para comprobar el SHA, la última antes del `COMMIT`. El procedimiento
+  acordado era que el propietario comprobara que el run se quedaba esperando
+  y lo cancelara si `guard` empezaba sin pedir aprobación.
+- **Lo que pasó:** el run avanzó sin ninguna pausa hasta el final. Claude no
+  lo siguió en curso: lo supo cuando ya había terminado.
+- **Inferencia:** a estos jobs no se les aplicó ninguna regla de *required
+  reviewers*. **D4 no fue efectiva en el run 21**, aunque antes del run se
+  había confirmado aplicada.
+- **Causa: sin determinar.** La configuración del Environment no se puede
+  leer por la API (HTTP 403), y nadie la ha vuelto a inspeccionar después del
+  run. De la regla de ramas no se puede deducir nada: el run se lanzó desde
+  la rama permitida.
+- **Impacto, comprobado después:** el run ejecutó `a8e5028` y un cuerpo SQL
+  con el mismo SHA-256 que el del `dry_run` (`0c9cadd0597a…`). Lo que se
+  aplicó es lo revisado. Pero el control previsto no funcionó, y hay que
+  revisarlo antes de cualquier otro run contra `roomly-validation-3`.
+
+**Limpieza: pendiente de una comprobación independiente.**
+- **Lo que comprueba el propio workflow:**
+  - la suite SQL termina con «sin roomly_test, sin políticas temporales, sin
+    usuarios de test». Es anterior a la api-suite;
+  - la api-suite pasó 62/62 y su único archivo de tests, también. Su teardown
+    (`afterAll`) borra los usuarios de prueba y sus datos, y al final cuenta
+    las filas de `profiles`, `housing_preferences` y
+    `compatibility_responses` de esos usuarios. El teardown no imprime nada
+    cuando termina bien.
+- **Inferencia:** Vitest informa de un error en `afterAll` como fallo del
+  archivo, y el resumen da «1 passed», así que el teardown no falló.
+- **Sin verificar:** no hay una inspección posterior al run de
+  `auth.users` ni de las demás tablas. Claude no tiene acceso a Supabase ni
+  autorización para SQL. Queda pendiente para el propietario, solo mirando
+  en el panel:
+  - Authentication → Users: 0 usuarios;
+  - 0 filas en `rooms`, `room_addresses`, `room_images`, `profiles`,
+    `housing_preferences`, `compatibility_responses`, `reports`,
+    `interests`, `matches`, `conversations`, `conversation_participants`,
+    `messages`, `favorites` y `admin_action_logs`;
+  - las filas fijas: 73 en `neighborhoods`, 9 en `cities` y 7 en
+    `universities`.
+
+**Estado del proyecto tras el run:**
+- `roomly-validation-3` tiene ya el esquema de la Fase 4: lo muestran el
+  `COMMIT` de R8 y el preflight posterior, que es un job aparte.
+- Va por delante de `master` hasta que se fusione el PR #26. La referencia
+  remota de `master` es `7818a15` (merge del PR #25, solo con la 4.0), según
+  `git ls-remote` en modo lectura el 2026-10-21. No se ha comprobado qué
+  haría un run lanzado desde `master`: su preflight y su suite SQL
+  corresponden a un esquema anterior al del proyecto. No conviene lanzar
+  ninguno sin revisarlo.
+- **No hizo falta ninguna recuperación.** Por diseño, un segundo `apply` no
+  aplicaría nada: el preflight congelado y R8-BASE lo rechazan antes de las
+  migraciones (probado en local, caso D del selftest; no en real).
+
+**Lo que este run NO valida:**
+- el E2 con la Fase 4 (omitido);
+- el runtime completo de Next.js con la clave real. La app de AU3/AU5 se
+  construye en el runner sin service_role (D6 = B);
+- la limpieza, sin una comprobación independiente (arriba);
+- una pérdida de red real durante el `COMMIT` y las señales de GitHub
+  Actions al cancelar un job: no hicieron falta y siguen sin probarse en
+  real;
+- la anomalía de las aprobaciones queda abierta.
 
 ## Resultado: run 19, servicios del servidor (SVC/GC) (2026-10-11)
 
@@ -711,6 +860,10 @@ comprobaba nada de la Fase 2.
   referencia): no modifica el esquema ni los datos.
 - Cómo validar en real las migraciones de la Fase 4 lo decide el
   propietario (R8). No se ha lanzado ningún run desde el 19.
+- **Actualización (2026-10-21):** lo anterior describe el estado previo a
+  R8. El `dry_run` (run 20) no cambió nada; el `apply` (run 21) aplicó las
+  tres migraciones, y después el preflight vigente pasó como job propio, con
+  44 políticas y los 73 barrios. Ver «Resultado: run 21».
 
 **Verificación sin red:**
 - `tests/unit/validation-infra.test.ts` deriva de las migraciones el
@@ -854,10 +1007,10 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P0–P6 | `tests/supabase/preflight.sql` | Ver la tabla de arriba |
-| SQL 01–18 | `tests/db/*` vía `run-sql-suite.sh` | Las 651 aserciones actuales de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real hasta `14`: 305/305 en el run 16 (Fase 3), y en verde en los runs 18 y 19.** La Fase 4 añade `15` (habitaciones y cuentas desactivadas, 4.0, 75 aserciones), `16` (integridad y publicación, 4.1, 88), `17` (transiciones de `status`, R7, 160) y `18` (barrios oficiales, R1, 22), **sin ejecutar en real** (R8) |
+| SQL 01–18 | `tests/db/*` vía `run-sql-suite.sh` | Las 651 aserciones actuales de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real hasta `14`: 305/305 en el run 16 (Fase 3), y en verde en los runs 18 y 19.** La Fase 4 añade `15` (habitaciones y cuentas desactivadas, 4.0, 75 aserciones), `16` (integridad y publicación, 4.1, 88), `17` (transiciones de `status`, R7, 160) y `18` (barrios oficiales, R1, 22). **Los 18 archivos, en real por primera vez en el run 21, después del `apply` de R8:** cada uno revertido, 651 líneas `ok -` en el log y la comprobación final sin restos. Hasta el run 21, `15`–`18` no se habían ejecutado en real |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
-| RO1–RO9 | api-suite | Propietario crea un borrador, lo publica, lo edita y lo pausa; no pone ni saca de `removed` (desde la 4.1, el upsert de RO6 lo frena antes el GRANT); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario. Desde la 4.1, RO1 publica con un barrio oficial de Barcelona (R1) y la ocupación; **sin ejecutar en real con la 4.1** |
+| RO1–RO9 | api-suite | Propietario crea un borrador, lo publica, lo edita y lo pausa; no pone ni saca de `removed` (desde la 4.1, el upsert de RO6 lo frena antes el GRANT); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario. Desde la 4.1, RO1 publica con un barrio oficial de Barcelona (R1) y la ocupación. **Con la 4.1, en real por primera vez en el run 21: RO1–RO9 en verde** (antes, sin ejecutar en real con la 4.1) |
 | RE1–RE9 | api-suite | Reporte válido nace `pending`; ningún campo administrativo en el INSERT; no en nombre de otro; no autocierre; el denunciado no lo ve; el admin resuelve |
 | CRA1–CRA6 | api-suite (Fase 3.1) | `compatibility_responses` por PostgREST: B lee su fila y C no; ningún JWT escribe (INSERT, UPDATE de `completed_at` o de versión, DELETE → `42501`); `anon` no lee; service_role completa una vez y después no cambia la fecha (S4), no baja de versión (S3) y sube completando (S5); con la cuenta eliminada ni service_role escribe. **Ejecutada en Supabase real en el run 16 (Fase 3): 6/6** |
 | SVC1–SVC5 | api-suite (servicios del servidor) | `saveQuestionnaireAnswers` (`lib/services/compatibility.ts`) con el JWT real del usuario y service_role inyectado en `deps.adminClient`. SVC1: unas respuestas parciales de la v2 quedan como borrador de la versión 2, que se relee con la sesión del usuario. SVC2: con las 29 queda completado y se fija `completed_at`. SVC3: volver a guardarlo no cambia `completed_at`. SVC4: una fila v1 completada sube a la v2 en una sola escritura, con el UPDATE condicionado a la versión 1 (petición observada); se reutilizan las 21 respuestas comunes, desaparecen los ocho ids sustituidos y el trigger rechaza volver a la v1. SVC5: un id de la v1 o una respuesta fuera de escala → `validation`, sin pedir service_role ni escribir. **Ejecutada en Supabase real en el run 19: 6/6** (SVC1–SVC4 y los dos casos de SVC5) |
@@ -1010,7 +1163,15 @@ E1.
 
 D6 = B: la app del workflow sigue sin service_role.
 
-### Fase 4: validación real pendiente (R8)
+### Fase 4: validación real (R8)
+
+**Actualización (2026-10-21): hecha en el run 21, salvo el E2.** R8 aplicó
+las tres migraciones (`apply`, «apply correcto»), y después pasaron el
+preflight vigente, la suite SQL `01`–`18` y la api-suite, con RO1–RO9 contra
+la 4.1. El E2 se omitió y no está validado con la Fase 4. Ver «Resultado: run
+21, `apply` de R8 (Fase 4)».
+
+Texto anterior al run 21 (2026-10-16), sin cambios:
 
 Lo decide el propietario; no se ha lanzado ningún run. Lo que tendría que
 cubrir un run real de la Fase 4:
@@ -1027,12 +1188,15 @@ limpia, `tests/db/run.sh` y ese mismo selftest.
 
 ### Fase 4: herramienta de actualización (R8)
 
-**Probada en local (2026-10-17) y ejecutada en `dry_run` real contra
+**Probada en local (2026-10-17), ejecutada en `dry_run` real contra
 `roomly-validation-3` el 2026-10-18 (run 20, sin efectos: la transacción
-termina en ROLLBACK; su log se leyó el 2026-10-19). El `apply` NO se ha
-autorizado ni ejecutado.** Cada
-ejecución, `dry_run` o `apply`, necesita la autorización expresa del
-propietario.
+termina en ROLLBACK; su log se leyó el 2026-10-19) y en `apply` real el
+2026-10-21 (run 21: «apply correcto», con las tres migraciones aplicadas;
+ver «Run 21: `apply` real», abajo).** Cada ejecución, `dry_run` o `apply`,
+necesita la autorización expresa del propietario. Por diseño, un segundo
+`apply` contra `roomly-validation-3` no aplicaría nada: el preflight
+congelado y R8-BASE rechazarían su estado de partida, que ya no es el de la
+Fase 3.
 
 #### Run 20: `dry_run` real (2026-10-18)
 
@@ -1099,7 +1263,8 @@ Distinguiendo niveles de evidencia:
   se revierte; el proyecto sigue en el estado de la Fase 3 y no se escribió
   nada.
 - **El `apply` no se ha autorizado ni ejecutado.** Requiere su propia
-  autorización.
+  autorización. (Actualización, 2026-10-21: se autorizó y se ejecutó
+  después, en el run 21; ver «Run 21: `apply` real», abajo.)
 - **Las suites que se omitieron no están validadas por este run:** el job
   `preflight` (P0–P6 como job propio), la suite SQL, la api-suite, AU3/AU5 y
   el E2 quedaron `skipped`. (El preflight vigente P0–P6 sí corre **dentro**
@@ -1112,6 +1277,67 @@ con el estado de los jobs y con el log: la herramienta conecta al proyecto y
 lee su marca; el estado de partida era el de la Fase 3; las tres migraciones
 se aplican dentro de la transacción sin ningún WARNING; el resultado pasa el
 preflight vigente, y todo se revierte.
+
+#### Run 21: `apply` real (2026-10-21)
+
+- GitHub Actions run #21, id `39521485133`, `workflow_dispatch` lanzado por
+  el propietario sobre `claude/phase4-r8-upgrade-tool`, con head_sha
+  `a8e50289991b508fcdc121918b96ad13ae4e557d` (el revisado, D8), entradas
+  `phase4_upgrade=apply` y la frase de confirmación.
+  URL: https://github.com/tackiie416/roomly/actions/runs/39521485133
+- Job de R8 `118966158177`: `success`, de las 00:28:14 a las 00:28:35 UTC.
+- Los demás jobs, la anomalía de las aprobaciones y la limpieza están en
+  «Resultado: run 21, `apply` de R8 (Fase 4)», al principio.
+
+**Respaldado por líneas del log** (leído el 2026-10-21 con el conector de
+GitHub, `get_job_logs`), en este orden:
+- `phase4-upgrade: modo apply; SHA-256 de las 3 migraciones, del estado de
+  partida y del preflight vigente verificados`;
+- `phase4-upgrade: flujo construido y comprobado antes de conectar (cuerpo
+  común, SHA-256 0c9cadd0597a…)`: el mismo SHA-256 que en el run 20, como
+  preveía el paso 2 del Procedimiento;
+- la guarda F1 dentro del paso: `guard: destino verificado como
+  roomly-validation-3 (coherencia local + marca del proyecto)`;
+- **primera pasada** (`== R8 · transacción abierta (termina en rollback)`):
+  - `ok - R8-MSG` al empezar;
+  - el preflight congelado: P0–P6 en `ok`, con P1 «seed aplicado» y P3
+    «exactamente las 37 políticas esperadas»;
+  - `ok - R8-BASE`;
+  - las tres secciones de migración, en orden y sin ningún aviso;
+  - el preflight vigente: P0–P6 en `ok`, con P1 «Barcelona con sus 73
+    barrios oficiales, restricciones de rooms de la Fase 4.1 presentes» y P3
+    «exactamente las 44 políticas esperadas y las escrituras de habitaciones
+    exigen cuenta activa»;
+  - `ok - R8-MSG` antes del rollback y `== R8 · rollback hecho`;
+- `phase4-upgrade: ensayo limpio; se repite el mismo cuerpo con COMMIT`;
+- **segunda pasada** (`== R8 · transacción abierta (termina en commit)`): las
+  mismas líneas en el mismo orden, con `ok - R8-MSG: … antes de commit` y
+  `== R8 · commit hecho`;
+- `RESULTADO: apply correcto: las 3 migraciones de la Fase 4 aplicadas y
+  P0–P6 superadas antes del COMMIT`, la única línea `RESULTADO:`;
+- PostgreSQL 17.11 (`P1 info`). Ninguna línea `WARNING:`, `ERROR:` ni `FALLO`
+  en el paso. Aparecen las mismas líneas informativas `P1 info`, `P2 info` y
+  `P5 info` que en el run 20, y cuatro líneas `tail: … Broken pipe` al
+  construir el flujo (seis en el run 20): el mismo ruido de `concat_verified`
+  descrito en el run 20.
+
+**Clasificación** (paso 8, tabla de resultados): «apply correcto», es decir,
+«las dos pasadas valen: la Fase 4 está aplicada». La segunda pasada llegó a
+su última línea, sin ERROR ni WARNING y con los cinco avisos de éxito en
+orden. No hizo falta «Recuperación».
+
+**Lo que el run 21 añade al run 20:**
+- la pasada con `COMMIT`, en real, completa hasta `== R8 · commit hecho`;
+- el preflight vigente como job aparte, después del `COMMIT` y en otra
+  sesión: P0–P6 superadas sobre el esquema ya confirmado, no solo dentro de
+  la transacción;
+- las suites posteriores, contra el esquema de la Fase 4.
+
+**Sigue sin probarse en real:** una pérdida de red durante el `COMMIT` y las
+señales de GitHub Actions al cancelar el job o agotar `timeout-minutes`. No
+hicieron falta.
+
+#### Funcionamiento, pruebas y precondiciones
 
 `tests/supabase/phase4-upgrade.sh` aplica a `roomly-validation-3` solo las
 tres migraciones de la Fase 4 sobre el esquema que dejaron los runs 16–19:
@@ -1310,7 +1536,19 @@ su log leído el 2026-10-19):
   En local se envían SIGINT y SIGTERM al grupo de procesos. Un SIGKILL no se
   puede capturar y no deja línea `RESULTADO:`.
 
+El run 21 (`apply`, 2026-10-21) repitió en real esas observaciones en sus dos
+pasadas: PostgreSQL 17.11, ningún WARNING, los avisos de éxito en orden y las
+dos pasadas completas hasta su última línea, la segunda con `COMMIT`. La
+pérdida de red durante el `COMMIT` y las señales de GitHub Actions siguen sin
+probarse en real.
+
 **Incertidumbres antes de ejecutar** (las resuelve el propietario):
+
+Registro de antes del run 21, con notas de actualización donde algo cambió.
+Las decisiones D1–D8 del propietario (2026-10-19, 23:59 UTC; el 20 en hora
+peninsular) están en `PROGRESS.md`, sesión 58. Lo que sigue abierto está en
+«Pendientes después del run 21», abajo.
+
 - **Reglas del Environment `roomly-validation-3`:** comprobadas por el
   propietario el 2026-10-18 (la API de Environments sigue sin ser accesible
   desde el entorno de Claude; esto lo verificó él en la UI): «Deployment
@@ -1318,6 +1556,12 @@ su log leído el 2026-10-19):
   **sin required reviewers**, y los cinco secretos presentes en el Environment
   (`SUPABASE_VALIDATION_PROJECT_REF`, `_DB_URL`, `_URL`, `_ANON_KEY`,
   `_SERVICE_ROLE_KEY`).
+  - **Después (D4, opción B, 2026-10-19, 23:59 UTC):** limitar las ramas a
+    `claude/phase4-r8-upgrade-tool`, sin `master`, y exigir la aprobación del
+    propietario, con «Prevent self-review» desactivado. El propietario
+    confirmó el 2026-10-21, antes del run 21, que lo había aplicado.
+  - **En el run 21 no hubo ninguna aprobación** (ver «Resultado: run 21»):
+    D4 no fue efectiva, y la causa está sin determinar.
 - **`workflow_dispatch` desde una rama distinta de `master` con entradas
   nuevas:** resuelto. El 2026-10-18 el propietario confirmó en el formulario
   (rama `claude/phase4-r8-upgrade-tool`) que aparecen las cinco entradas,
@@ -1409,6 +1653,11 @@ su log leído el 2026-10-19):
     service_role y no necesita el registro abierto, y AU2 comprueba esa lista
     de redirecciones. Desde el run 19 no se ha ejecutado ninguna suite, y el
     `apply` no se ha autorizado.
+  - **Actualización (2026-10-21):** el propietario confirmó otra vez, antes
+    del run 21, el proyecto activo, el registro cerrado, 0 usuarios y la URL
+    Configuration sin cambios. En el run 21, la api-suite (con AU2) y AU3/AU5
+    pasaron en verde con esa configuración. Los usuarios después del run no
+    se han comprobado de forma independiente.
 - **GitHub (secrets, accesos y protecciones): verificado por el propietario
   (2026-10-19).** Claude no ha visto esos paneles: desde su entorno, las rutas
   de la API de Environments, secrets y variables devuelven HTTP 403 a través
@@ -1423,7 +1672,8 @@ su log leído el 2026-10-19):
       duplicados, y no hay secrets de organización aplicables;
     - el Environment no tiene reglas de ramas («No restriction») ni required
       reviewers. Es la configuración observada, no una prueba de que esos
-      controles sobren;
+      controles sobren. (Después: D4, opción B, no efectiva en el run 21;
+      ver la primera entrada de esta lista.)
     - el único colaborador es el propietario; no hay invitaciones pendientes
       ni deploy keys;
     - no hay protecciones de rama ni rulesets;
@@ -1447,10 +1697,14 @@ su log leído el 2026-10-19):
       tienen protección ni rulesets.
   - **Inferencia:** ningún secret se ha actualizado después del run 20 (GitHub
     mostraría «yesterday» o «hours ago»), así que los valores actuales son los
-    que usó ese run.
+    que usó ese run. (Superada: por D7, el propietario volvió a copiar
+    `_ANON_KEY` y `_SERVICE_ROLE_KEY` del proyecto antes del run 21.)
   - **Sin poder verificar con metadatos:** que `_ANON_KEY` y
     `_SERVICE_ROLE_KEY` correspondan al proyecto. Solo lo prueba la
     api-suite, que corre después del COMMIT del `apply`.
+    - **Run 21:** la api-suite pasó 62/62. Usa la clave anon para los
+      clientes con JWT y service_role para preparar y limpiar datos y en
+      SVC/GC. Inferencia: las dos claves corresponden al proyecto.
 - **Lovable (`lovable.dev`): sin acceso a `roomly` según la comprobación del
   propietario; no bloqueante según el estado comunicado (2026-10-19).**
   - **Observado por el propietario:** la app de GitHub `lovable.dev` tenía
@@ -1521,8 +1775,40 @@ su log leído el 2026-10-19):
       para las migraciones;
     - congelar las migraciones del PR #26 para R8;
     - quién revisará el log del `apply` y documentará su resultado.
+  - **Cómo quedó antes del run 21** (sin cambiar la lista de arriba):
+    - las decisiones las tomó el propietario el 2026-10-19, a las 23:59 UTC
+      (D1–D8, en `PROGRESS.md`, sesión 58). D6: la revisión de *Configure*
+      de Netlify no es necesaria ahora, así que no se ha hecho;
+    - el 2026-10-21, justo antes del run, Claude comprobó directamente la
+      cabeza remota (`a8e5028`), la CI en verde, que no había ejecuciones
+      activas ni en cola, los archivos fijados y la frase de confirmación;
+    - el propietario confirmó el proyecto activo, el registro cerrado, 0
+      usuarios, la URL Configuration sin cambios, el aislamiento (Netlify,
+      Vercel, Lovable, previews y entornos locales) y su disponibilidad.
+      Claude no lo observó.
 
-**Procedimiento (el `dry_run` ya se ejecutó en el run 20):**
+**Pendientes después del run 21** (2026-10-21; ninguno lo hace Claude sin
+autorización):
+1. **Aprobaciones del Environment:** revisar, solo mirando, por qué no hubo
+   ninguna en el run 21, y decidir si se corrige la opción B de D4 o se
+   vuelve a la configuración anterior. Hay que resolverlo antes de cualquier
+   otro run contra `roomly-validation-3`.
+2. **Limpieza:** la comprobación independiente en el panel de Supabase (ver
+   «Resultado: run 21»).
+3. **E2 con la Fase 4:** sin ejecutar. Necesita su propia autorización y
+   abrir el registro durante la ventana del E2.
+4. **Runtime completo de Next.js con la clave real:** sigue pendiente de
+   staging; el run 21 no lo cubre.
+5. **PR #26 y #27:** su revisión y su merge, por este orden. La congelación
+   de D3 sigue vigente hasta esa decisión.
+6. **Runs nuevos:** ninguno desde `master` contra este proyecto sin revisar
+   antes qué preflight y qué suite le corresponden. Antes de cualquier run,
+   repetir las comprobaciones previas.
+7. Aparte, sin relación con R8: el aviso de `npm audit` (9 vulnerabilidades
+   altas) en `npm ci`.
+
+**Procedimiento (el `dry_run` se ejecutó en el run 20 y el `apply`, en el
+run 21):**
 1. Revisar las incertidumbres de arriba.
 2. `dry_run`: `confirm_project=roomly-validation-3`, `apply_migrations=false`,
    `run_e2e_real=false`, `phase4_upgrade=dry_run`. **Ejecutado en el run 20
@@ -1531,10 +1817,17 @@ su log leído el 2026-10-19):
    «dry_run correcto» (ver «Run 20», arriba). El cuerpo común no depende del
    modo: si el head no cambia, el `apply` debería mostrar el mismo SHA-256
    (`0c9cadd0597a…`).
-3. Con otra autorización —**todavía no concedida**—, `apply`, con
-   `confirm_phase4_upgrade`. Después corren el preflight y las suites; el E2
-   no. Si no termina en «apply correcto», no se repite: «Recuperación».
-4. Comprobar la limpieza y documentar el run.
+3. Con otra autorización (concedida por el propietario el 2026-10-21),
+   `apply`, con `confirm_phase4_upgrade`. Después corren el preflight y las
+   suites; el E2 no. Si no termina en «apply correcto», no se repite:
+   «Recuperación». **Ejecutado en el run 21 (2026-10-21), lanzado por el
+   propietario:** «apply correcto», con el mismo SHA-256 del cuerpo común
+   (`0c9cadd0597a…`), y el preflight y las suites en verde (ver «Run 21»,
+   arriba). Sin las pausas de aprobación previstas: ver la anomalía en
+   «Resultado: run 21».
+4. Comprobar la limpieza y documentar el run. **Documentado el 2026-10-21
+   (`PROGRESS.md`, sesión 58). La limpieza, pendiente de una comprobación
+   independiente.**
 
 #### Recuperación
 

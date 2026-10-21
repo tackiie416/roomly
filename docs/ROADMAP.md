@@ -539,7 +539,10 @@ Subfases:
   - Tests: `tests/db/15_rooms_integrity.sql` y P3 del preflight (44
     políticas).
   - Sin CRUD, Storage ni búsqueda.
-  - **Sin validar en Supabase real** (ver R8).
+  - **Validada en Supabase real en el run 21 (2026-10-21)**; hasta entonces,
+    sin validar. R8 la aplicó en `roomly-validation-3` y después pasaron el
+    preflight (44 políticas), la suite SQL (con `15`), la api-suite y AU3/AU5.
+    El E2 no se ejecutó (ver R8).
 - **4.1 Datos e integridad, sin interfaz**: autorizada el 2026-10-15 con las
   decisiones R1, R2 (alcance mínimo), R6, R7 (publicación) y R9.
   Implementada y probada en local, incluida la carga de barrios oficiales
@@ -562,7 +565,11 @@ Subfases:
   - Decisión R7 sobre `status` (opción A, 2026-10-15): sin cambios en la
     migración; la fija `tests/db/17_rooms_status_transitions.sql` (ver R7).
   - Sin CRUD, Storage ni búsqueda.
-  - **Sin validar en Supabase real** (ver R8).
+  - **Validada en Supabase real en el run 21 (2026-10-21)**; hasta entonces,
+    sin validar. R8 aplicó sus dos migraciones y después pasaron el preflight
+    (P1 con los 73 barrios y las restricciones de `rooms`, P4 con su GRANT),
+    la suite SQL `16`–`18` y RO1–RO9 de la api-suite. El E2 no se ejecutó
+    (ver R8). La revisión y el merge del PR #26 siguen pendientes.
 
 **Decisiones del propietario** (auditoría del 2026-10-13). Del 2026-10-15
 son las de R1, R2 (alcance mínimo), R6, R7 (publicación y estado) y R9; las
@@ -629,13 +636,15 @@ demás siguen sin tomar:
     desactivadas, que se decidirá antes de la búsqueda.
 - **R8.** Cómo validar en Supabase real las migraciones de la Fase 4.
   `roomly-validation-3` ya tiene el esquema y `apply_migrations` no aplica
-  migraciones sobre uno existente. Un run actual fallaría ya en P1.
+  migraciones sobre uno existente. Un run actual fallaría ya en P1 (situación
+  anterior al run 21; desde entonces el proyecto tiene la Fase 4, ver abajo).
   - **Decidido (2026-10-17):** R8 antes de decidir el merge del PR #26.
     Primero se implementa y prueba en local una herramienta; todavía no se
     actualiza `roomly-validation-3` ni se crea `roomly-validation-4`.
-  - **Herramienta preparada, sin ejecutar** (`tests/supabase/phase4-upgrade.sh`,
-    entrada `phase4_upgrade` del workflow): aplica solo las tres migraciones
-    de la Fase 4 sobre el esquema de la Fase 3, con `dry_run` (siempre
+  - **Herramienta preparada** (`tests/supabase/phase4-upgrade.sh`, entrada
+    `phase4_upgrade` del workflow; sin ejecutar hasta el run 20, ver abajo):
+    aplica solo las tres migraciones de la Fase 4 sobre el esquema de la
+    Fase 3, con `dry_run` (siempre
     `ROLLBACK`) y `apply` (confirmación aparte). Detalle en
     `docs/SUPABASE_VALIDATION.md`.
   - **Revisión de seguridad (2026-10-17):** sin hallazgos críticos. Sus
@@ -660,8 +669,33 @@ demás siguen sin tomar:
       manera (`\'` en una cadena, `$$` pegado a un nombre);
     - L1: una línea `ERROR:` con psql terminado en 0 ya no deja una pasada
       como válida.
-  - **Pendiente:** las reglas del Environment y cada ejecución, con su
-    autorización.
+  - **`dry_run` real (run 20, 2026-10-18):** «dry_run correcto»; la
+    transacción terminó en `ROLLBACK`, sin efectos.
+  - **Decisiones D1–D8 del propietario (2026-10-19, 23:59 UTC; el 20 en
+    hora peninsular)** para el `apply`:
+    licencia y atribución de los barrios aceptadas para el proyecto de
+    validación, riesgo residual sin reversión sencilla aceptado, migraciones
+    y archivos fijados congelados, controles adicionales en el Environment
+    (opción B), reparto de la revisión del log, *Configure* de Netlify no
+    necesaria ahora, claves copiadas de nuevo y `a8e5028` como SHA previsto.
+    Detalle en `PROGRESS.md`, sesión 58.
+  - **`apply` real (run 21, `39521485133`, `a8e5028`, 2026-10-21):**
+    - lo lanzó el propietario, con su autorización expresa;
+    - «apply correcto»: las tres migraciones de la Fase 4 están aplicadas en
+      `roomly-validation-3`;
+    - después pasaron el preflight, la suite SQL `01`–`18`, la api-suite
+      62/62 y AU3/AU5;
+    - `migrate` y el E2 se omitieron: el E2 no está validado con la Fase 4;
+    - no hubo ninguna aprobación del Environment, aunque D4 las preveía, y
+      la causa está sin determinar;
+    - detalle en `docs/SUPABASE_VALIDATION.md` («Resultado: run 21»).
+  - **Pendiente:**
+    - revisar el Environment (por qué no hubo aprobaciones) antes de
+      cualquier otro run;
+    - la comprobación independiente de la limpieza;
+    - el E2 con la Fase 4, con su autorización;
+    - la revisión y el merge de los PR #26 y #27. Hasta entonces sigue la
+      congelación de D3.
 - **R9.** Qué significa `total_roommates`, que el esquema marca como ambigua.
   - **Decidido e implementado (2026-10-15, 4.1):** `total_roommates` es el
     número de personas con las que convivirá quien entre, sin contarse a sí

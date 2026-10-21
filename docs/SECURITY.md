@@ -376,6 +376,12 @@ impide escribir, no solo la aplicación.
   Detalle en `docs/TESTING.md`. **Sin validar en Supabase real** (R8,
   pendiente).
 
+  **Actualización (2026-10-21): validada en Supabase real en el run 21.** R8
+  aplicó la migración en `roomly-validation-3`. Después pasaron el preflight
+  (P3: 44 políticas, con las escrituras de habitaciones exigiendo cuenta
+  activa), la suite SQL (con `15`) y la api-suite. El E2 no se ejecutó
+  (`docs/SUPABASE_VALIDATION.md`, «Resultado: run 21»).
+
 ## Fase 4.1 — habitaciones: columnas reservadas al servidor e invariantes (2026-10-15)
 
 Migración `20261015120000_rooms_integrity_publication.sql` (detalle de cada
@@ -461,6 +467,13 @@ columnas; las dos capas son independientes, como en `profiles` y
     rechazada de R1.
 
   **Sin validar en Supabase real** (R8).
+
+  **Actualización (2026-10-21): validada en Supabase real en el run 21.** R8
+  aplicó `20261015120000` y `20261016120000` en `roomly-validation-3`.
+  Después pasaron el preflight (P1 con los 73 barrios y las restricciones de
+  `rooms`, P4 con su GRANT), la suite SQL (con `16`–`18`) y RO1–RO9 de la
+  api-suite. El E2 no se ejecutó (`docs/SUPABASE_VALIDATION.md`, «Resultado:
+  run 21»).
 
 ## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
 
