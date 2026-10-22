@@ -253,11 +253,12 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
 - **Fase 4 (Rooms): en curso desde el 2026-10-13**, con la autorización
   expresa del propietario. Iniciarla no autoriza el lanzamiento.
   - La 4.0 (escrituras de habitaciones bloqueadas para cuentas
-    desactivadas) está integrada en `master` (PR #25, `7818a15`), sin
-    validar en Supabase real (R8).
+    desactivadas) está integrada en `master` (PR #25, `7818a15`). Se validó
+    en Supabase real en el run 21 (R8, 2026-10-21; ver abajo).
   - La 4.1 (datos e integridad, sin interfaz), autorizada el 2026-10-15 con
     R1, R2 (alcance mínimo), R6, R7 (publicación) y R9, está implementada y
-    probada en local, pendiente de revisión en su PR y sin validar en real:
+    probada en local, pendiente de revisión en su PR (#26) y validada en
+    Supabase real en el run 21 (R8):
     - migración `20261015120000`: barrio ↔ ciudad, catálogo cerrado de
       características (`lib/validation/rooms.ts`), ocupación, requisitos para
       `active` y GRANT por columnas en `rooms`;
@@ -268,8 +269,29 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - R7 sobre `status`: opción A del propietario (la propietaria lo cambia
       entre `draft`, `active`, `paused` y `rented`; `removed` es del admin),
       fijada por `tests/db/17`.
-  - Siguen pendientes R3, R4, R5, R8, la visibilidad de R7 y el resto de R2.
-    Cada subfase necesita su autorización (`docs/ROADMAP.md`, Fase 4).
+  - Siguen pendientes R3, R4, R5, la visibilidad de R7 y el resto de R2. De
+    R8 quedan los pendientes posteriores al run 21 (abajo). Cada subfase
+    necesita su autorización (`docs/ROADMAP.md`, Fase 4).
+  - R8 (decisión del 2026-10-17: antes de decidir el merge del PR #26): la
+    herramienta `tests/supabase/phase4-upgrade.sh` (entrada `phase4_upgrade`
+    del workflow, `dry_run` y `apply`), probada en local, se ejecutó contra
+    `roomly-validation-3`:
+    - **run 20** (`39176175018`, 2026-10-18): `dry_run`, terminado en
+      ROLLBACK, sin efectos;
+    - **run 21** (`39521485133`, `a8e5028`, 2026-10-21), lanzado por el
+      propietario: `apply`, «apply correcto». Las tres migraciones de la
+      Fase 4 están aplicadas. Después, en verde: el preflight, la suite SQL
+      `01`–`18`, la api-suite 62/62 (RO1–RO9 contra la 4.1) y AU3/AU5.
+      `migrate` y el E2 se omitieron: **el E2 no está validado con la Fase
+      4**;
+    - pendiente: no hubo ninguna aprobación del Environment, aunque D4 las
+      preveía (causa sin determinar; hay que revisarlo antes de cualquier
+      otro run). La limpieza no tiene una comprobación independiente. El
+      merge de los PR #26 y #27 está sin decidir, y la congelación de D3
+      sigue vigente;
+    - `roomly-validation-3` va por delante de `master` hasta el merge del PR
+      #26. Cada run, `dry_run` o `apply`, necesita autorización explícita
+      (`docs/SUPABASE_VALIDATION.md`, «Resultado: run 21»).
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -354,7 +376,7 @@ npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (v
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
 npm run test:e2e:real         # E2: alta real contra roomly-validation-3 (solo desde el workflow manual)
-npm run test:infra            # auto-tests de guarda, runner SQL y preflight contra PostgreSQL local
+npm run test:infra            # auto-tests de guarda, runner SQL, preflight y actualizaciones (incluida la de la Fase 4) contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
 ```
@@ -497,14 +519,18 @@ Supabase real se verificó en la Fase 1 (`roomly-validation`, histórico), la
 de Fase 2 en `roomly-validation-2b` (`uwxb…`), runs 13 y 15, y la de Fase 3
 en `roomly-validation-3`, runs 16 y 18. Los servicios del servidor (SVC/GC)
 se validaron en el run 19, sin el runtime completo de Next.js
-(`docs/SUPABASE_VALIDATION.md`). E2E: E1 (`npm run test:e2e`, Supabase
-simulado; desde el PR #19 incluye D1 sobre el build de E1) corre en local y
+(`docs/SUPABASE_VALIDATION.md`). Las migraciones de la Fase 4 se aplicaron
+en ese mismo proyecto con R8 en el run 21 (`apply`), seguido del preflight,
+la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. E2E: E1
+(`npm run test:e2e`, Supabase simulado; desde el PR #19 incluye D1 sobre el
+build de E1) corre en local y
 en CI; el entorno cloud de Claude Code no puede descargar el navegador de
 Playwright 1.63 y usa el Chromium preinstalado con
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (resultado orientativo; el de CI es el de
 referencia). E2 (real) solo se
 ejecuta desde el workflow manual; pasó en el run 15 (Fase 2) y en el run 18
-(Fase 3, hasta `/test`), y cada ejecución nueva requiere autorización.
+(Fase 3, hasta `/test`), no se ha ejecutado con la Fase 4, y cada ejecución
+nueva requiere autorización.
 
 ## Alcance del MVP — qué NO construir todavía
 

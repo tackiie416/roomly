@@ -477,6 +477,11 @@ propietario se divide por comando, con `to authenticated`.
     ya existentes y las conserva;
   - **sin validar en Supabase real** (R8, pendiente: `roomly-validation-3`
     no admite aplicar migraciones a un esquema que ya existe).
+  - **Actualización (2026-10-21):** validada en Supabase real en el run 21.
+    R8 (`apply`) aplicó las migraciones de la Fase 4 sobre ese esquema, y
+    después pasaron el preflight (44 políticas) y la suite SQL, con `15`.
+    El E2 no se ejecutó (`docs/SUPABASE_VALIDATION.md`, «Resultado: run
+    21»).
 
 ## Fase 4.1 — habitaciones: integridad, catálogo, ocupación y publicación (2026-10-15)
 
@@ -693,6 +698,11 @@ suites reales borran las suyas).
   habitación activa completa y un borrador incompleto, y prueba el rechazo
   con datos inválidos.
 - Detalle en `docs/TESTING.md`. **Sin validar en Supabase real** (R8).
+- **Actualización (2026-10-21):** validada en Supabase real en el run 21.
+  R8 aplicó esta migración y la de los barrios (`20261016120000`), y después
+  pasaron el preflight (P1 y P4), la suite SQL (con `16`–`18`) y RO1–RO9 de
+  la api-suite. El E2 no se ejecutó (`docs/SUPABASE_VALIDATION.md`,
+  «Resultado: run 21»).
 
 ## Diagrama de entidades (simplificado)
 

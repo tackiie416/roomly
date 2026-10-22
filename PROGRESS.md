@@ -6,6 +6,1311 @@ próximos pasos.**
 
 ---
 
+## 2026-10-21 — Sesión 59: R8, publicación de la documentación y prueba de la protección del Environment (run 22) (Fase 4 EN CURSO; protección de aprobación NO demostrada; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- Tras la sesión 58, el propietario autorizó por separado:
+  - las correcciones de la revisión del diff, y el commit local `eedcadb`;
+  - el push;
+  - una investigación de solo lectura de la anomalía de las aprobaciones del
+    run 21;
+  - una única prueba controlada, el run 22.
+
+**Publicación** (verificado directamente)
+- Push normal, sin force, de los siete commits locales (`750f280` a
+  `eedcadb`). Con `git ls-remote`, la rama remota estaba en `a8e5028` antes y
+  quedó en `eedcadb0f98914b7512fa2d3f1faa53688d39c30` después.
+- No se publicó ninguna otra rama: el PR #26 sigue en `179972c` y `master`, en
+  `7818a15`.
+- La CI #68 (`pull_request`, sobre `eedcadb`) terminó en `success`, según la
+  API.
+
+**Investigación de solo lectura (antes del run 22)**
+- **Verificado directamente:**
+  - los ocho jobs del workflow declaran `environment: roomly-validation-3`
+    como texto fijo. Ningún secret se usa fuera de esos jobs, y la primera
+    conexión a Supabase es el tercer paso de `guard`;
+  - el repositorio es público y de una cuenta personal;
+  - solo hay deployments en `roomly-validation-2` y `roomly-validation-3`,
+    31 en cada uno, y ninguno de los 62 pasó nunca por un estado de espera;
+  - los deployments del run 21 usan exactamente `roomly-validation-3`;
+  - `/approvals` y `/pending_deployments` del run 21 dan `[]`, como las
+    aprobaciones del run 20.
+- **Sin poder leer:** el proxy de esta sesión bloquea las rutas de
+  Environments (configuración, ramas y reglas de protección), de permisos de
+  colaboradores y de permisos de Actions. No es una respuesta de GitHub, así
+  que no prueba que las reglas existan ni que no existan.
+
+**Run 22** (`39677301625`, `eedcadb`, rama `claude/phase4-r8-upgrade-tool`;
+2026-10-21, de las 21:15:32 a las 21:15:42 UTC; lanzado por Claude con el
+conector, con autorización para una única ejecución)
+- **Entradas, con dos confirmaciones incorrectas a propósito:**
+  `confirm_project=prueba-proteccion-no-conectar`,
+  `apply_migrations=false`, `run_e2e_real=false`, `phase4_upgrade=none` y
+  `confirm_phase4_upgrade=prueba-proteccion`.
+- **Comprobaciones previas:**
+  - rama y SHA, local y remoto, en `eedcadb`, con el árbol limpio;
+  - el workflow, idéntico al de `a8e5028`;
+  - ningún run activo ni en cola;
+  - en local, sin red, los dos primeros pasos de `guard` fallan con estas
+    entradas.
+- **Observado** (API y log del job `guard`, `119490383165`):
+  - `guard` se creó a las 21:15:34 y empezó a las 21:15:36, **sin esperar
+    aprobación**;
+  - el deployment `7237488734` pasó de `in_progress` a `failure` sin ningún
+    estado de espera;
+  - `/approvals` y `/pending_deployments` dan `[]`, consultados cuando
+    `guard` ya había terminado;
+  - el checkout, en verde; «Entradas compatibles» en `failure`, con «ERROR:
+    confirm_phase4_upgrade solo se admite con phase4_upgrade=apply» y
+    «RESULTADO: … NO ejecutada (nada aplicado)»;
+  - **omitidos:** el paso de confirmación del proyecto y el de secrets y
+    conexión;
+  - el paso que falló no recibe ninguna variable de Supabase, y el log no
+    tiene ninguna línea `guard:` ni de `psql`;
+  - los otros siete jobs, `skipped`;
+  - ninguna migración, ningún E2E, ninguna conexión a Supabase y ningún dato
+    tocado.
+- **Conclusión:** la protección de aprobación del Environment **no está
+  demostrada y se considera ineficaz** hasta que una prueba posterior muestre
+  un job realmente pendiente de aprobación. Lo que frenó el run fueron las
+  barreras del propio workflow.
+- **Causa: desconocida.** Hipótesis abiertas, ninguna confirmada:
+  - la regla de revisores, sin guardar o no activa;
+  - una regla en otro Environment de nombre parecido;
+  - el bypass de administradores;
+  - un cambio no observado.
+
+  No se puede afirmar ninguna, porque la configuración real no se ha podido
+  leer.
+
+**Problemas encontrados**
+- La pausa de aprobación prevista en D4 sigue sin funcionar (arriba).
+- La política de red de este entorno bloquea `docs.github.com`, así que los
+  nombres de la interfaz de GitHub no se han podido contrastar con la
+  documentación actual.
+
+**Qué se hizo**
+- `docs/SUPABASE_VALIDATION.md`:
+  - un estado nuevo en la cabecera;
+  - la sección «Resultado: run 22, prueba de la protección del Environment»;
+  - notas de actualización en la causa de la anomalía del run 21 y en el
+    primer pendiente posterior al run 21.
+- Esta entrada.
+- Sin commit ni push. Sin cambios en el código, el workflow, los secrets, el
+  Environment ni Supabase.
+
+**Pendiente**
+1. **Configuración:** que el propietario revise y, si hace falta, corrija
+   `roomly-validation-3` en Settings → Environments, compruebe que se
+   mantiene al recargar y comunique los valores.
+2. **Prueba posterior:** con su autorización y las mismas entradas inocuas.
+   Solo cierra la incidencia si el run queda en espera, con `guard` pendiente
+   de revisión y sin ningún paso ejecutado. Después, el propietario la
+   rechaza.
+3. **Cualquier otro run** contra `roomly-validation-3`: hasta entonces, sin
+   contar con una pausa de aprobación.
+4. **Sin cambios respecto a la sesión 58:** la limpieza en Supabase, el E2
+   con la Fase 4, el runtime de Next.js con la clave real y los merges de los
+   PR #26 y #27.
+5. **Commit y push de esta documentación:** cada uno, con su autorización.
+
+---
+
+## 2026-10-21 — Sesión 58: R8, `apply` real (run 21) y su documentación (Fase 4 EN CURSO; las tres migraciones aplicadas en `roomly-validation-3`; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- Tras la sesión 57 quedaban las decisiones del propietario y las
+  precondiciones del `apply`.
+- En esta sesión, por orden:
+  - las decisiones D1–D8;
+  - la auditoría final, de solo lectura, y las confirmaciones del
+    propietario;
+  - la autorización del `apply` y el run 21, que lanzó el propietario;
+  - la auditoría posterior, de solo lectura;
+  - esta documentación, autorizada solo en local y sin commit.
+
+**Decisiones del propietario D1–D8** (2026-10-19, 23:59 UTC, que en hora
+peninsular es el 20 de octubre; no autorizaban el `apply`):
+- **D1, licencia y atribución de los barrios:** aceptada la opción A para el
+  proyecto de validación.
+  - La ficha de datos.gob.es del conjunto `BarcelonaCiutat_Barris.json`
+    (Ajuntament de Barcelona, Open Data BCN) declara CC BY 4.0.
+  - Condiciones:
+    - mantener la atribución, la identificación del conjunto, el enlace a la
+      fuente y el enlace a CC BY 4.0;
+    - indicar que los datos se han adaptado a ROOMLY, cuando corresponda;
+    - no sugerir que el Ayuntamiento avala ROOMLY;
+    - antes del lanzamiento público, confirmar la atribución donde se
+      muestren los datos.
+  - La ficha prueba la licencia declarada. No se ha vuelto a descargar ni a
+    comparar el archivo original.
+- **D2, sin una vía de reversión sencilla:** riesgo residual aceptado.
+  - Solo para `roomly-validation-3`, como proyecto desechable y sin datos que
+    conservar.
+  - No se extiende a producción ni permite improvisar recuperaciones.
+  - No se repite el `apply` automáticamente. Un timeout, una cancelación o la
+    falta de la línea `RESULTADO:` no demuestran un rollback.
+- **D3, congelación:** las tres migraciones, los seis archivos fijados y el
+  preflight congelado no cambian hasta revisar el resultado y decidir el
+  siguiente paso del PR #26. Esta decisión no fusiona el PR #26.
+- **D4, Environment, opción B:**
+  - ramas limitadas a `claude/phase4-r8-upgrade-tool`, sin `master`;
+  - aprobación explícita del propietario antes de los jobs protegidos, con
+    «Prevent self-review» desactivado. Es una pausa deliberada, no una
+    revisión independiente;
+  - la configura el propietario. Si GitHub no lo permite, se para.
+- **D5, revisión del log:**
+  - el propietario lanza, confirma el SHA, observa y decide;
+  - Claude lee el log de R8, lo compara con la documentación, clasifica el
+    resultado y prepara la documentación;
+  - no se declara un éxito por el estado general del workflow.
+- **D6, *Configure* de Netlify:** no hace falta ahora. Es no bloqueante según
+  los permisos declarados.
+- **D7, claves:** volver a copiar `SUPABASE_VALIDATION_ANON_KEY` y
+  `SUPABASE_VALIDATION_SERVICE_ROLE_KEY` desde el panel de
+  `roomly-validation-3`, a mano y sin mostrar los valores.
+- **D8, SHA previsto:** `a8e5028`, sin publicar los seis commits locales de
+  documentación.
+
+**Auditoría final y confirmaciones** (2026-10-20 y 2026-10-21)
+- **Comprobado directamente por Claude** (2026-10-21, 00:25 UTC, justo antes
+  del lanzamiento):
+  - la rama remota en `a8e5028`, con la CI de ese commit en verde (3/3);
+  - ninguna ejecución activa ni en cola;
+  - las tres migraciones previstas y los seis archivos fijados con su
+    SHA-256;
+  - la frase de confirmación;
+  - los ocho jobs con el Environment `roomly-validation-3`;
+  - los seis commits locales, sin publicar.
+- **Que Claude no podía comprobar:** las reglas del Environment, porque la
+  API devuelve HTTP 403.
+- **Confirmado por el propietario** (2026-10-21, de las 00:21 a las 00:22
+  UTC, en respuestas a preguntas cerradas):
+  - D4, aplicada como se pidió;
+  - D7, hecha: las dos claves, del mismo proyecto y del tipo esperado;
+  - Supabase: proyecto activo, registro cerrado, 0 usuarios, nada que
+    conservar y la URL Configuration sin cambios;
+  - el aislamiento revisado y su disponibilidad.
+
+**Autorización y lanzamiento**
+- El propietario autorizó expresamente el `apply` (2026-10-21, 00:24 UTC),
+  con:
+  - las entradas exactas y las aprobaciones en orden;
+  - la orden de parar si Claude no podía garantizar las pausas.
+- **Claude no lo lanzó:** no podía garantizar las pausas (HTTP 403). Le pidió
+  al propietario que lo lanzara desde Actions, que comprobara que el run se
+  quedaba esperando y que lo cancelara si `guard` empezaba sin pedir
+  aprobación.
+- **El propietario lanzó el run 21.** Claude lo supo cuando ya había
+  terminado: el siguiente mensaje del propietario (00:33 UTC) traía las
+  líneas de la api-suite.
+
+**Run 21** (`39521485133`, sobre `a8e50289991b508fcdc121918b96ad13ae4e557d`;
+2026-10-21, de las 00:28:02 a las 00:32:40 UTC, un intento)
+- **Del log y de la API** (verificado directamente; los logs se leyeron el
+  2026-10-21 con `get_job_logs`):
+  - **Entradas:** el paso de R8 recibió `PHASE4_UPGRADE: apply`,
+    `APPLY_MIGRATIONS: false`, `RUN_E2E_REAL: false` y la frase de
+    confirmación. La confirmación del proyecto pasó en la guarda.
+  - **`guard`:** destino verificado como `roomly-validation-3`.
+  - **R8:**
+    - los SHA-256, verificados;
+    - el cuerpo común, `0c9cadd0597a…`, el mismo que en el run 20;
+    - la primera pasada llegó hasta `== R8 · rollback hecho`, seguida de
+      «ensayo limpio»;
+    - la segunda llegó hasta `== R8 · commit hecho`;
+    - «RESULTADO: apply correcto: las 3 migraciones de la Fase 4 aplicadas y
+      P0–P6 superadas antes del COMMIT»;
+    - sin WARNING, ERROR ni FALLO. Las cuatro líneas `tail: … Broken pipe`
+      son el ruido ya conocido.
+  - **Migraciones aplicadas:** `20261013120000` (4.0), `20261015120000` (4.1)
+    y `20261016120000` (R1).
+  - **`preflight`:** «RESULTADO: P0–P6 superadas», con los 73 barrios, las
+    restricciones de la 4.1, 44 políticas, 13 triggers y 11 funciones.
+  - **`sql-suite`:**
+    - los 18 archivos, cada uno revertido;
+    - 651 líneas `ok -` (como `test:db` en local) y ninguna `not ok`;
+    - «sin roomly_test, sin políticas temporales, sin usuarios de test»;
+    - «RESULTADO: suite SQL completa en Supabase real…».
+  - **`api-suite`:** «Tests 62 passed (62)». RO1–RO9 corren por primera vez
+    contra la 4.1.
+  - **`auth-redirects`:** 16 líneas `ok` (AU3a–g y AU5a–i) y «RESULTADO:
+    AU3/AU5 (sin sesión) superados».
+  - **`migrate` y `e2e-real`:** `skipped`. **El E2 no está validado con la
+    Fase 4.**
+  - **`npm ci`:** «9 high severity vulnerabilities», sin relación con R8.
+- **Anomalía: no hubo ninguna aprobación del Environment.**
+  - **Verificado por la API:**
+    - `/approvals` responde `[]`;
+    - los jobs empiezan 2–3 s después de crearse, como en el run 20;
+    - los deployments no pasan por ningún estado de espera.
+  - **Inferencia:** no se aplicó ninguna regla de *required reviewers*. D4 no
+    fue efectiva, aunque se había confirmado aplicada.
+  - **Causa:** sin determinar. La configuración no se puede leer por la API
+    (HTTP 403).
+  - **Impacto:** no hubo la parada prevista antes del `COMMIT`. Después se
+    comprobó que el run ejecutó el SHA revisado y el mismo cuerpo SQL.
+- **Inferencias:**
+  - las dos claves corresponden al proyecto: la api-suite usa las dos y pasó
+    62/62;
+  - el teardown de la api-suite no falló: Vitest lo contaría como un fallo
+    del archivo;
+  - un segundo `apply` no aplicaría nada: así está diseñado y lo prueba el
+    selftest local, no un run real.
+- **Pendiente de verificar:** la limpieza. Falta comprobar 0 usuarios y las
+  tablas vacías, salvo `neighborhoods` (73), `cities` (9) y `universities`
+  (7). No hay una inspección independiente.
+
+**Estado de los PR** (comprobado directamente el 2026-10-21, en la auditoría
+posterior):
+- PR #26: abierto, head `179972c`, base `master`, `mergeable_state=clean`,
+  CI en verde y sin revisiones;
+- PR #27: en borrador, head `a8e5028`, base la rama del PR #26, `clean`, CI en
+  verde y sin revisiones;
+- ninguno aprobado ni fusionado.
+
+**Problemas encontrados**
+- Las aprobaciones del Environment no fueron efectivas (arriba). El control
+  falló, aunque el contenido aplicado era el revisado.
+
+**Decisiones técnicas (de documentación)**
+- En `docs/SUPABASE_VALIDATION.md`, la descripción general de la herramienta
+  quedaba bajo el título «Run 20». Ahora tiene un título propio
+  («Funcionamiento, pruebas y precondiciones»), para no quedar bajo el run 21.
+  No cambia su texto.
+- Los textos que decían que el `apply` no se había ejecutado se conservan,
+  con una nota de actualización. Solo se reescribieron las líneas de estado
+  (cabeceras, títulos y filas de las tablas de resultados).
+
+**Qué se hizo (documentación, solo en local y sin commit)**
+- `docs/SUPABASE_VALIDATION.md`:
+  - el estado de la cabecera;
+  - la sección «Resultado: run 21, `apply` de R8 (Fase 4)» y la subsección
+    «Run 21: `apply` real»;
+  - las filas de la matriz;
+  - las notas en el aviso de la Fase 4, el run 20 y las incertidumbres;
+  - «Pendientes después del run 21» y el Procedimiento.
+- `docs/TESTING.md`: las filas de Supabase real, el bloque «Fase 4 en
+  Supabase real: run 21» y las notas de la 4.0, la 4.1 y R8.
+- `docs/ROADMAP.md`: la 4.0 y la 4.1, validadas en real en el run 21; R8, con
+  los runs 20 y 21, D1–D8 y sus pendientes.
+- `CLAUDE.md`: el estado de la Fase 4 y de R8, y el párrafo de Testing.
+- Tras la revisión del diff, con autorización aparte:
+  - `docs/SECURITY.md` y `docs/DATABASE.md`: una nota de actualización junto
+    a cada «Sin validar en Supabase real (R8)» de la 4.0 y la 4.1. La
+    afirmación histórica de la Fase 3.1 en `docs/DATABASE.md` no cambia;
+  - el SHA de `master` (`7818a15`) se comprobó en la referencia remota con
+    `git ls-remote`, en modo lectura;
+  - la fecha de D1–D8 se escribe igual en todos los documentos: 2026-10-19,
+    23:59 UTC (el 20 en hora peninsular).
+- Sin cambios en el código ejecutable, las migraciones ni los archivos
+  fijados (D3).
+- Ninguna operación externa: solo lecturas de la API y de los logs de GitHub,
+  y `git ls-remote`. Ni workflows, ni Supabase, ni el Environment, ni push.
+
+**Pendiente**
+1. **Aprobaciones del Environment:** revisarlas, solo mirando, y decidir
+   antes de cualquier otro run.
+2. **Limpieza:** la comprobación independiente en el panel de Supabase.
+3. **E2 con la Fase 4:** con su autorización.
+4. **Runtime de Next.js con la clave real:** en staging.
+5. **PR #26 y #27:** la revisión y el merge. La congelación de D3 sigue
+   vigente.
+6. **Commit y push:** el commit de esta documentación y el push de ese commit
+   y de los seis commits locales, cada uno con su autorización.
+7. **Aparte, sin relación con R8:** el aviso de `npm audit`.
+- **Siguiente etapa:** las decisiones del propietario sobre el Environment y
+  la limpieza, y después sobre los PR.
+
+---
+
+## 2026-10-19 — Sesión 57: R8, auditoría de permisos de la app de Netlify en GitHub (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Quedaba pendiente si la app de Netlify, que aparece entre las apps con
+  acceso a `roomly`, puede escribir en el código o administrar el
+  repositorio.
+- Auditoría de solo lectura. Las rutas de instalaciones de la API no son
+  accesibles desde el entorno de Claude: `user/installations` está bloqueada
+  y `repos/…/installation` devuelve 401, porque exige un token de la app.
+
+**Observado directamente por la API**
+- Los *check runs* de Netlify llevan adjunto un objeto `app` (app `Netlify`,
+  de la organización `netlify`, actualizada el 2025-07-17). Se leyeron en los
+  del head del PR #26. Sus permisos declarados:
+
+  | Permiso | Nivel declarado |
+  |---|---|
+  | `contents` | `read` |
+  | `metadata` | `read` |
+  | `checks` | `write` |
+  | `statuses` | `write` |
+  | `pull_requests` | `write` |
+  | `issues` | `write` |
+  | `emails` | `read` |
+
+- No declara permisos de workflows, administración, secrets, Environments ni
+  Actions, ni un permiso explícito de deployments.
+- La app ha publicado checks, estados y comentarios en `roomly`; lo más
+  reciente, en el PR #26, el 2026-10-16 a las 19:58 UTC.
+
+**Comunicado por el propietario** (revisión de accesos, sesión 56)
+- Netlify aparece entre las apps con acceso al repositorio.
+
+**Inferencia**
+- Sin `contents: write` ni permiso de workflows, ese conjunto declarado no le
+  da las capacidades necesarias para modificar el código ni los workflows.
+- Los permisos de escritura que declara (checks, estados, issues y pull
+  requests) sirven para publicar resultados, comentar y editar PR; no son
+  escritura de código.
+
+**Sin verificar en la instalación**
+- Si la instalación cubre todos los repositorios o solo algunos.
+- Quién instaló o autorizó la app.
+- Si hay solicitudes de permisos nuevos pendientes.
+- La lista exacta de permisos concedidos a la instalación.
+- Que la API no permita ver la instalación no demuestra que falten permisos.
+
+**Resultado**
+- App de Netlify: **no bloqueante según los permisos declarados y la
+  comprobación actual; alcance y configuración efectivos de la instalación no
+  verificados directamente.** No es una garantía permanente.
+
+**Qué se hizo**
+- Documentado en `docs/SUPABASE_VALIDATION.md` («Incertidumbres antes de
+  ejecutar», R8) y en esta entrada. Los registros del run 20, de Netlify, de
+  Vercel, de Auth y usuarios, de los secrets y de Lovable no cambian.
+- Ninguna acción externa: ni workflows, ni Supabase, ni cambios de permisos o
+  de configuración.
+
+**Pendiente**
+- Opcional y de bajo riesgo: revisar la página *Configure* de la instalación
+  de Netlify (alcance de repositorios, quién la instaló, permisos pendientes).
+- Justo antes de cualquier ejecución futura:
+  - que no haya ejecuciones activas ni en cola, y que la cabeza de la rama
+    sea el commit revisado;
+  - que el proyecto siga activo, el registro siga cerrado y siga habiendo 0
+    usuarios;
+  - que ningún despliegue ni entorno local use las credenciales de
+    `roomly-validation-3`.
+- Decisiones del propietario:
+  - mantener las reglas actuales del Environment o añadir controles;
+  - la licencia y la atribución de los barrios;
+  - aceptar expresamente que no hay una vía de reversión sencilla para el
+    `apply`;
+  - congelar las migraciones del PR #26;
+  - quién revisará y documentará el log del `apply`.
+- El `apply`, con su autorización aparte; el push de los commits locales; y
+  el merge de los PR #26 y #27.
+- **Siguiente etapa:** cerrar las decisiones y las precondiciones pendientes
+  de R8.
+
+---
+
+## 2026-10-19 — Sesión 56: R8, revisión de secrets, accesos de GitHub y Lovable (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Precondiciones del `apply`: los secrets del Environment, los posibles
+  duplicados, los accesos al repositorio y sus protecciones.
+- Desde el entorno de Claude, las rutas de la API de Environments, secrets y
+  variables devuelven HTTP 403 a través del proxy. El propietario hizo las
+  comprobaciones en el panel de GitHub, con la guía de Claude.
+
+**Observado por el propietario** («verificado por el propietario»)
+- Los cinco secrets requeridos (`SUPABASE_VALIDATION_PROJECT_REF`,
+  `_DB_URL`, `_URL`, `_ANON_KEY` y `_SERVICE_ROLE_KEY`) están en el
+  Environment `roomly-validation-3`, junto con `E2E_EMAIL_TEMPLATE` y
+  `E2E_MAILBOX_CONFIG`, todos actualizados «last week».
+- No hay secrets ni variables a nivel de repositorio, así que no hay
+  duplicados, y no hay secrets de organización aplicables.
+- El Environment no tiene reglas de ramas ni required reviewers. Es la
+  configuración observada, no una prueba de que esos controles sobren.
+- El único colaborador es el propietario; no hay invitaciones pendientes ni
+  deploy keys. No hay protecciones de rama ni rulesets.
+- Apps con acceso: Claude (con escritura; esta sesión solo publica con
+  autorización expresa), Netlify y `lovable.dev`.
+- Lovable:
+  - la app `lovable.dev` tenía acceso a todos los repositorios, con
+    *Contents: read and write*;
+  - había un proyecto de Lovable conectado a `roomly`, sin Supabase
+    conectado y sin publicar;
+  - el propietario desinstaló o suspendió la app en GitHub;
+  - Lovable no aparece autorizado en la organización de Supabase.
+
+**Comprobado por Claude**
+- Los cinco nombres coinciden con los del workflow y `docs/ENVIRONMENT.md`.
+- Log del run 20: los cinco aparecen como `***` en la guarda, que comprobó el
+  formato del ref, la URL y la conexión de BD frente a ese ref y la marca. De
+  `_ANON_KEY` y `_SERVICE_ROLE_KEY` solo comprueba que no estén vacías. El log
+  no indica el ámbito de cada valor.
+- CI #67: `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` llegan
+  vacías al build, así que no hay secrets de repositorio con esos nombres.
+- API de GitHub: el repositorio es de una cuenta personal
+  (`owner.type = User`); `master` y las ramas de los PR #26 y #27 no tienen
+  protección ni rulesets.
+- En el repositorio no hay ramas, commits ni autores de Lovable.
+
+**Inferencia**
+- Ningún secret se ha actualizado después del run 20, así que los valores
+  actuales son los que usó ese run.
+
+**Sin poder verificar**
+- Que `_ANON_KEY` y `_SERVICE_ROLE_KEY` correspondan al proyecto: solo lo
+  prueba la api-suite, después del COMMIT del `apply`.
+- La desinstalación o suspensión de Lovable: Claude no la ha visto. Una app
+  suspendida se puede reactivar.
+
+**Resultado**
+- GitHub (secrets, accesos y protecciones): verificado por el propietario.
+- Lovable: sin acceso a `roomly` según la comprobación del propietario; no
+  bloqueante según el estado comunicado. Hay que repetir la comprobación
+  antes de cualquier `apply` si recupera el acceso.
+- Permisos de la app de Netlify: **pendiente**, ni bloqueante ni no
+  bloqueante.
+
+**Qué se hizo**
+- Documentado en `docs/SUPABASE_VALIDATION.md` («Incertidumbres antes de
+  ejecutar», R8) y en esta entrada. Las secciones del run 20, de Netlify, de
+  Vercel y de Auth no cambian.
+- Ninguna acción externa: ni workflows, ni Supabase, ni cambios en GitHub,
+  Netlify, Vercel o Lovable por parte de Claude.
+
+**Pendiente**
+- Los permisos efectivos de la app de Netlify en GitHub y quién los
+  concedió.
+- Justo antes de cualquier ejecución futura:
+  - que no haya ejecuciones activas ni en cola;
+  - que la cabeza de la rama sea el commit revisado, porque no hay protección
+    de rama;
+  - que el proyecto siga activo, el registro siga cerrado y siga habiendo 0
+    usuarios;
+  - que ningún despliegue conectado use `roomly-validation-3`: Netlify,
+    Vercel, previews, Lovable y entornos locales.
+- Decisiones del propietario:
+  - mantener el Environment sin reglas de ramas ni required reviewers, o
+    añadir controles;
+  - la licencia y la atribución del conjunto oficial de barrios;
+  - la ausencia de una vía de reversión sencilla para las migraciones;
+  - congelar las migraciones del PR #26 para R8;
+  - quién revisará el log del `apply` y documentará su resultado.
+- El `apply`, con su autorización aparte; el push de los commits locales; y
+  el merge de los PR #26 y #27.
+- **Siguiente comprobación recomendada:** los permisos efectivos de la app
+  de Netlify en GitHub.
+
+---
+
+## 2026-10-19 — Sesión 55: R8, revisión manual de Auth y usuarios de Supabase (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Precondición del `apply`: identidad, estado, Auth, usuarios, URL
+  Configuration e integraciones de `roomly-validation-3`.
+- Claude no tiene acceso a Supabase. Preparó una checklist de solo lectura y
+  el propietario la hizo en el panel el 2026-10-19.
+
+**Observado por el propietario** (panel de Supabase; «verificado por el
+propietario»)
+- Identidad y estado: un único proyecto de validación llamado
+  `roomly-validation-3`, activo, en el plan Free y en la región de
+  Frankfurt. Su referencia coincide con la del registro privado del
+  propietario.
+- Auth:
+  - el registro público de usuarios nuevos está desactivado y los accesos
+    anónimos también;
+  - el único proveedor habilitado es Email. Es un ajuste distinto del
+    registro: permite iniciar sesión por email, no registrarse;
+  - no hay hooks, proveedores de terceros ni SSO;
+  - el correo sale por el SMTP sandbox de Mailtrap.
+- Usuarios: **0**. No hay ninguno que clasificar ni limpiar.
+- URL Configuration: Site URL `http://localhost:3000` y una única Redirect
+  URL permitida, `http://localhost:3000/callback`.
+- Integraciones: ninguna configurada en el proyecto. No dice nada de
+  servicios externos sin inspeccionar.
+
+**Contrastado por Claude**
+- En el log del run 20, la guarda aceptó la marca `roomly-validation-3` en
+  la base de datos a la que apuntan los secrets (sesión 52). Prueba la marca,
+  no por sí sola que sea el proyecto del panel: la coincidencia de la
+  referencia la comprobó el propietario.
+
+**Inferencia, no ejecutada**
+- La configuración observada es compatible con las suites que corren después
+  del `apply`: la api-suite crea sus usuarios con service_role sin necesitar
+  el registro abierto, y AU2 comprueba esa lista de redirecciones.
+- Desde el run 19 no se ha ejecutado ninguna suite.
+
+**Resultado**
+- Auth y usuarios de `roomly-validation-3`: **verificado por el propietario**
+  a fecha de 2026-10-19. Las precondiciones de R8 siguen sin estar cerradas.
+
+**Qué se hizo**
+- Documentado en `docs/SUPABASE_VALIDATION.md` («Incertidumbres antes de
+  ejecutar», R8) y en esta entrada. Las conclusiones del run 20, de Netlify y
+  de Vercel no cambian.
+- Ninguna acción externa: ni workflows, ni Supabase, ni cambios de
+  configuración.
+
+**Pendiente** (nada se da por resuelto por inferencia)
+- GitHub:
+  - los cinco secrets del Environment (declarados por el propietario el
+    2026-10-18, no verificados por Claude);
+  - posibles duplicados en el repositorio u organización, incluidos los
+    `NEXT_PUBLIC_SUPABASE_*` de `ci.yml`;
+  - las reglas del Environment y los permisos de escritura.
+- Los colaboradores, las invitaciones y las deploy keys.
+- Justo antes de cualquier ejecución futura:
+  - que no haya ejecuciones activas ni en cola;
+  - que el proyecto siga activo, el registro siga cerrado y siga habiendo 0
+    usuarios;
+  - volver a revisar el aislamiento de Netlify, Vercel, las previews y los
+    entornos locales.
+- Decisiones del propietario:
+  - la licencia y la atribución del conjunto oficial de barrios;
+  - la ausencia de una vía de reversión sencilla para las migraciones;
+  - congelar las migraciones del PR #26 y los controles del Environment;
+  - quién revisará el log del `apply` y documentará su resultado.
+- El `apply`, con su autorización aparte; el push de los commits locales; y
+  el merge de los PR #26 y #27.
+- **Siguiente comprobación recomendada:** los secrets del Environment de
+  GitHub y sus posibles duplicados, solo con nombres y fechas, sin valores.
+
+---
+
+## 2026-10-19 — Sesión 54: R8, comprobación de aislamiento en Vercel (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Precondición de aislamiento del `apply`: si algún proyecto, despliegue o
+  integración de Vercel usa variables de Supabase que apunten a
+  `roomly-validation-3`.
+- Claude no tiene acceso a Vercel: no hay conector (`ListConnectors` sin
+  resultados), ni CLI, ni credenciales en el entorno. El panel de Vercel no se
+  ha inspeccionado.
+
+**Comunicado por el propietario**
+- Vercel no aparece en *Installed GitHub Apps* ni en *Authorized OAuth Apps*
+  de su cuenta de GitHub.
+- No recuerda haber creado una cuenta de Vercel.
+
+**Comprobado por Claude**
+- En el repositorio:
+  - no hay configuración de Vercel (`vercel.json`, `.vercel`, dependencias
+    `@vercel/*` ni menciones en los workflows) ni URLs de Supabase en el
+    código;
+  - `lib/env.ts` exige `NEXT_PUBLIC_SUPABASE_URL` y
+    `NEXT_PUBLIC_SUPABASE_ANON_KEY`, sin valores por defecto;
+  - la documentación presenta Vercel como hosting previsto, no como algo
+    configurado.
+- En la API de GitHub:
+  - ningún deployment, estado, check ni comentario de Vercel. Los
+    deployments son solo de los Environments `roomly-validation-2` y
+    `roomly-validation-3`, y el único bot que comenta es `netlify[bot]`;
+  - las rutas de GitHub Apps instaladas y de webhooks del repositorio no son
+    accesibles desde el entorno de Claude (403 del proxy).
+
+**Inferencia**
+- No hay evidencia actual de que el repositorio esté conectado a Vercel
+  mediante la cuenta de GitHub examinada.
+
+**Sin poder verificar**
+- No se ha accedido al panel de Vercel.
+- No se descartan una cuenta independiente, un despliegue manual con la CLI
+  ni un tercero que despliegue el repositorio (público) desde su propia
+  cuenta. Que la app de GitHub no aparezca no demuestra que no haya
+  despliegues de esos tipos.
+
+**Resultado**
+- Vercel: **no bloqueante según la comprobación actual.** **No está
+  verificado.** Hay que revisar esta clasificación antes de cualquier `apply`
+  si aparece una integración o un despliegue nuevos.
+
+**Qué se hizo**
+- Documentado en `docs/SUPABASE_VALIDATION.md` («Incertidumbres antes de
+  ejecutar», R8) y en esta entrada. Las conclusiones del run 20 y de Netlify
+  no cambian.
+- Ninguna acción externa: ni workflows, ni Supabase, ni Vercel, ni Netlify.
+
+**Pendiente** (nada de esto se da por resuelto por analogía con Netlify o
+Vercel)
+- Supabase: que el proyecto sea el correcto y esté activo; el estado de Auth,
+  el registro de usuarios, los usuarios existentes, las URL de redirección y
+  las integraciones.
+- GitHub:
+  - los cinco secrets requeridos en el Environment (declarados por el
+    propietario el 2026-10-18, no verificados por Claude);
+  - posibles duplicados a nivel de repositorio u organización, incluidos los
+    `NEXT_PUBLIC_SUPABASE_*` de `ci.yml`;
+  - las reglas del Environment y los permisos de escritura.
+- Los colaboradores, las invitaciones y las deploy keys.
+- Que no haya ejecuciones activas ni en cola durante la ventana del `apply`.
+- Que ninguna preview ni despliegue use `roomly-validation-3`: volver a
+  confirmarlo justo antes del `apply`.
+- Decisiones del propietario:
+  - la licencia y la atribución del conjunto oficial de barrios;
+  - el reconocimiento expreso de que no hay una vía de reversión sencilla
+    para el `apply`;
+  - congelar las migraciones del PR #26 y los controles del Environment;
+  - quién revisará y documentará el log del `apply`.
+- El `apply`, con su autorización aparte; el push de los commits locales; y
+  el merge de los PR #26 y #27.
+- **Siguiente precondición recomendada:** revisar a mano el Auth y los
+  usuarios existentes de `roomly-validation-3`.
+
+---
+
+## 2026-10-19 — Sesión 53: R8, comprobación manual de Netlify (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Precondición de aislamiento del `apply`: a qué proyecto de Supabase se
+  conectan los Deploy Previews de Netlify.
+- Claude no tiene acceso a Netlify: no hay conector (`ListConnectors` sin
+  resultados), ni CLI, ni credenciales en el entorno. El propietario hizo la
+  comprobación en el panel, con la guía de Claude, y le comunicó el
+  resultado.
+
+**Observado por el propietario** (panel de Netlify, sitio
+`lovely-tulumba-009360`)
+- Las variables de entorno del proyecto están vacías, en todos los
+  contextos.
+- No hay extensiones instaladas ni asociadas.
+- Las variables compartidas del equipo no están disponibles en el plan
+  actual. Es información comunicada, no una inspección independiente.
+- Rama de producción `master`; Branch deploys, solo `master`; Deploy
+  Previews, para los PR contra `master`.
+
+**Comprobado por Claude**
+- En el repositorio:
+  - no hay URLs de Supabase en el código, ni `netlify.toml`, ni archivos
+    `.env` que Next.js cargue en el build. `.env.example` no se carga
+    automáticamente;
+  - `lib/env.ts` exige `NEXT_PUBLIC_SUPABASE_URL` y
+    `NEXT_PUBLIC_SUPABASE_ANON_KEY`, sin valores por defecto.
+- En la API de GitHub: estados `deploy-preview` de ese sitio en los PR
+  #20–#26.
+
+**Inferencia**
+- Con la configuración observada, los previews no tienen un destino de
+  Supabase configurado. Las peticiones que necesitan esas variables fallan en
+  la validación del entorno (`getPublicEnv()`, también desde `proxy.ts`)
+  antes de llegar a ningún proyecto.
+- El build no las necesita, así que un preview puede salir «ready»
+  igualmente.
+
+**Resultado**
+- Netlify: **no bloqueante según la comprobación actual.** No es una
+  garantía permanente ni una validación de Vercel.
+
+**Qué se hizo**
+- Documentado en `docs/SUPABASE_VALIDATION.md` («Incertidumbres antes de
+  ejecutar», R8) y en esta entrada. Ninguna acción externa: ni workflows, ni
+  Supabase, ni cambios en Netlify.
+
+**Pendiente**
+- Antes del `apply`: volver a comprobar que las variables de Netlify siguen
+  ausentes, porque se siguen construyendo previews para cada PR contra
+  `master`.
+- Sin comprobar:
+  - Vercel;
+  - el Auth, los usuarios y las URL de redirección de `roomly-validation-3`;
+  - los secrets del repositorio, incluidos los `NEXT_PUBLIC_SUPABASE_*` de
+    `ci.yml`;
+  - los colaboradores y los permisos de escritura. Según la API, no hay
+    protección de rama ni rulesets.
+- Decisiones del propietario: la licencia del dataset de barrios, la falta
+  de una vía de reversión tras el `apply`, congelar las migraciones del PR
+  #26 y los controles del Environment.
+- El `apply`, con su autorización aparte; el push de los commits locales; y
+  el merge de los PR #26 y #27.
+
+---
+
+## 2026-10-19 — Sesión 52: R8, log del run 20 leído (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Después de la sesión 51 (push de `a8e5028`, solo documentación), en el
+  chat y sin cambios en el repositorio:
+  - una revisión de solo lectura de las precondiciones del `apply`;
+  - una guía manual para comprobarlas en los paneles de GitHub, Supabase,
+    Netlify y Vercel.
+- El propietario pidió «hazlo tú y ejecuta». La orden era ambigua y el
+  `apply` es irreversible, así que Claude preguntó qué ejecutar. El
+  propietario eligió **documentar el log del run 20**, con un commit local y
+  sin push.
+
+**Qué se hizo**
+- Leído el log del run 20 con el conector de GitHub (`get_job_logs`), jobs
+  «Guarda de destino» (`117819202723`) y «R8 — …» (`117819232941`). El
+  2026-10-18, `gh api` no seguía la redirección al almacenamiento de logs.
+- Documentado en `docs/SUPABASE_VALIDATION.md` (R8: «Run 20», «Lo que no se
+  había podido probar en local» y «Procedimiento») y en esta entrada.
+- No se lanzó ningún workflow ni se conectó con Supabase, Netlify ni Vercel.
+
+**Lo que muestra el log**
+- Guarda: entradas válidas para `dry_run` y destino verificado como
+  `roomly-validation-3`.
+- Paso de R8, en orden:
+  - SHA-256 verificados y flujo construido antes de conectar, con el cuerpo
+    común `0c9cadd0597a…`;
+  - la guarda F1;
+  - `ok - R8-MSG`;
+  - el preflight congelado, P0–P6 en `ok` (37 políticas);
+  - `ok - R8-BASE`;
+  - las tres migraciones;
+  - el preflight vigente, P0–P6 en `ok` (73 barrios, 44 políticas);
+  - `ok - R8-MSG`;
+  - `== R8 · rollback hecho` y «RESULTADO: dry_run correcto».
+- PostgreSQL 17.11. Ninguna línea `WARNING:`, `ERROR:` ni `FALLO` en el paso.
+- Lo que la sesión 51 infería del éxito del paso, ahora consta en el log.
+
+**Observaciones**
+- En los dos preflights, las líneas informativas `P1 info`, `P2 info` y
+  `P5 info`, esperadas.
+- Seis líneas `tail: … Broken pipe` al construir el flujo. En
+  `concat_verified`, `head -c` deja de leer cuando tiene sus bytes y `tail`
+  recibe EPIPE; `cmp` compara la salida de `head`, así que la comprobación no
+  se ve afectada. Es ruido en el log. Se podría silenciar o comparar con
+  desplazamiento; no se ha tocado el código.
+
+**Pendiente** (del informe de precondiciones, solo en el chat; nada de esto
+está comprobado)
+- Netlify: según los estados de GitHub, el sitio `lovely-tulumba-009360`
+  publicó Deploy Previews en los PR #20–#26, todos contra `master`. No se
+  sabe a qué proyecto de Supabase se conectan.
+- Vercel, el Auth y los usuarios de Supabase, sus URL de redirección, los
+  secrets del repositorio (incluidos los `NEXT_PUBLIC_SUPABASE_*` de
+  `ci.yml`) y los colaboradores: los comprueba el propietario en sus paneles.
+- Según la API, ni `master` ni las ramas de los PR #26 y #27 tienen
+  protección ni rulesets.
+- Decisiones del propietario: la licencia del dataset de barrios, la falta
+  de una vía de reversión tras el `apply`, congelar las migraciones del PR
+  #26 y los controles del Environment.
+- El `apply`, con su autorización aparte, y el merge de los PR #26 y #27.
+
+---
+
+## 2026-10-18/19 — Sesión 51: R8, `dry_run` real (run 20) y su documentación (Fase 4 EN CURSO; PR #26 y #27 sin fusionar; `apply` NO autorizado)
+
+**Contexto**
+- Cerrada la revisión estática de M1/L1 (sesión 50, HEAD `1543718`), el
+  propietario completó los prerrequisitos del `dry_run` por los paneles
+  privados (no observables desde el entorno de Claude) y autorizó
+  **expresamente** lanzar el `dry_run` («lánzalo tú»).
+- Comprobaciones del propietario el 2026-10-18 (vía capturas que él revisó):
+  - formulario de Actions desde `claude/phase4-r8-upgrade-tool`: las cinco
+    entradas presentes, `phase4_upgrade` con `dry_run`;
+  - Environment `roomly-validation-3`: «No restriction», sin required
+    reviewers, los cinco secretos presentes en el Environment;
+  - Supabase: el proyecto estaba **en pausa**; lo reactivó (Restore) y quedó
+    activo; registro público de Auth **desactivado**;
+  - Netlify: **no comprobado** (se procedió sin verificarlo; el `dry_run` no
+    escribe, pero queda pendiente antes del `apply`).
+
+**Qué se hizo**
+- **Lanzado el `dry_run`** vía API (`mcp__github__actions_run_trigger`), con
+  `confirm_project=roomly-validation-3`, `apply_migrations=false`,
+  `run_e2e_real=false`, `phase4_upgrade=dry_run`, `confirm_phase4_upgrade`
+  vacío, sobre `claude/phase4-r8-upgrade-tool` (head_sha `1543718`).
+- **Run 20** (id `39176175018`, workflow_dispatch): `completed/success`,
+  ~23 s. URL:
+  https://github.com/tackiie416/roomly/actions/runs/39176175018
+- **Documentado** en `docs/SUPABASE_VALIDATION.md` (sección R8: subsección
+  «Run 20», ajuste de «Lo que no se había podido probar en local»,
+  «Incertidumbres» y «Procedimiento») y en esta entrada, distinguiendo
+  niveles de evidencia.
+
+**Niveles de evidencia del run 20**
+- **Demostrado por el estado del workflow/jobs (observado vía API):** `guard`
+  `success` (conectó al proyecto reactivado y aceptó su marca
+  `roomly-validation-3`); `phase4-upgrade` `success` (la transacción que
+  termina en ROLLBACK); `migrate`, `preflight`, `sql-suite`, `api-suite`,
+  `auth-redirects` y `e2e-real` `skipped`.
+- **Respaldado por líneas del log:** **nada.** El log no se pudo obtener
+  desde el entorno de Claude (redirección a hosts externos, confirmada por
+  dos vías; las anotaciones del check-run solo traen avisos genéricos de
+  GitHub —Node 20, ubuntu-latest—). Las líneas internas (`dry_run correcto`,
+  `ok - R8-MSG` ×2, `ok - R8-BASE`, `ok - P6:` ×2, sin WARNING/ERROR) **no se
+  han observado**; se leen en la UI.
+- **Inferido del código, no observado:** el paso de R8 solo es `success` por
+  el camino «dry_run correcto», que exige que pasen esas comprobaciones y el
+  ROLLBACK. Por la lógica de fallo cerrado (verificada en local y con
+  mutaciones), el éxito del paso implica que pasaron; es inferencia, no
+  lectura del log.
+
+**Lo que el run 20 NO valida (explícito)**
+- `dry_run` **no equivale** a haber aplicado las migraciones: la transacción
+  se revierte, el proyecto sigue en el estado de la Fase 3, no se escribió
+  nada.
+- El **`apply` no se ha autorizado ni ejecutado**.
+- Las suites omitidas (`preflight` como job, suite SQL, api-suite, AU3/AU5,
+  E2) quedaron `skipped`: **no validadas** por este run. (El preflight vigente
+  P0–P6 sí corre dentro de la transacción del `dry_run`, pero los jobs
+  posteriores no.)
+- El runtime completo de Next.js con la clave real sigue sin validar.
+
+**Problemas / discrepancias**: ninguna. HEAD `1543718` sin cambios; árbol
+limpio; el run 20 es sobre ese mismo SHA.
+
+**Límites de evidencia**
+- El log del run no es legible desde el entorno de Claude; el detalle textual
+  depende de leerlo en la UI de GitHub.
+- La configuración del Environment y el formulario de Actions los verificó el
+  propietario, no Claude (la API de Environments da 403 por el proxy).
+- Netlify sin comprobar.
+
+**Pendiente**
+- Decidir si se autoriza el `apply` (autorización aparte), con su propia
+  checklist (incluida la comprobación de Netlify).
+- Nota operativa: el proyecto quedó reactivado; si no se usa, el propietario
+  puede volver a pausarlo.
+- El merge de los PR #26 y #27.
+
+---
+
+## 2026-10-18 — Sesión 50: R8, tercera ronda de correcciones (M1 y L1), solo en local (Fase 4 EN CURSO; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- **Tercera revisión de seguridad del PR #27** (solo lectura, sobre
+  `3e4cdee`):
+  - un hallazgo medio, M1: el validador compartido solo rechazaba los
+    meta-comandos de psql al principio de la línea, y psql los ejecuta en
+    cualquier posición (comprobado en local con `\echo`,
+    `\set ON_ERROR_STOP 0` y `\!`). No era explotable con los seis archivos
+    fijados, que no contienen ninguno;
+  - un hallazgo bajo, L1: una línea `ERROR:` con psql terminado en 0 no hacía
+    fallar la pasada.
+- **El propietario autoriza** corregir solo M1 y L1, con pruebas, en un
+  commit nuevo. No autoriza workflows manuales, conexiones con Supabase,
+  migraciones remotas, merges, el `dry_run` ni el `apply`.
+- **Estado de Git al empezar:** rama `claude/phase4-r8-upgrade-tool`, HEAD
+  `3e4cdee`, igual que `origin`, árbol limpio.
+
+**Qué se hizo**
+- **M1** (`tests/supabase/sql-suite-lib.sh`, el validador que usan la suite
+  SQL remota y R8):
+  - se rechaza toda barra invertida fuera de cadenas, identificadores
+    `"..."`, comentarios `--` y cuerpos `$$`. En SQL no tiene otro uso, y
+    dentro de esos contextos psql la trata como texto (comprobado en local);
+  - como la regla depende de reconocer bien esos contextos, se rechaza
+    también lo ambiguo:
+    - `\'` dentro de una cadena: con `standard_conforming_strings`
+      desactivado, no cerraría la cadena;
+    - **`$$` pegado a un nombre:** para psql, `x$$` es un identificador, no el
+      principio de un cuerpo `$$`. Lo encontré al revisar los contextos, y lo
+      comprobé en local: el validador anterior aceptaba
+      `select 1 as x$$; commit; select 2 as y$$;` (un `COMMIT` oculto), y psql
+      ejecuta lo que hay entre los dos;
+  - límite documentado: no analiza la interpolación de variables de psql
+    (`:nombre`). Los seis archivos de R8 no tienen ninguna.
+  - Los 20 archivos de `tests/db` y los seis del flujo de R8 siguen pasando.
+- **L1** (`tests/supabase/phase4-upgrade.sh`, `run_pass`):
+  - con psql terminado en 0, una línea que empiece por `ERROR:` hace fallar
+    la pasada con el código 1: incierto con `COMMIT`, y «ensayo FALLIDO» en
+    la primera pasada;
+  - no se usa el código 2, porque «NO VÁLIDO» afirma que el `COMMIT` se
+    ejecutó, y un `COMMIT` sobre una transacción abortada es un `ROLLBACK`;
+  - la búsqueda está anclada al principio de la línea: las filas de
+    resultados empiezan por un espacio, y los avisos, por `NOTICE`.
+  - El mensaje «NO CONFIRMADO» dice ahora «falló, mostró un ERROR o no llegó
+    al final».
+- **Pruebas:**
+  - **`sql-suite-selftest`, de 78 a 89 comprobaciones** (sección D3):
+    - 9 entradas rechazadas antes de conectar: `\connect`,
+      `\set ON_ERROR_STOP 0`, `\!` y `\gset` a mitad de línea; un
+      meta-comando tras una cadena, un identificador y un cuerpo `$$`; y dos
+      con `$$` pegado a un nombre;
+    - `\'` dentro de una cadena, con su motivo propio, porque el validador
+      anterior también lo rechazaba, pero como «cadena sin cerrar»;
+    - un control: las barras invertidas de comentarios, cadenas,
+      identificadores y cuerpos `$$` se aceptan y se ejecutan, y ninguna como
+      meta-comando (un `\echo` ejecutado aparecería en el log).
+  - **Selftest de R8, de 67 a 76 comprobaciones:**
+    - G: meta-comandos a mitad de línea en una migración, el preflight
+      vigente y R8-BASE, y `$$` pegado a un nombre, todos con el SHA-256 al
+      día y rechazados sin llamar a psql. Además, el control de las barras
+      invertidas legítimas, que llega a la guarda;
+    - O: el psql envoltorio, con un gancho nuevo, antepone
+      `\set ON_ERROR_STOP 0` e inserta `select 1 / 0;` justo antes del final.
+      - Con `COMMIT` da «NO CONFIRMADO… incierto», y en local la huella no
+        cambia: ese `COMMIT` fue un `ROLLBACK`.
+      - En el ensayo, «ensayo FALLIDO».
+      - El control, con «ERROR:» dentro de un aviso y de un resultado, da
+        «apply correcto»;
+    - R: los registros nuevos, en su clase.
+  - **`validation-infra`:** 1 prueba nueva. La comprobación de `ERROR:` va
+    entre el código de salida y la línea final, y su rama devuelve 1.
+  - Ninguna aserción existente se ha quitado.
+- **Documentación:** `docs/SUPABASE_VALIDATION.md` (el validador de la suite
+  y de R8, la condición nueva de una pasada, la fila «NO CONFIRMADO», lo
+  probado en local, las mutaciones y la CI #65), `docs/TESTING.md`,
+  `docs/ROADMAP.md` (R8) y esta entrada.
+- **No se ha ejecutado ningún workflow manual** ni se ha conectado con
+  Supabase. Todo se probó contra el PostgreSQL 16 local.
+
+**Resultados** (en local, PostgreSQL 16)
+- `sql-suite-selftest` 89/89 y `phase4-upgrade-selftest` 76/76.
+- `test:infra` en verde: guarda 28, `sql-suite-selftest` 89,
+  `preflight-selftest` 69, `migration-upgrade-selftest` 26 y
+  `phase4-upgrade-selftest` 76.
+- `test:db` 651/651, sin cambios. `npm run test` 1069/1069 (1 nuevo).
+- `lint`, `typecheck`, `format:check`, `git diff --check` y `bash -n` de los
+  cuatro scripts modificados, sin errores. `shellcheck` no está instalado.
+- **Contra el código de `3e4cdee`:** `sql-suite-selftest` falla en 10 (D3) y
+  el de R8, en 9: los casos nuevos.
+- **Mutaciones: 6/6 detectadas**, sobre copias en el scratchpad:
+  - sin la regla de la barra invertida, sin la de `\'`, sin la de `$$` pegado
+    a un nombre;
+  - sin la comprobación de `ERROR:`, con su rama devolviendo 2, y con la
+    búsqueda sin anclar (la detecta el control de falsos positivos).
+
+**Límites**
+- Los de las sesiones 47–49 siguen: PostgreSQL 17, un rol no superusuario, el
+  Session pooler, el estado real de `roomly-validation-3`, el Environment,
+  las entradas nuevas desde una rama y las señales de Actions.
+- El validador no analiza la interpolación de variables de psql.
+- `\'` y `$$` pegado a un nombre se rechazan aunque, con la configuración
+  habitual, serían inofensivos: es la opción conservadora.
+- Los logs de la CI siguen sin poder leerse desde el entorno de Claude.
+
+**Pendiente**
+- La CI del PR #27 con este commit.
+- La decisión del propietario sobre las comprobaciones manuales, el
+  `dry_run` y después el `apply`, cada uno con su autorización.
+- La licencia del dataset y el merge de los PR #26 y #27.
+
+---
+
+## 2026-10-17/18 — Sesión 49: R8, segunda ronda de correcciones (B1–B5) de la herramienta, solo en local (Fase 4 EN CURSO; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- **Segunda revisión de seguridad del PR #27** (solo lectura, sobre
+  `2278cf7`): sin hallazgos críticos, altos ni medios, y cinco bajos (B1–B5).
+  Además, una frase de `docs/SUPABASE_VALIDATION.md` podía leerse como si
+  las 45 comprobaciones estuvieran verificadas en CI.
+- **El propietario autoriza** corregirlos, con pruebas, en un commit nuevo de
+  la misma rama. No autoriza workflows manuales, conexiones con Supabase,
+  migraciones remotas, merges ni el `dry_run`.
+- **Estado de Git al empezar:** rama `claude/phase4-r8-upgrade-tool`, HEAD
+  `2278cf7` (PR #27, draft), árbol limpio, igual que `origin`.
+
+**Qué se hizo** (`tests/supabase/phase4-upgrade.sh`)
+- **B1, el flujo se construye entero antes de conectar:**
+  - cada archivo fijado se copia a un directorio temporal, y su SHA-256 se
+    vuelve a comprobar sobre la copia (se conservan las comprobaciones
+    anteriores);
+  - `roomly_sql_transform` sobre cada copia, y se rechazan además los bloques
+    `begin;`/`rollback;`;
+  - un cuerpo común y un archivo por pasada (cabecera + cuerpo + final),
+    comprobados byte a byte por `concat_verified`, con un único `ROLLBACK` o
+    `COMMIT`, en la penúltima línea;
+  - psql lee ese archivo (`<archivo`): ya no hay un generador que pueda
+    fallar a mitad y seguir enviando el `COMMIT`. En bash, `set -e` no actúa
+    dentro de `stream | psql || status=$?`, comprobado en local;
+  - en `dry_run` no se construye el archivo con `COMMIT`.
+- **Marca de final:** una pasada solo vale si psql llega a
+  `== R8 · <final> hecho`, que solo imprime si el `ROLLBACK` o el `COMMIT`
+  terminaron bien. Sin ella, la pasada con `COMMIT` da «incierto». «NO VÁLIDO»
+  queda reservado al caso en que el `COMMIT` se ejecutó.
+- **B3, señales:** traps de HUP, INT y TERM con la etapa.
+  - Durante la pasada con `COMMIT`: «apply INTERRUMPIDO… incierto».
+  - Antes: «INTERRUMPIDO… nada confirmado».
+  - Sale con 128 + el número de la señal.
+- **B4, mensajes:** los de resultado incierto y NO VÁLIDO dicen que no se repita
+  `apply` y remiten a «Recuperación».
+- **Documentación** (`docs/SUPABASE_VALIDATION.md`):
+  - el paso del flujo y la tabla de resultados, incluido el log sin
+    `RESULTADO:`;
+  - **«Recuperación»** (B3–B4):
+    - las interrupciones: que falte la línea no demuestra un `ROLLBACK`, y la
+      sesión del servidor puede seguir viva;
+    - `dry_run`, la validación normal con `phase4_upgrade=none` (que lanza las
+      suites si el preflight pasa) y `apply`, que no sirve para investigar;
+    - el orden para investigar;
+  - **«Cambiar el SHA-256 del preflight vigente»** (B5): revisar el diff, el
+    comando del validador (probado en local), cambiar solo la línea
+    `PHASE4_FINAL_PREFLIGHT`, pruebas y nueva revisión del diff;
+  - **CI:** se separan las 67 comprobaciones locales del verde de la CI #64
+    (sobre `2278cf7`, versión de 45), cuyo log no se pudo leer.
+  - También `docs/TESTING.md`, `docs/ROADMAP.md` (R8) y esta entrada.
+- **Selftest** (de 45 a 67 comprobaciones; ninguna aserción quitada):
+  - G: un `sha256sum` envoltorio retira el preflight vigente o le añade
+    `commit;` a una migración justo después de comprobarlo;
+  - G: `commit;`, un bloque `begin;`/`rollback;` o `\connect` con el SHA-256
+    al día; un `cat` que omite una parte; un `commit;` dentro de `$$`. Todo
+    rechazado sin llamar a psql;
+  - N: un psql envoltorio retira archivos entre las pasadas (la segunda
+    sigue completa), o corta la entrada antes del `COMMIT` o del `ROLLBACK`;
+  - V: «apply NO VÁLIDO» con un WARNING o un aviso que falta solo en la
+    segunda pasada, y el `COMMIT` ejecutado (73 barrios);
+  - S: SIGINT durante la pasada con `COMMIT` y SIGTERM durante el ensayo, al
+    grupo de procesos;
+  - R: una sola línea `RESULTADO:` por caso, la de su clase.
+- **`validation-infra`:** 4 pruebas nuevas (B1, B2, B3, y las secciones de la
+  documentación que cita el script). Dos existentes adaptadas a la nueva
+  estructura, con aserciones equivalentes o más estrictas: ningún
+  `cat "$ROOT/…"`, y el orden cabecera, cuerpo y final.
+- **No se ha ejecutado ningún workflow manual** ni se ha conectado con
+  Supabase. Todo se probó contra el PostgreSQL 16 local.
+
+**Problemas encontrados** (en mis propias pruebas, corregidos)
+- **SIGINT en segundo plano:** un proceso lanzado en segundo plano desde un
+  script no interactivo arranca con SIGINT ignorado, y bash no deja capturar
+  una señal ignorada al arrancar. El primer diseño del caso S no habría
+  probado nada. El selftest lanza la herramienta con
+  `env --default-signal=INT`, comprobado en local. En Actions, el paso
+  arranca el script en primer plano. No verificado.
+- **Aserción demasiado amplia en V2:** `! logged … 'WARNING'` encontraba la
+  palabra en el propio mensaje de NO VÁLIDO. Ahora busca `WARNING: ` (las
+  líneas del servidor).
+- **El código de salida 1** en una copia de diagnóstico venía de su trap de
+  salida modificado. El selftest real termina con 0. Los archivos de PGID ya
+  no terminan en `.log` y no entran en el recuento del caso K.
+
+**Resultados** (en local, PostgreSQL 16)
+- `phase4-upgrade-selftest` 67/67, y los logs de G, N, V, S y R revisados en
+  una copia.
+- `test:infra` en verde: guarda 28, `sql-suite-selftest` 78,
+  `preflight-selftest` 69, `migration-upgrade-selftest` 26 y
+  `phase4-upgrade-selftest` 67.
+- `test:db` 651/651, sin cambios. `npm run test` 1068/1068 (4 nuevos).
+- `lint`, `typecheck`, `format:check`, `git diff --check` y `bash -n` de los
+  dos scripts, sin errores. `shellcheck` no está instalado en el entorno.
+- **Mutaciones: 12/12 detectadas**, sobre copias en el scratchpad.
+- **El selftest nuevo contra el script de `2278cf7`** falla en 16 de 67
+  comprobaciones, las de los casos nuevos.
+
+**Límites** (no se han podido probar)
+- Los de las sesiones 47 y 48 siguen: PostgreSQL 17, un rol no superusuario,
+  el Session pooler, el estado real de `roomly-validation-3`, el
+  Environment y las entradas nuevas desde una rama.
+- Qué señales envía GitHub Actions al cancelar un job o agotar
+  `timeout-minutes`, y con qué margen. Un SIGKILL no deja línea `RESULTADO:`.
+- La pérdida de conexión durante el `COMMIT` se sigue simulando terminando el
+  propio backend.
+- Los logs de la CI siguen sin poder leerse desde el entorno de Claude.
+
+**Pendiente**
+- La CI del PR #27 con este commit.
+- La decisión del propietario sobre el `dry_run` y después el `apply`, cada
+  uno con su autorización.
+- La licencia del dataset y el merge de los PR #26 y #27.
+
+---
+
+## 2026-10-17 — Sesión 48: R8, correcciones de la revisión de seguridad de la herramienta, solo en local (Fase 4 EN CURSO; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- **Revisión de seguridad del PR #27** (solo lectura, sesión anterior): sin
+  hallazgos críticos y cuatro menores. El propietario autoriza corregirlos,
+  con pruebas, en un commit nuevo de la misma rama. No autoriza workflows,
+  conexiones con Supabase, migraciones remotas ni merges.
+- **Estado de Git al empezar:** rama `claude/phase4-r8-upgrade-tool`, HEAD
+  `9dd333d` (PR #27, draft, sobre el PR #26), árbol limpio.
+
+**Qué se hizo** (`tests/supabase/phase4-upgrade.sh`, con sus pruebas)
+1. **Entrega de WARNING:**
+   - `set local client_min_messages = notice` justo después del `begin`. En
+     local, con `client_min_messages = error` en la base de datos, un WARNING
+     anterior al `set local` no llegaba a psql;
+   - `R8-MSG`, al empezar y antes del `ROLLBACK` o el `COMMIT`: falla si el
+     valor no es `notice`. Así una migración que lo suba se detecta;
+   - `EXPECTED_NOTICES`: cada pasada tiene que mostrar, en orden y como
+     líneas NOTICE del servidor, `R8-MSG`, el `P6` del preflight congelado,
+     `R8-BASE`, el `P6` del vigente y `R8-MSG`. Si falta alguno, la pasada
+     falla aunque psql termine bien. Los WARNING siguen haciendo fallar.
+2. **Mensajes de la pasada con `COMMIT`:**
+   - un fallo ya no dice «nada aplicado» ni «se ha revertido». Dice «apply NO
+     CONFIRMADO… incierto», el código de salida de psql y que se compruebe el
+     estado con el preflight vigente antes de repetir;
+   - con WARNING o sin los avisos, pero con psql terminado bien: «apply NO
+     VÁLIDO», porque el `COMMIT` sí se ejecutó;
+   - la primera pasada dice «nada confirmado»: no envía `COMMIT`, y todo su
+     contenido está fijado por SHA-256.
+3. **SHA-256 del preflight vigente:** `PHASE4_FINAL_PREFLIGHT`, comprobado
+   antes de conectar junto con los otros cinco archivos, y aparte del
+   preflight congelado. Cómo actualizarlo: comentario en el script y
+   `docs/SUPABASE_VALIDATION.md`.
+4. **`timeout-minutes: 20`** en el job `phase4-upgrade`.
+- **Selftest** (`phase4-upgrade-selftest.sh`, de 31 a 45 comprobaciones):
+  - un psql falso en el `PATH`, con su control: demuestra que las entradas
+    rechazadas y los SHA-256 distintos no llegan a llamar a psql;
+  - G: el preflight vigente cambiado se rechaza antes de conectar;
+  - I: el caso existente vuelve a fijar el SHA-256 de su preflight cambiado;
+  - J: el WARNING con `client_min_messages = error` en la base de datos, el
+    `dry_run` limpio en esa misma base de datos, y una migración que sube
+    `client_min_messages` (`FALLO R8-MSG`);
+  - L: sin el `P6` del vigente, la pasada falla;
+  - M: un error solo en la segunda pasada (una secuencia distingue las
+    pasadas) y la conexión perdida durante el `COMMIT` (un trigger diferido
+    termina su propio backend). Los dos dan «NO CONFIRMADO… incierto».
+- **`validation-infra`:** 4 pruebas nuevas (preflight vigente fijado,
+  `client_min_messages` y avisos, mensajes de la pasada con `COMMIT`,
+  `timeout-minutes: 20` en el job correcto). Ninguna aserción existente se ha
+  quitado.
+- **Documentación:** `docs/SUPABASE_VALIDATION.md` (pasos, resultados y qué
+  hacer con un resultado incierto, el selftest y sus límites),
+  `docs/TESTING.md`, `docs/ROADMAP.md` (R8) y esta entrada.
+- **No se ha ejecutado ningún workflow** ni se ha conectado con ningún
+  proyecto Supabase. Todo se probó contra el PostgreSQL 16 local.
+
+**Problemas encontrados** (en mis propias pruebas, corregidos)
+- **`repin` del selftest reescribía dos SHA-256:** su patrón
+  `preflight.sql <hash>"` coincidía también con
+  `phase3-baseline-preflight.sql <hash>"`. Los casos I y L fallaban porque el
+  script rechazaba el árbol antes de conectar (fallo cerrado, no un falso
+  verde). Ahora el nombre va precedido de `"` o `/`, y `repin` aborta si no
+  encuentra exactamente una entrada.
+
+**Resultados** (en local, PostgreSQL 16)
+- `phase4-upgrade-selftest` 45/45. Logs de L, M y J revisados en una copia en
+  el scratchpad: cada caso falla por el motivo esperado.
+- `test:infra` en verde: guarda 28, `sql-suite-selftest` 78,
+  `preflight-selftest` 69, `migration-upgrade-selftest` 26 y
+  `phase4-upgrade-selftest` 45.
+- `test:db` 651/651, sin cambios. `npm run test` 1064/1064 (4 nuevos).
+- `lint`, `typecheck`, `format:check`, `git diff --check` y `bash -n` de los
+  dos scripts, sin errores. `shellcheck` no está instalado en el entorno.
+- **Mutaciones de las correcciones: 5/5 detectadas**, sobre copias en el
+  scratchpad: sin `set local client_min_messages`, sin comprobar los avisos,
+  el mensaje antiguo, el preflight vigente sin SHA-256 y sin el `R8-MSG`
+  final.
+
+**Límites** (no se han podido probar)
+- Los de la sesión 47 siguen: PostgreSQL 17, un rol no superusuario, el
+  Session pooler, el estado real de `roomly-validation-3`, el Environment y
+  las entradas nuevas desde una rama.
+- La pérdida de conexión durante el `COMMIT` se simula terminando el propio
+  backend. No es un corte de red ni del pooler.
+- Que `R8-MSG` y los avisos de éxito lleguen a través del pooler de Supabase:
+  lo mostrará el `dry_run`.
+
+**Pendiente**
+- La CI del PR #27 con este commit.
+- La decisión del propietario sobre el `dry_run` y después el `apply`, cada
+  uno con su autorización.
+- La licencia del dataset y el merge de los PR #26 y #27.
+
+---
+
+## 2026-10-17 — Sesión 47: R8, herramienta de actualización de la Fase 4, solo en local (Fase 4 EN CURSO; PR #26 sin fusionar)
+
+**Contexto**
+- **Decisiones del propietario:**
+  - R8 antes de decidir el merge del PR #26;
+  - todavía no se actualiza `roomly-validation-3` ni se crea
+    `roomly-validation-4`;
+  - la licencia sigue pendiente de verificación oficial;
+  - autoriza el código de la herramienta y sus pruebas, pero no ejecutar
+    workflows ni conectar con Supabase.
+- **Estado de Git al empezar:**
+  - PR #26 abierto, HEAD `179972c`, base `master` = `7818a15`, CI #62 en
+    verde;
+  - árbol limpio.
+  - Rama nueva `claude/phase4-r8-upgrade-tool` sobre `179972c`, para revisar
+    la herramienta aparte del PR #26.
+- **Discrepancia:** la tarea nombraba la segunda migración como
+  `20261015120000_rooms_status_transitions.sql`, que no existe. El archivo
+  real es `20261015120000_rooms_integrity_publication.sql`
+  (`rooms_status_transitions` es el test `tests/db/17`). La herramienta fija el
+  real.
+
+**Qué se hizo**
+- **`tests/supabase/phase4-upgrade.sh`** (`dry_run`, `apply` y
+  `--check-inputs`):
+  - entradas: `apply_migrations` y `run_e2e_real` deben ser `false`, y `apply`
+    exige `confirm_phase4_upgrade` = `aplicar-fase4-en-roomly-validation-3`;
+  - SHA-256 fijados de las tres migraciones y de los dos archivos de estado de
+    partida, sin conectar;
+  - la guarda F1 de siempre;
+  - una sola sesión y transacción (`lock_timeout` de 10 s), con este orden:
+    - el preflight congelado de la Fase 3;
+    - `R8-BASE`;
+    - las tres migraciones;
+    - el preflight vigente;
+    - `ROLLBACK` o `COMMIT`.
+  - Salida filtrada (`roomly_sql_filter_output`), sin la conexión.
+- **`apply` en dos pasadas:** un WARNING de Postgres no es un error y solo se
+  ve al leer la salida. La primera pasada termina en `ROLLBACK` y debe salir
+  limpia; solo entonces se repite con `COMMIT`.
+- **`tests/supabase/phase3-baseline-preflight.sql`:** copia exacta de
+  `f2c12c9:tests/supabase/preflight.sql`, el que pasó en el run 19 (blob
+  `7155e796…`).
+- **`tests/supabase/phase4-upgrade-baseline.sql`** (`R8-BASE`, solo lectura):
+  - ningún objeto de la 4.1 (restricciones, clave única, GRANT por columnas);
+  - 0 habitaciones, direcciones, imágenes y barrios;
+  - 9 ciudades y 7 universidades;
+  - sin usuarios de prueba ni `roomly_test`;
+  - tablas del rol que conecta.
+- **Workflow:**
+  - entradas `phase4_upgrade` (`none`, `dry_run`, `apply`; por defecto `none`)
+    y `confirm_phase4_upgrade`;
+  - la guarda las valida antes de leer secrets;
+  - job `phase4-upgrade`, solo con `PROJECT_REF` y `DB_URL`;
+  - con `dry_run` no corren el preflight ni las suites, y `migrate` y el E2
+    quedan excluidos de la actualización.
+  - Etiquetas corregidas, solo texto: «Suite SQL tests/db, todos los
+    archivos» y la api-suite con CRA, SVC y GC.
+- **`tests/supabase/phase4-upgrade-selftest.sh`** (31 comprobaciones), en
+  `test:infra` y en la CI (`db-security`).
+- **`validation-infra`:** 8 pruebas nuevas, y dos existentes adaptadas al
+  nuevo job (el orden de jobs y los `needs` del preflight). El selftest nuevo
+  entra en la lista de los que usan la marca anterior como caso negativo.
+- **Documentación:** `docs/SUPABASE_VALIDATION.md` (entradas, job, selftest,
+  herramienta, límites, incertidumbres y procedimiento),
+  `docs/TESTING.md`, `docs/ROADMAP.md` (R8), `CLAUDE.md` y esta entrada.
+- **No se ha ejecutado ningún workflow** ni se ha conectado con ningún
+  proyecto Supabase.
+
+**Problemas encontrados** (en mis propias pruebas, corregidos)
+- **El primer selftest era inválido:** `clone` se llamaba dentro de `$(...)`,
+  el contador no sobrevivía y todos los casos usaban la misma base de datos.
+  Ahora `clone` asigna una variable global y aborta si no puede crear la
+  base de datos.
+- **El caso K buscaba en todo el directorio de trabajo:** encontraba la
+  plantilla `postgresql://` en las copias del árbol de los casos G–J. Ahora
+  busca solo en las salidas (`*.log`) y nombra el archivo si encuentra algo.
+- **Mutaciones mal formadas:**
+  - la primera ronda usaba `sed -E` con patrones de BRE, y `||` vacío
+    reescribía todas las líneas; se rehízo con sustituciones literales;
+  - T12 y T13 dejaban un error de sintaxis (`true || \` seguido de `|| die`).
+  - Se corrigieron, y el runner comprueba ahora `bash -n` antes de contar una
+    mutación como detectada.
+
+**Resultados** (en local, PostgreSQL 16)
+- `phase4-upgrade-selftest` 31/31.
+- `test:infra` en verde: guarda 28, `sql-suite-selftest` 78,
+  `preflight-selftest` 69, `migration-upgrade-selftest` 26 y
+  `phase4-upgrade-selftest` 31.
+- `test:db` 651/651, sin cambios. `npm run test` 1060/1060 (8 nuevos).
+- `lint`, `typecheck`, `format:check`, `git diff --check` y `bash -n` de los
+  dos scripts, sin errores. `shellcheck` no está instalado en el entorno.
+- **Mutaciones de la herramienta: 14/14 detectadas**, todas sintácticamente
+  válidas y detectadas por la comprobación que corresponde:
+  - `dry_run` que confirma, sin SHA-256, sin el preflight congelado, sin
+    R8-BASE;
+  - `apply` en una pasada, sin comprobar entradas, sin el preflight vigente,
+    sin la guarda;
+  - que imprime la conexión, sin `ON_ERROR_STOP`, WARNING que no falla;
+  - confirmación laxa, E2 permitido y migraciones que confirman a mitad.
+
+**Límites** (no se han podido probar)
+- Supabase real y PostgreSQL 17: el selftest usa un rol superusuario, así que
+  no reproduce los avisos de privilegios de un rol como el de Supabase.
+- El Session pooler, que debe mantener la sesión durante la transacción.
+- El estado real de `roomly-validation-3`.
+- Las reglas del Environment (ramas permitidas, revisores): la API no es
+  accesible desde el entorno.
+- Si `workflow_dispatch` acepta entradas nuevas definidas solo en una rama.
+  Los runs 13 y 15 prueban que usa la definición de jobs de la rama, pero
+  no sus entradas.
+
+**Pendiente**
+- Revisión de la herramienta (PR aparte) y decisión del propietario sobre
+  cada `dry_run` o `apply`.
+- La licencia del dataset, sin verificar en una fuente oficial.
+- El merge del PR #26, después de R8.
+
+---
+
 ## 2026-10-16 — Sesión 46: R1, carga de los barrios oficiales de Barcelona (Fase 4 EN CURSO; 4.1 implementada, PR #26 sin fusionar)
 
 **Contexto**
