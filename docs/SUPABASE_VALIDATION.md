@@ -53,9 +53,118 @@ aprobaciones del Environment (no hubo ninguna) y una comprobación
 independiente de la limpieza. Ver «Resultado: run 21, `apply` de R8 (Fase
 4)».
 
-Los resultados de los runs 13–21, más abajo, describen el esquema y las
+Estado (2026-10-21, run 22): **la protección de aprobación del Environment
+`roomly-validation-3` no está demostrada y se considera ineficaz** hasta que
+una prueba posterior muestre un job realmente pendiente de aprobación. En una
+prueba controlada, sin conexión a Supabase, `guard` arrancó sin esperar
+ninguna aprobación y falló, como se pretendía, en la validación de entradas.
+La causa sigue sin conocerse. Ver «Resultado: run 22, prueba de la protección
+del Environment».
+
+Los resultados de los runs 13–22, más abajo, describen el esquema y las
 suites **de cada momento**. La configuración vigente está en «Cómo se
 ejecuta», «Preflight P0–P6» y «Matriz de pruebas».
+
+## Resultado: run 22, prueba de la protección del Environment (2026-10-21)
+
+| Run | Id | Commit | Parámetros | Resultado |
+|---|---|---|---|---|
+| **22** | `39677301625` | `eedcadb` (rama `claude/phase4-r8-upgrade-tool`) | `confirm_project=prueba-proteccion-no-conectar`, `apply_migrations=false`, `run_e2e_real=false`, `phase4_upgrade=none`, `confirm_phase4_upgrade=prueba-proteccion` | ❌ `failure`, a propósito: `guard` falló en la validación de entradas y los otros siete jobs se omitieron. **No hubo ninguna espera de aprobación** |
+
+- URL: https://github.com/tackiie416/roomly/actions/runs/39677301625
+- Commit completo: `eedcadb0f98914b7512fa2d3f1faa53688d39c30`. El workflow y
+  `tests/supabase/` son idénticos a los de `a8e5028`, lo ejecutado en el run
+  21.
+- **Objetivo:** comprobar si GitHub exige la aprobación manual del Environment
+  antes de arrancar un job protegido, sin conectar a Supabase. Las dos
+  confirmaciones son incorrectas a propósito: cualquiera de ellas hace fallar
+  `guard` antes de su paso de secrets y conexión.
+- **Lo lanzó Claude** con el conector de GitHub (`workflow_dispatch`, actor
+  `tackiie416`), con la autorización expresa del propietario para una única
+  ejecución. Duró del 2026-10-21 21:15:32 al 21:15:42 UTC, en un intento. No
+  se ha lanzado ninguna otra.
+- **Comprobaciones previas** (verificadas directamente):
+  - la rama local y la remota en `eedcadb` (`git ls-remote`), con el árbol
+    limpio;
+  - ningún run en cola, en curso ni en espera;
+  - en local, en un entorno vacío y sin red, los dos primeros pasos de
+    `guard` con estas entradas fallan los dos.
+
+**Verificado directamente** (API de GitHub y log del job `guard`,
+`119490383165`, leído el 2026-10-21 con `get_job_logs`):
+- **Sin espera:** `guard` se creó a las 21:15:34 y empezó a las 21:15:36, 2 s
+  después. Es el mismo patrón de los runs 20 y 21.
+- **Deployment** `7237488734`, en `roomly-validation-3`: de `in_progress`
+  (21:15:37) a `failure` (21:15:42), sin ningún estado de espera.
+- **`/approvals` y `/pending_deployments`:** `[]`. Se consultaron cuando
+  `guard` ya había terminado, así que solo confirman que no quedó ninguna
+  aprobación registrada. La prueba decisiva son los tiempos y el deployment.
+- **Pasos de `guard`:** el checkout, en verde; «Entradas compatibles», en
+  `failure`; «Confirmación explícita del proyecto» y «Secrets del mismo
+  proyecto y marca de identidad…», `skipped`.
+- **Log del paso que falló:** solo recibe `PHASE4_UPGRADE: none`,
+  `APPLY_MIGRATIONS: false`, `RUN_E2E_REAL: false` y
+  `PHASE4_UPGRADE_CONFIRM: prueba-proteccion`, ninguna variable de Supabase.
+  Termina con «ERROR: confirm_phase4_upgrade solo se admite con
+  phase4_upgrade=apply», «RESULTADO: actualización de la Fase 4 NO ejecutada
+  (nada aplicado)» y código de salida 1. No hay ninguna línea `guard:` ni de
+  `psql`.
+- **Los otros siete jobs**, `skipped`: `phase4-upgrade`, `migrate`,
+  `preflight`, `sql-suite`, `api-suite`, `auth-redirects` y `e2e-real`.
+- **Efectos:** ninguna migración, ningún E2E, ninguna conexión a Supabase y
+  ningún dato tocado. En GitHub quedan un deployment fallido en el historial
+  de `roomly-validation-3` y el log del run.
+
+**Conclusión:** con la configuración que tenía el Environment en ese
+momento, GitHub **no exigió ninguna aprobación** antes de un job de
+`roomly-validation-3`. La protección de aprobación no está demostrada y se
+considera **ineficaz** hasta que una prueba posterior muestre un job
+realmente pendiente de aprobación. Lo que detuvo el run fueron las barreras
+del propio workflow (entradas y confirmaciones).
+
+**Causa: desconocida.**
+- **La configuración real no se ha podido leer.** El proxy de esta sesión
+  bloquea las rutas `/environments`, `/environments/roomly-validation-3`,
+  `deployment-branch-policies`, `deployment_protection_rules`,
+  `/collaborators/…/permission` y `/actions/permissions` («not permitted
+  through this proxy»). No es una respuesta de GitHub, así que no dice nada de
+  si las reglas existen.
+- **Lo que sí se sabe por la API:**
+  - el repositorio es público y de una cuenta personal;
+  - solo hay deployments en `roomly-validation-2` y `roomly-validation-3`,
+    31 en cada uno antes del run 22;
+  - ninguno de esos 62 deployments pasó nunca por un estado de espera;
+  - los deployments de los runs 21 y 22 usan exactamente el nombre
+    `roomly-validation-3`.
+- **Hipótesis abiertas, ninguna confirmada:**
+  - la regla de revisores no estaba guardada o no estaba activa;
+  - se configuró en otro Environment de nombre parecido (uno sin deployments
+    no aparecería en esa lista);
+  - el bypass de administradores;
+  - un cambio de configuración que nadie ha observado.
+- **Lo que no lo explicaría**, según la documentación de GitHub tal como la
+  conocemos (no se ha podido contrastar aquí: la política de red bloquea
+  `docs.github.com`): la regla de ramas, «Prevent self-review» y una
+  limitación del plan, porque el repositorio es público.
+- El propietario todavía no ha comunicado la configuración que ve en el
+  panel.
+
+**Pendiente:**
+1. Que el propietario revise y, si hace falta, corrija `roomly-validation-3`
+   en Settings → Environments:
+   - Required reviewers, con `tackiie416`;
+   - Prevent self-review y Wait timer, desmarcados;
+   - el bypass de administradores, a decidir (se recomienda desmarcarlo);
+   - en Deployment branches and tags, «Selected branches and tags» con
+     `claude/phase4-r8-upgrade-tool`.
+
+   Después, que compruebe que todo se mantiene al recargar y lo comunique.
+2. Una prueba controlada nueva, con su autorización y las mismas entradas.
+   La incidencia solo se cierra si el run queda en espera, con `guard`
+   pendiente de revisión y sin ningún paso ejecutado. Después, el propietario
+   la rechaza.
+3. Hasta entonces, ningún run contra `roomly-validation-3` cuenta con una
+   pausa de aprobación.
 
 ## Resultado: run 21, `apply` de R8 (Fase 4) (2026-10-21)
 
@@ -145,6 +254,11 @@ y las 00:22 UTC, en respuestas a preguntas cerradas; Claude no lo observó):
   leer por la API (HTTP 403), y nadie la ha vuelto a inspeccionar después del
   run. De la regla de ramas no se puede deducir nada: el run se lanzó desde
   la rama permitida.
+  - **Actualización (2026-10-21):** ese 403 lo devuelve el proxy de esta
+    sesión, no GitHub. El run 22, una prueba controlada sin conexión a
+    Supabase, repitió el mismo comportamiento: ninguna espera. La causa
+    sigue sin conocerse. Ver «Resultado: run 22, prueba de la protección del
+    Environment».
 - **Impacto, comprobado después:** el run ejecutó `a8e5028` y un cuerpo SQL
   con el mismo SHA-256 que el del `dry_run` (`0c9cadd0597a…`). Lo que se
   aplicó es lo revisado. Pero el control previsto no funcionó, y hay que
@@ -1793,6 +1907,8 @@ autorización):
    ninguna en el run 21, y decidir si se corrige la opción B de D4 o se
    vuelve a la configuración anterior. Hay que resolverlo antes de cualquier
    otro run contra `roomly-validation-3`.
+   - **Actualización (2026-10-21):** el run 22 lo confirmó: sin espera, con la
+     causa sin conocerse. Sigue abierto; ver «Resultado: run 22».
 2. **Limpieza:** la comprobación independiente en el panel de Supabase (ver
    «Resultado: run 21»).
 3. **E2 con la Fase 4:** sin ejecutar. Necesita su propia autorización y

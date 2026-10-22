@@ -6,6 +6,117 @@ próximos pasos.**
 
 ---
 
+## 2026-10-21 — Sesión 59: R8, publicación de la documentación y prueba de la protección del Environment (run 22) (Fase 4 EN CURSO; protección de aprobación NO demostrada; PR #26 y #27 sin fusionar)
+
+**Contexto**
+- Tras la sesión 58, el propietario autorizó por separado:
+  - las correcciones de la revisión del diff, y el commit local `eedcadb`;
+  - el push;
+  - una investigación de solo lectura de la anomalía de las aprobaciones del
+    run 21;
+  - una única prueba controlada, el run 22.
+
+**Publicación** (verificado directamente)
+- Push normal, sin force, de los siete commits locales (`750f280` a
+  `eedcadb`). Con `git ls-remote`, la rama remota estaba en `a8e5028` antes y
+  quedó en `eedcadb0f98914b7512fa2d3f1faa53688d39c30` después.
+- No se publicó ninguna otra rama: el PR #26 sigue en `179972c` y `master`, en
+  `7818a15`.
+- La CI #68 (`pull_request`, sobre `eedcadb`) terminó en `success`, según la
+  API.
+
+**Investigación de solo lectura (antes del run 22)**
+- **Verificado directamente:**
+  - los ocho jobs del workflow declaran `environment: roomly-validation-3`
+    como texto fijo. Ningún secret se usa fuera de esos jobs, y la primera
+    conexión a Supabase es el tercer paso de `guard`;
+  - el repositorio es público y de una cuenta personal;
+  - solo hay deployments en `roomly-validation-2` y `roomly-validation-3`,
+    31 en cada uno, y ninguno de los 62 pasó nunca por un estado de espera;
+  - los deployments del run 21 usan exactamente `roomly-validation-3`;
+  - `/approvals` y `/pending_deployments` del run 21 dan `[]`, como las
+    aprobaciones del run 20.
+- **Sin poder leer:** el proxy de esta sesión bloquea las rutas de
+  Environments (configuración, ramas y reglas de protección), de permisos de
+  colaboradores y de permisos de Actions. No es una respuesta de GitHub, así
+  que no prueba que las reglas existan ni que no existan.
+
+**Run 22** (`39677301625`, `eedcadb`, rama `claude/phase4-r8-upgrade-tool`;
+2026-10-21, de las 21:15:32 a las 21:15:42 UTC; lanzado por Claude con el
+conector, con autorización para una única ejecución)
+- **Entradas, con dos confirmaciones incorrectas a propósito:**
+  `confirm_project=prueba-proteccion-no-conectar`,
+  `apply_migrations=false`, `run_e2e_real=false`, `phase4_upgrade=none` y
+  `confirm_phase4_upgrade=prueba-proteccion`.
+- **Comprobaciones previas:**
+  - rama y SHA, local y remoto, en `eedcadb`, con el árbol limpio;
+  - el workflow, idéntico al de `a8e5028`;
+  - ningún run activo ni en cola;
+  - en local, sin red, los dos primeros pasos de `guard` fallan con estas
+    entradas.
+- **Observado** (API y log del job `guard`, `119490383165`):
+  - `guard` se creó a las 21:15:34 y empezó a las 21:15:36, **sin esperar
+    aprobación**;
+  - el deployment `7237488734` pasó de `in_progress` a `failure` sin ningún
+    estado de espera;
+  - `/approvals` y `/pending_deployments` dan `[]`, consultados cuando
+    `guard` ya había terminado;
+  - el checkout, en verde; «Entradas compatibles» en `failure`, con «ERROR:
+    confirm_phase4_upgrade solo se admite con phase4_upgrade=apply» y
+    «RESULTADO: … NO ejecutada (nada aplicado)»;
+  - **omitidos:** el paso de confirmación del proyecto y el de secrets y
+    conexión;
+  - el paso que falló no recibe ninguna variable de Supabase, y el log no
+    tiene ninguna línea `guard:` ni de `psql`;
+  - los otros siete jobs, `skipped`;
+  - ninguna migración, ningún E2E, ninguna conexión a Supabase y ningún dato
+    tocado.
+- **Conclusión:** la protección de aprobación del Environment **no está
+  demostrada y se considera ineficaz** hasta que una prueba posterior muestre
+  un job realmente pendiente de aprobación. Lo que frenó el run fueron las
+  barreras del propio workflow.
+- **Causa: desconocida.** Hipótesis abiertas, ninguna confirmada:
+  - la regla de revisores, sin guardar o no activa;
+  - una regla en otro Environment de nombre parecido;
+  - el bypass de administradores;
+  - un cambio no observado.
+
+  No se puede afirmar ninguna, porque la configuración real no se ha podido
+  leer.
+
+**Problemas encontrados**
+- La pausa de aprobación prevista en D4 sigue sin funcionar (arriba).
+- La política de red de este entorno bloquea `docs.github.com`, así que los
+  nombres de la interfaz de GitHub no se han podido contrastar con la
+  documentación actual.
+
+**Qué se hizo**
+- `docs/SUPABASE_VALIDATION.md`:
+  - un estado nuevo en la cabecera;
+  - la sección «Resultado: run 22, prueba de la protección del Environment»;
+  - notas de actualización en la causa de la anomalía del run 21 y en el
+    primer pendiente posterior al run 21.
+- Esta entrada.
+- Sin commit ni push. Sin cambios en el código, el workflow, los secrets, el
+  Environment ni Supabase.
+
+**Pendiente**
+1. **Configuración:** que el propietario revise y, si hace falta, corrija
+   `roomly-validation-3` en Settings → Environments, compruebe que se
+   mantiene al recargar y comunique los valores.
+2. **Prueba posterior:** con su autorización y las mismas entradas inocuas.
+   Solo cierra la incidencia si el run queda en espera, con `guard` pendiente
+   de revisión y sin ningún paso ejecutado. Después, el propietario la
+   rechaza.
+3. **Cualquier otro run** contra `roomly-validation-3`: hasta entonces, sin
+   contar con una pausa de aprobación.
+4. **Sin cambios respecto a la sesión 58:** la limpieza en Supabase, el E2
+   con la Fase 4, el runtime de Next.js con la clave real y los merges de los
+   PR #26 y #27.
+5. **Commit y push de esta documentación:** cada uno, con su autorización.
+
+---
+
 ## 2026-10-21 — Sesión 58: R8, `apply` real (run 21) y su documentación (Fase 4 EN CURSO; las tres migraciones aplicadas en `roomly-validation-3`; PR #26 y #27 sin fusionar)
 
 **Contexto**
