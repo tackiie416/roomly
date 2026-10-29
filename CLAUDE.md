@@ -269,9 +269,31 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - R7 sobre `status`: opción A del propietario (la propietaria lo cambia
       entre `draft`, `active`, `paused` y `rented`; `removed` es del admin),
       fijada por `tests/db/17`.
-  - Siguen pendientes R3, R4, R5, la visibilidad de R7 y el resto de R2. De
-    R8 quedan los pendientes posteriores al run 21 (abajo). Cada subfase
-    necesita su autorización (`docs/ROADMAP.md`, Fase 4).
+  - Siguen pendientes R3, R4 y el resto de R2. R5 y la visibilidad de R7
+    están en la 4.2, solo en local (abajo). De R8 quedan los pendientes
+    posteriores al run 21 (abajo). Cada subfase necesita su autorización
+    (`docs/ROADMAP.md`, Fase 4).
+  - **4.2 (fotos en Storage, limpieza de metadatos y R7): reconstruida en
+    local el 2026-10-29**, en la rama `feature/phase4-2-rebuild` (desde
+    `9391015`, la punta del PR #27), con commits locales **sin publicar**. La
+    implementación original se perdió con el contenedor sin haberse
+    publicado (`PROGRESS.md`, sesión 63).
+    - Migraciones `20261024120000` (R7, `room_images` solo del servidor,
+      ruta `room_id/id.webp`, 8 fotos, bucket) y `20261025120000` (bucket
+      privado, L6_N2): 42 políticas, 14 triggers y 13 funciones;
+    - `lib/services/room-images.ts` (tercer servicio con service_role, URL
+      firmadas de 600 s), `lib/images/sanitize-room-image.ts` (sharp 0.35.4,
+      N1 y L3) y `lib/validation/room-images.ts`;
+    - R8 comprueba su llegada con la copia congelada
+      `tests/supabase/phase4-final-preflight.sql`: el preflight vigente ya es
+      el de la 4.2 y **fallaría contra `roomly-validation-3`**, que sigue en
+      la 4.1;
+    - en local: `test` 1186, `test:db` 767, `test:infra` 356 y E1 32/32
+      (orientativo). **Sin validar en Supabase real, con la API de Storage
+      real ni en la CI.** Sin Server Action ni interfaz;
+    - publicar la rama, validarla (D2, en un proyecto aislado) y la versión
+      de sharp (aviso GHSA-wq5f-xc86-pv6w, corregido en 0.35.5) necesitan la
+      decisión o la autorización del propietario.
   - R8 (decisión del 2026-10-17: antes de decidir el merge del PR #26): la
     herramienta `tests/supabase/phase4-upgrade.sh` (entrada `phase4_upgrade`
     del workflow, `dry_run` y `apply`), probada en local, se ejecutó contra
@@ -376,7 +398,7 @@ npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (v
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
 npm run test:e2e:real         # E2: alta real contra roomly-validation-3 (solo desde el workflow manual)
-npm run test:infra            # auto-tests de guarda, runner SQL, preflight y actualizaciones (incluida la de la Fase 4) contra PostgreSQL local
+npm run test:infra            # auto-tests de guarda, runner SQL, preflight, actualizaciones (incluida la de la Fase 4) y conciliación de fotos (4.2) contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
 ```
@@ -468,10 +490,12 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
     bloqueo de cuentas eliminadas **también a service_role**: el bloqueo
     RLS de cuentas eliminadas no le afecta, por BYPASSRLS.
   - No reabras la escritura de `authenticated`.
-- **service_role solo en dos servicios** (Fase 3, D17):
+- **service_role solo en tres servicios** (Fase 3, D17; ampliada en la 4.2):
   `lib/services/matching.ts` (lectura cruzada de candidatos, columnas
-  explícitas, `CandidateDTO` con lista blanca) y
-  `lib/services/compatibility.ts` (escritura del test).
+  explícitas, `CandidateDTO` con lista blanca),
+  `lib/services/compatibility.ts` (escritura del test) y, desde la 4.2,
+  `lib/services/room-images.ts` (escritura de fotos en Storage y en
+  `room_images`, y firma de URL de las filas que el usuario acaba de leer).
   - `tests/unit/admin-client-usage.test.ts` falla si otro archivo lo usa.
   - El estado propio se lee siempre con el cliente del usuario.
   - Las respuestas y `categoryScores` nunca salen del servidor.
@@ -493,6 +517,13 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
     el trigger de moderación (H5) y `chk_rooms_publishable`.
   - No lo reviertas ni añadas una operación privilegiada para `status` sin
     una decisión explícita (afecta a D17).
+- `room_images` y Storage (Fase 4.2, solo en local): ningún cliente escribe
+  fotos (sin políticas de escritura ni GRANT en `room_images`, y ninguna
+  política en `storage.objects`). El bucket `room-images` es privado y las
+  fotos se sirven con URL firmadas. El trigger `trg_room_images_integrity`
+  aplica la ruta, el límite de 8, las habitaciones retiradas o eliminadas y
+  las cuentas desactivadas **también a service_role**. No abras la escritura
+  de clientes ni hagas público el bucket sin una decisión explícita.
 - Las políticas del chat usan `public.is_conversation_participant()`
   (`SECURITY DEFINER`, sin parámetro de usuario). Nunca escribas una
   subconsulta de RLS con columnas sin cualificar: Postgres resuelve el
@@ -521,7 +552,9 @@ en `roomly-validation-3`, runs 16 y 18. Los servicios del servidor (SVC/GC)
 se validaron en el run 19, sin el runtime completo de Next.js
 (`docs/SUPABASE_VALIDATION.md`). Las migraciones de la Fase 4 se aplicaron
 en ese mismo proyecto con R8 en el run 21 (`apply`), seguido del preflight,
-la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. E2E: E1
+la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. La 4.2 (`tests/db/19`,
+`20` y `concurrency_room_images.sh`, el preflight de la 4.2 y la
+conciliación) solo se ha probado en local. E2E: E1
 (`npm run test:e2e`, Supabase simulado; desde el PR #19 incluye D1 sobre el
 build de E1) corre en local y
 en CI; el entorno cloud de Claude Code no puede descargar el navegador de
@@ -561,7 +594,8 @@ candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta
 api-suite (D6 = B), y desde el run 19 también los servicios
 `saveQuestionnaireAnswers` y `getCandidates` (SVC/GC). El runtime completo
 de Next.js con la clave real no está validado.
-Todavía no hay habitaciones, intereses («Me interesa», Fase 5), «Ver
+Todavía no hay interfaz de habitaciones ni de fotos (la 4.2 son solo datos,
+servicios y tests, en local), intereses («Me interesa», Fase 5), «Ver
 perfil» de terceros, chat ni admin real.
 
 ## Funcionalidades pendientes
@@ -597,3 +631,8 @@ borrado de cuenta (H6).
   antes del primer despliegue.
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.
+- Fase 4.2 (reconstruida en local, sin publicar): si se publica la rama
+  `feature/phase4-2-rebuild` y cómo se valida (D2, un proyecto aislado);
+  si `sharp` sube de 0.35.4 a 0.35.5 por GHSA-wq5f-xc86-pv6w; y la
+  documentación de los runs 23 y 24, que estaba en el stash perdido y no se
+  ha recuperado (`PROGRESS.md`, sesión 63).

@@ -570,6 +570,34 @@ Subfases:
     (P1 con los 73 barrios y las restricciones de `rooms`, P4 con su GRANT),
     la suite SQL `16`–`18` y RO1–RO9 de la api-suite. El E2 no se ejecutó
     (ver R8). La revisión y el merge del PR #26 siguen pendientes.
+- **4.2 Fotos en Storage y visibilidad R7, sin interfaz**: decidida por el
+  propietario el 2026-10-24 (Storage, limpieza de metadatos, R7, D17
+  ampliada y R5) y el 2026-10-25 (D1–D4: bucket privado con URL firmadas,
+  validación en un proyecto aislado, conciliación de solo lectura y N1, L3,
+  L5 y L6_N2). **Reconstruida en local el 2026-10-29** en la rama
+  `feature/phase4-2-rebuild`, en commits locales sin publicar: la
+  implementación original se perdió con el contenedor sin haberse publicado
+  (`PROGRESS.md`, sesión 63).
+  - Migraciones `20261024120000_room_images_storage_visibility.sql` (R7,
+    `room_images` solo del servidor, ruta canónica, posición, 8 fotos con
+    subidas simultáneas, bloqueos para habitaciones retiradas o eliminadas y
+    cuentas desactivadas, y el bucket) y
+    `20261025120000_room_images_private_bucket.sql` (bucket privado, L6_N2).
+    Quedan 42 políticas, 14 triggers y 13 funciones.
+  - Código: `lib/validation/room-images.ts`, `lib/images/sanitize-room-image.ts`
+    (sharp 0.35.4, dependencia directa) y `lib/services/room-images.ts`, el
+    tercer servicio con service_role (D17).
+  - Tests: `tests/db/19`, `20` y `concurrency_room_images.sh`; los unitarios
+    del sanitizador, del servicio y de la validación; el preflight de la 4.2
+    (P1–P4 y P6) con sus mutaciones; `migration-upgrade-selftest`; y la
+    conciliación con su selftest.
+  - R8 conserva su referencia: el preflight de llegada es la copia congelada
+    `tests/supabase/phase4-final-preflight.sql` (`docs/SUPABASE_VALIDATION.md`,
+    «Copia congelada del preflight de la 4.1»).
+  - Sin Server Action, interfaz, CRUD ni `serverActions.bodySizeLimit`.
+  - **Sin validar en Supabase real** ni con la API de Storage real.
+    `roomly-validation-3` sigue en la 4.1, y el preflight vigente ya no pasa
+    contra él. La validación (D2) necesita su autorización.
 
 **Decisiones del propietario** (auditoría del 2026-10-13). Del 2026-10-15
 son las de R1, R2 (alcance mínimo), R6, R7 (publicación y estado) y R9; las
@@ -607,6 +635,14 @@ demás siguen sin tomar:
 - **R4.** Búsqueda con sesión o pública.
 - **R5.** Fotos: número máximo, tamaño, tipos MIME y compresión. Además, cómo
   probar las políticas de Storage, que `test:db` no cubre.
+  - **Decidido (2026-10-24) e implementado en local (4.2):** 8 fotos por
+    habitación; 4 MiB exactos en la aplicación y 5 MiB en el bucket; JPEG,
+    PNG o WebP a la entrada, reconocidos por su contenido, y WebP de calidad
+    80, a 2048 px como mucho y sin metadatos, a la salida.
+  - Las tablas de Storage se prueban en local con el shim
+    (`tests/db/19`); la API de Storage real, no.
+  - **Pendiente:** el límite del cuerpo de las peticiones del alojamiento y
+    `serverActions.bodySizeLimit`, con la Server Action.
 - **R6.** Catálogo de `features`, cerrado o libre.
   - **Decidido e implementado (2026-10-15, 4.1):** catálogo cerrado de 12
     claves (`wifi`, `heating`, `air_conditioning`, `elevator`,
@@ -632,8 +668,10 @@ demás siguen sin tomar:
     - Sin función privilegiada nueva ni cambios en D17.
     - Lo fija `tests/db/17_rooms_status_transitions.sql`. No cambia los
       criterios de aceptación de la Fase 4.
-  - **Pendiente:** la visibilidad de las habitaciones de cuentas
-    desactivadas, que se decidirá antes de la búsqueda.
+  - **Visibilidad, decidida (2026-10-24) e implementada en local (4.2):** una
+    habitación activa de una cuenta desactivada deja de ser pública, y sus
+    fotos también; se oculta al leer, sin cambiar datos, y el admin activo
+    sigue leyendo las fotos ocultas. Sin validar en Supabase real.
 - **R8.** Cómo validar en Supabase real las migraciones de la Fase 4.
   `roomly-validation-3` ya tiene el esquema y `apply_migrations` no aplica
   migraciones sobre uno existente. Un run actual fallaría ya en P1 (situación

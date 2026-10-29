@@ -475,6 +475,141 @@ columnas; las dos capas son independientes, como en `profiles` y
   api-suite. El E2 no se ejecutó (`docs/SUPABASE_VALIDATION.md`, «Resultado:
   run 21»).
 
+## Fase 4.2 — fotos de habitaciones: Storage, limpieza, URL firmadas y R7 (2026-10-24 y 2026-10-25; reconstruida el 2026-10-29)
+
+Migraciones `20261024120000_room_images_storage_visibility.sql` y
+`20261025120000_room_images_private_bucket.sql`, servicio
+`lib/services/room-images.ts` y sanitizador
+`lib/images/sanitize-room-image.ts`. La implementación original se perdió
+sin publicarse; esta es una reconstrucción desde su diseño documentado
+(`PROGRESS.md`, sesión 63). **Probada solo en local: sin validar en Supabase
+real ni con la API de Storage real.**
+
+**Principio** (D17 ampliada y D1):
+> Ningún cliente escribe fotos: ni en `room_images` (sin políticas de
+> escritura ni GRANT) ni en `storage.objects` (sin ninguna política). Solo el
+> servidor, con service_role, después de comprobar con el cliente del usuario
+> la sesión, la cuenta activa, la propiedad y el estado de la habitación, y
+> de limpiar la imagen. Las fotos se sirven con URL firmadas de 10 minutos,
+> que el servidor solo emite para las filas que el cliente de quien pregunta
+> acaba de leer: la autorización es la de la RLS.
+
+**service_role, en tres servicios** (D17, `tests/unit/admin-client-usage.test.ts`):
+`matching.ts`, `compatibility.ts` y, desde la 4.2, `room-images.ts`. Este
+último es el único que usa la API de Storage, el único que emite URL de
+fotos (nunca públicas) y el único que importa el sanitizador; sharp solo lo
+importa el sanitizador.
+
+**Base de datos** (detalle en `docs/DATABASE.md`, «Fase 4.2»):
+- `room_images`: anon y authenticated solo leen. Ruta canónica
+  `room_id/id.webp` (CHECK), posición ≥ 0 y un trigger para todos los roles,
+  también service_role: solo cambia la posición; ni habitación retirada o
+  eliminada ni cuenta desactivada; 8 fotos como mucho, también con subidas
+  simultáneas (bloqueo de la fila de la habitación).
+- Bucket `room-images`: privado, solo `image/webp` y 5 MiB, sin ninguna
+  política en `storage.objects` y ninguna de escritura en `storage.buckets`,
+  con la RLS activa en las dos. Ni anon, ni la propietaria, ni un admin lo
+  vuelven público (`tests/db/19`, ST1).
+- Las migraciones se detienen sin cambiar nada si el estado no es el
+  esperado, y distinguen «no se puede comprobar» (falta Storage, sin permiso
+  o una RLS que podría ocultar filas al rol) de una comprobación negativa
+  (L6_N2). No borran ni cambian políticas preexistentes: dicen cuáles hay.
+
+**Limpieza de la imagen** (EXIF con GPS, marca y modelo, XMP, IPTC, ICC y
+comentarios). Se vuelve a codificar desde los píxeles a WebP de calidad 80,
+con la orientación aplicada y a 2048 px de lado mayor como mucho, sin pedir
+ningún metadato, y la salida se vuelve a leer y se rechaza si le quedara
+alguno. Se decide por el contenido, no por el tipo declarado:
+- **N1:** antes de llamar a sharp, el formato se reconoce por la firma de los
+  primeros bytes (JPEG, PNG con `IHDR` o WebP con su bloque); lo demás (SVG,
+  GIF, HEIC/AVIF, TIFF, BMP…) no llega a ningún decodificador de libvips. El
+  tipo declarado tiene que coincidir con la firma (`type_mismatch`), y sharp
+  tiene que leer el mismo formato que la firma;
+- también rechaza imágenes animadas, archivos vacíos, dañados o truncados
+  (`failOn: "warning"`), más de 4 MiB a la entrada o a la salida y más de
+  40 MP;
+- **L3:** no cambia la configuración global de sharp (caché, concurrencia ni
+  cargadores), que es del proceso entero;
+- no guarda el original ni su nombre, que puede tener datos personales, y no
+  registra nada.
+
+Lo prueban `room-image-sanitize` (imágenes generadas con GPS, XMP e ICC),
+`room-image-signature` (sharp espiado: no se llama sin firma aceptada) y
+`room-image-sharp-globals`, con controles que los hacen fallar.
+
+**URL firmadas** (D1). TTL de 600 s (`ROOM_IMAGE_SIGNED_URL_TTL_SECONDS`) y
+`Cache-Control` de 600 s en los objetos, para que ninguna caché guarde una
+foto más de lo que vale su URL. `expiresAt` se calcula antes de pedir la
+firma. Solo se firman rutas canónicas de esa habitación y solo se aceptan las
+URL de rutas pedidas. Sin caché de URL en el servidor: cada lectura vuelve a
+leer y a firmar. Si la firma falla (también con una excepción), la lista da
+`unknown` y una subida ya guardada sigue siendo un éxito, sin URL. Nunca se
+devuelve ni se registra una URL pública o firmada.
+
+**Objetos huérfanos y logs** (M2). El objeto se sube antes de la fila, y
+solo se borra tras un rechazo definitivo de la base de datos (SQLSTATE de las
+clases 22, 23, 42 y P0) con la fila comprobada como ausente (con el cliente
+del usuario, por id, habitación y ruta exactos). Un resultado ambiguo (sin
+código, `PGRST…`, conexión, cancelación…) conserva el objeto y avisa. Hay
+cinco avisos (`room_image_upload_unconfirmed`,
+`room_image_orphan_after_insert`, `room_image_insert_unconfirmed`,
+`room_image_insert_unverified` y `room_image_orphan_after_delete`), con solo
+el evento y la ruta: nunca el usuario, el nombre del archivo, el contenido,
+una URL ni el mensaje de Storage. Al borrar una foto, primero la fila y
+después el objeto, y solo el de la ruta canónica de esa fila.
+
+**Conciliación de solo lectura** (D3 de la 4.2; no confundir con la
+congelación de D3 de R8): `tests/supabase/room-images-reconcile.sh` compara
+los metadatos del bucket con `room_images` y clasifica las diferencias, sin
+ningún modo de aplicación y en solo lectura en tres niveles. No comprueba
+que el archivo exista físicamente en Storage. Ejecutarlo contra un proyecto
+remoto necesita autorización: lee todas las rutas de las fotos.
+
+**R7: visibilidad.** Las habitaciones activas de una cuenta desactivada y sus
+fotos dejan de ser públicas (`is_room_publicly_visible`, SECURITY DEFINER con
+`search_path` vacío, EXECUTE solo para anon y authenticated). Se oculta al
+leer, sin cambiar datos. La propietaria sigue viendo lo suyo, y el admin
+activo lee las fotos ocultas con `room_images_admin_select`, que no las hace
+públicas ni se aplica a usuarios normales o a un admin desactivado
+(`tests/db/20`).
+
+**Riesgos residuales:**
+- Una URL firmada filtrada sirve hasta que caduca (como mucho 10 minutos), y
+  no se puede revocar antes.
+- Por RPC, anon puede preguntar si una habitación es pública, igual que con
+  un SELECT. El Security Advisor de Supabase puede avisar de una función
+  SECURITY DEFINER ejecutable por anon: está aceptado, sin comprobar.
+- La firma de los bytes es un filtro previo, no valida el archivo entero:
+  libvips elige su cargador por el contenido (por eso se exige que coincida
+  con la firma).
+- `rooms_delete_own` borra en cascada las filas de `room_images`, pero no los
+  objetos, que quedan huérfanos hasta que el borrado de habitaciones pase por
+  el servidor. La conciliación los detecta, pero no los borra.
+- Tras un resultado ambiguo del INSERT puede quedar un objeto sin fila: lo
+  detecta la conciliación, y borrarlo es otra decisión.
+- `sharp` 0.35.4 (decisión del propietario, dependencia directa y exacta):
+  `npm audit` marca GHSA-wq5f-xc86-pv6w (alta, en librsvg, corregida en
+  0.35.5). librsvg es el decodificador de SVG, y por N1 un SVG no llega a
+  sharp; aun así, **actualizar a 0.35.5 queda para decidir aparte**. Las
+  alertas de `next` 16.3.6 que marca el mismo `npm audit` son anteriores a la
+  4.2 y no se han revisado aquí.
+
+**Sin validar:**
+- en Supabase real: `roomly-validation-3` sigue en la 4.1. Aplicar la 4.2
+  necesita su propia herramienta y su autorización, o un proyecto aislado
+  nuevo (D2, `docs/SUPABASE_VALIDATION.md`);
+- la API de Storage real (subida con service_role, URL firmadas, listado y
+  escritura denegados con el JWT de un usuario), con el CDN de Supabase: en
+  local solo hay las tablas del shim;
+- si el rol `postgres` de Supabase puede ver todas las filas de
+  `storage.buckets` y `storage.objects` (dueño o BYPASSRLS). Si no, las
+  migraciones y el preflight se detienen con «no se puede comprobar»;
+- si los triggers propios de Storage en Supabase (por ejemplo, contra el
+  borrado directo de objetos) cambian lo que espera `tests/db/19`;
+- el límite del cuerpo de las peticiones del alojamiento y
+  `serverActions.bodySizeLimit`: no hay todavía Server Action ni interfaz de
+  fotos.
+
 ## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
 
 Migración incremental `20261004120100_profiles_privacy.sql` (decisión D2,
@@ -788,13 +923,22 @@ verdad (Upstash Redis, barato) — se añade cuando haga falta, no antes.
 
 ## Subida de archivos (Supabase Storage)
 
-- Bucket de **lectura pública** para fotos de habitación y avatares
-  (nada sensible en una foto).
-- **Escritura** restringida por política de Storage: solo a rutas
-  prefijadas con el `auth.uid()` de quien sube.
-- Límite de tamaño y whitelist de tipo MIME (solo imágenes), validado
-  tanto en la configuración del bucket como en Zod antes de iniciar la
-  subida.
+Desde la Fase 4.2 (fotos de habitaciones; ver la sección de la 4.2, arriba),
+el diseño inicial cambia:
+- el bucket `room-images` es **privado**: las fotos se sirven con URL
+  firmadas de 10 minutos que emite el servidor tras comprobar la RLS (D1).
+  Una foto puede revelar datos de una persona (su casa, su barrio, y antes de
+  limpiarla, la ubicación GPS), y ocultar una habitación (R7) tiene que
+  ocultar también sus fotos;
+- **ningún cliente escribe** en Storage: ni rutas prefijadas con su
+  `auth.uid()` ni ninguna otra. Sube el servidor, con service_role, después de
+  limpiar la imagen (sin EXIF ni GPS) y con la ruta `room_id/id.webp`;
+- límites en las dos capas: 4 MiB y JPEG, PNG o WebP en la aplicación (Zod y
+  el sanitizador, que decide por el contenido), y 5 MiB e `image/webp` en el
+  bucket, que se aplican también a service_role.
+
+Los avatares (M3) siguen fuera de alcance; cuando se hagan, se revisa si
+siguen este mismo modelo.
 
 ## Privacidad de ubicación
 
@@ -814,6 +958,11 @@ sería invisible.
 
 `npm audit` en CI, Dependabot activado en el repositorio de GitHub en
 cuanto exista.
+
+- `sharp` 0.35.4, dependencia directa y exacta desde la Fase 4.2
+  (`tests/unit/sharp-dependency.test.ts`). `npm audit` (2026-10-29) marca
+  GHSA-wq5f-xc86-pv6w (librsvg, < 0.35.5): ver «Riesgos residuales» de la
+  4.2, arriba. Pendiente de decisión del propietario.
 
 ## RGPD — lo que es responsabilidad técnica y lo que no
 

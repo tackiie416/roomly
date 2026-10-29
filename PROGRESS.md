@@ -6,6 +6,161 @@ próximos pasos.**
 
 ---
 
+## 2026-10-29 — Sesión 63: Fase 4.2 reconstruida en local tras perderse la original (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Contexto: qué se perdió**
+- Las sesiones 61 y 62 (2026-10-24 y 2026-10-25) implementaron la Fase 4.2
+  en la rama local `feature/phase4-storage-r7`: los commits `936ce11`,
+  `0194d29`, `976d80e` y `d523d46` y los cambios sin commit de D1–D4. La
+  sesión 60, la documentación de los runs 23 y 24, estaba en el stash
+  `e76aaedd…`. **Nada de eso se publicó.** Al reciclarse el contenedor se
+  perdió todo.
+- Se comprobó por GitHub, con una consulta de solo lectura autorizada, que
+  no existe nada de eso en remoto. Esas tres sesiones no están en este
+  archivo: esta entrada las sustituye, y por eso empieza en la 63.
+- **Lo que no se ha recuperado:** la documentación de los runs 23 y 24 (el
+  stash). Los runs existen en GitHub, pero este repositorio no los registra,
+  y esta sesión no los ha revisado.
+
+**Autorizaciones del propietario** (2026-10-29)
+- La recuperación local: `fetch` solo de `claude/phase4-r8-upgrade-tool` y la
+  rama `feature/phase4-2-rebuild` en su punta, `9391015` (PR #27), sin
+  upstream.
+- La implementación local completa de la 4.2, por etapas, con un commit
+  local por etapa revisada y con sus pruebas en verde. Sin push, PR, merge
+  ni cambios en los PR #26 y #27; sin Supabase remoto, workflows, secretos ni
+  servicios externos.
+- Decisiones: la copia congelada de R8 (D3, abajo), las dos migraciones
+  separadas y con sus nombres, `sharp` 0.35.4 como dependencia directa,
+  `order()` del fake con todas las llamadas, la conciliación tal como estaba
+  (puede salir con 0 aunque haya objetos sin fecha), recuentos nuevos (los
+  antiguos no valen) y los componentes sin código reconstruidos desde el
+  diseño, sin presentarlos como recuperados.
+
+**Línea de partida** (verificada antes de empezar): `9391015`, 16 de 16
+huellas y 6 de 6 pines de R8; `test` 1069 en 38 archivos, `test:db` 651,
+`test:infra` en verde (guarda 28, runner SQL 89, preflight 69, actualización
+26 y R8 76), y `lint`, `typecheck`, formato y `build` en verde.
+
+**Qué se reconstruyó y de dónde**
+- **Recuperado del registro de la sesión anterior** (el texto de los
+  archivos, tal como estaba en la conversación, revisado y probado de
+  nuevo): `lib/images/sanitize-room-image.ts`, `lib/validation/room-images.ts`,
+  `lib/services/room-images.ts` (la versión posterior a la auditoría),
+  `20261025120000_room_images_private_bucket.sql`, la conciliación (SQL,
+  script y selftest), los tests de N1 y L3, los fakes del test del servicio,
+  y parte de la documentación (`docs/DATABASE.md` de la 4.2).
+- **Reescrito desde el diseño documentado** (lo que solo se conservaba como
+  descripción): `20261024120000_room_images_storage_visibility.sql`,
+  `tests/db/19` y `20`, `concurrency_room_images.sh`, la adaptación de
+  `tests/db/15`, el preflight de la 4.2 y sus mutaciones, los casos de la
+  4.2 de `migration-upgrade-selftest`, la mayoría de los tests del
+  sanitizador y del servicio, y la documentación restante.
+- **Cambios sobre lo recuperado**, pequeños y del lado seguro:
+  - en el servicio, un mensaje de error que no es una cadena ya no puede
+    lanzar al traducirlo (el riesgo que había quedado anotado), y al borrar
+    solo se toca la ruta canónica de la fila;
+  - en el sanitizador, la comprobación final va en un try/catch;
+  - la `20261024120000` también se detiene, con su motivo, si otro bucket se
+    llama `room-images` (antes era un riesgo residual: fallaba sin
+    explicación).
+
+**Qué se hizo, por etapas** (commits locales, sin publicar)
+- **Etapa 0, `5f499a9`:** `tests/supabase/phase4-final-preflight.sql`, copia
+  byte a byte del preflight de `9391015` (SHA-256 `38ef7a3b…`, blob
+  `7f28f5d9…`). `PHASE4_FINAL_PREFLIGHT` apunta a ella con el mismo SHA-256;
+  cambian solo la ruta del pin, la etiqueta de su sección y los textos de los
+  resultados inciertos (L5). Selftest de R8 a 79 (g18, g19 y g20 nuevos),
+  `validation-infra` con el SHA-256 y el blob literales, y
+  «Copia congelada del preflight de la 4.1» en
+  `docs/SUPABASE_VALIDATION.md`, que sustituye a «Cambiar el SHA-256 del
+  preflight vigente». Controles: contra el script de la base, el selftest
+  falla en 6 comprobaciones y `validation-infra` en 5 tests.
+- **Etapa 1, `269ec49`:** schema `storage` en el shim (solo metadatos, con la
+  RLS activa sin políticas e índices únicos de Supabase), `order()` del fake
+  con todas las llamadas y `sharp` 0.35.4 directo (el lockfile solo deja de
+  marcarlo opcional; `npm ci` en un directorio limpio lo instala y procesa un
+  WebP).
+- **Etapas 2–3, `cd31db3`:** la `20261024120000`, `tests/db/19` (66 entonces),
+  `20` (32) y la concurrencia (5); `15`, `10`, `13` y `14` adaptados, dos
+  helpers nuevos, y la parte de la 24 del preflight (P1–P4 y P6) con sus
+  mutaciones, `migration-upgrade-selftest` y `sql-suite-selftest`. Van juntas
+  porque, por separado, el commit de la migración dejaba `test:db` y
+  `test:infra` en rojo.
+- **Etapa 4, `dd7e48f`:** validación y sanitizador, con sus tests y la
+  coherencia en `validation-infra`; y el comentario de
+  `lib/validation/rooms.ts` que llamaba «Fase 4.2» al CRUD (regla 10).
+- **Etapa 5, `2056be1`:** el servicio, sus tests y `admin-client-usage` con
+  tres servicios. **El mensaje de ese commit dice «diez mutaciones»: fueron
+  nueve** (no se reescribe el historial; el número correcto está en
+  `docs/TESTING.md`).
+- **Etapas 6–7, `2484325`:** la `20261025120000`, ST0 y ST1 en `tests/db/19`,
+  P1 y P3 del preflight para el bucket privado y L6_N2, sus mutaciones, y los
+  diez rechazos de L6_N2 con la idempotencia en `migration-upgrade-selftest`.
+- **Etapa 8, `f9ae92f`:** la conciliación de solo lectura, en `test:infra` y en
+  la CI (`db-security`), y sus tests en `validation-infra`.
+- **Etapa 9 (este commit):** documentación: `docs/DATABASE.md`,
+  `SECURITY.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `SUPABASE_VALIDATION.md` y
+  `TESTING.md`, `CLAUDE.md` y esta entrada.
+
+**Verificación (local, 2026-10-29)**
+- `test` ✅ 1186/1186 en 45 archivos; `test:db` ✅ 767/767; `test:infra` ✅ 356
+  (guarda 28, runner SQL 89 con 762 = 762, preflight 107 con 99 mutaciones,
+  actualización 36, R8 79 y conciliación 17).
+- E1 ✅ 32/32 con el Chromium preinstalado (orientativo). `lint`,
+  `typecheck`, `format:check`, `build` y `git diff --check` ✅.
+- Controles negativos: los de R8 (arriba); N1, L3 y `type_mismatch` en el
+  sanitizador; 9 mutaciones del servicio, todas detectadas; la concurrencia
+  sin el bloqueo (9 fotos); la conciliación sin sus capas de solo lectura;
+  `sharp-dependency` con el `package.json` de la base. Todos los archivos se
+  restauraron y se comprobaron con `cmp`.
+- Las tres migraciones de R8 y los archivos fijados (`75a5a3b1…`,
+  `c0a8cb51…`, `5ea9dae6…`, `2c33c4a1…`, `7c8909b9…` y `38ef7a3b…`), sin
+  cambios.
+- Todas las bases de datos y roles temporales se borraron.
+- **Sin ejecutar:** la CI (la rama no está publicada), el E2 y nada en
+  Supabase real.
+
+**Problemas encontrados**
+- `npm audit` marca `sharp` 0.35.4 con GHSA-wq5f-xc86-pv6w (alta, en
+  librsvg, corregida en 0.35.5). Ya estaba en la base, como dependencia
+  opcional de `next`. Se mantiene la versión decidida y queda para el
+  propietario (`docs/SECURITY.md`). El mismo `npm audit` marca alertas de
+  `next` 16.3.6, anteriores a la 4.2, que no se han revisado aquí.
+- En los tests SQL: un UUID sin letras no prueba las mayúsculas; una vista
+  temporal sin `security_invoker` se salta la RLS (era del superusuario); y
+  un UPDATE con WHERE necesita también una política SELECT (el control de
+  ST1). Corregidos en el propio test.
+- Una mutación del preflight (FORCE RLS) no tenía sentido con un
+  superusuario, que no ve limitadas sus filas: se quitó; el caso del rol sin
+  BYPASSRLS ya lo cubre.
+- Una mutación del servicio sobrevivía (aceptar URL de rutas no pedidas): le
+  faltaba un caso, que se añadió.
+- «D3» nombra dos decisiones distintas: la congelación de R8 y la
+  conciliación de la 4.2. La documentación las distingue.
+
+**Riesgos residuales:** los de `docs/SECURITY.md` («Fase 4.2», «Riesgos
+residuales»): una URL firmada filtrada sirve hasta 10 minutos; la firma de
+los bytes no valida el archivo entero; el borrado de habitaciones desde el
+cliente deja objetos huérfanos; y nada se ha probado con la API de Storage ni
+con las tablas de Storage reales de Supabase.
+
+**Pendiente** (cada punto con su autorización o decisión)
+1. Revisar los commits locales y decidir si se publica la rama.
+2. La versión de `sharp` (0.35.5).
+3. La validación real de la 4.2 en un proyecto aislado (D2,
+   `docs/SUPABASE_VALIDATION.md`), con sus requisitos previos: publicar la
+   rama, demostrar la aprobación del Environment, adaptar la guarda y
+   escribir los casos de Storage de la api-suite.
+4. La Server Action con `bodySizeLimit`, la interfaz, y el borrado de
+   habitaciones por el servidor.
+5. La documentación de los runs 23 y 24, perdida con el stash.
+6. Sin cambios: los PR #26 y #27, la congelación de D3, el Environment, la
+   limpieza de `roomly-validation-3`, el E2 con la Fase 4 y el runtime de
+   Next.js con la clave real.
+
+---
+
 ## 2026-10-21 — Sesión 59: R8, publicación de la documentación y prueba de la protección del Environment (run 22) (Fase 4 EN CURSO; protección de aprobación NO demostrada; PR #26 y #27 sin fusionar)
 
 **Contexto**

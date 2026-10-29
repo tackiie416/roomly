@@ -61,6 +61,17 @@ ninguna aprobación y falló, como se pretendía, en la validación de entradas.
 La causa sigue sin conocerse. Ver «Resultado: run 22, prueba de la protección
 del Environment».
 
+Estado (2026-10-29, Fase 4.2): **la 4.2 no tiene validación real.** Sus dos
+migraciones (`20261024120000` y `20261025120000`) solo han corrido en local,
+en la rama `feature/phase4-2-rebuild`, sin publicar (la implementación
+original se perdió y se reconstruyó; `PROGRESS.md`, sesión 63).
+`roomly-validation-3` sigue en la 4.1, y el preflight vigente, que ya
+describe la 4.2, **fallaría contra él en P1**. Por eso R8 comprueba su
+llegada con una copia congelada del preflight de la 4.1 (ver «Copia congelada
+del preflight de la 4.1»). La 4.2 se validará en un proyecto nuevo y aislado
+(D2), del que de momento solo está el procedimiento: ver «Fase 4.2: proyecto
+de validación aislado (D2)».
+
 Los resultados de los runs 13–22, más abajo, describen el esquema y las
 suites **de cada momento**. La configuración vigente está en «Cómo se
 ejecuta», «Preflight P0–P6» y «Matriz de pruebas».
@@ -910,15 +921,15 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 | Check | Qué exige |
 |---|---|
 | P0 | Marca `roomly-validation-3` exacta |
-| P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y Barcelona activa. Desde la Fase 4.1, además: las restricciones de `rooms` de `20261015120000`, validadas (`chk_rooms_features_catalog`, `chk_rooms_features_unique`, `chk_rooms_total_roommates`, `chk_rooms_total_rooms`, `chk_rooms_publishable` y `fk_rooms_neighborhood_city`); la FK compuesta comparada por columnas; el catálogo exacto de las 12 características (R6), y, con R1 (`20261016120000`), exactamente los 73 barrios oficiales de Barcelona, comprobados por número y por una huella md5 de «slug\|nombre» |
-| P2 | Mismo dueño para `is_conversation_participant` y `conversation_participants`, sin FORCE RLS, SECURITY DEFINER y `search_path` vacío |
-| P3 | RLS en las 18 tablas y **exactamente estas 44 políticas** (37 hasta la Fase 4.0), comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo). Desde la 4.0, además, cada política de escritura de `rooms`, `room_addresses` y `room_images` exige la cuenta activa (`deleted_at IS NULL`) |
-| P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE. Desde la Fase 3.1, en `compatibility_responses`: `anon` sin ningún privilegio de tabla ni de columna; `authenticated` solo con SELECT, sin INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES ni TRIGGER ni escritura de columna. Desde la Fase 4.1, en `rooms`: `authenticated` sin INSERT ni UPDATE de tabla completa, con exactamente las columnas del GRANT (INSERT sin `status`, `deleted_at`, fechas ni `approx_*`; UPDATE además sin `id` ni `owner_id`), y con SELECT y DELETE; `anon` sin escrituras y con SELECT; `service_role`, tabla completa |
+| P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y Barcelona activa. Desde la Fase 4.1, además: las restricciones de `rooms` de `20261015120000`, validadas (`chk_rooms_features_catalog`, `chk_rooms_features_unique`, `chk_rooms_total_roommates`, `chk_rooms_total_rooms`, `chk_rooms_publishable` y `fk_rooms_neighborhood_city`); la FK compuesta comparada por columnas; el catálogo exacto de las 12 características (R6), y, con R1 (`20261016120000`), exactamente los 73 barrios oficiales de Barcelona, comprobados por número y por una huella md5 de «slug\|nombre». Desde la Fase 4.2: `is_room_publicly_visible(uuid)` (R7), `chk_room_images_storage_path` y `chk_room_images_position` validadas y con su definición, y el bucket `room-images` privado (D1, `20261025120000`), con id = nombre, 5242880 bytes e `image/webp`; «no se puede comprobar» (sin Storage, o con una RLS que podría ocultar filas al rol) es un fallo propio |
+| P2 | Mismo dueño para `is_conversation_participant` y `conversation_participants`, sin FORCE RLS, SECURITY DEFINER y `search_path` vacío. Desde la Fase 4.2, lo mismo para `is_room_publicly_visible` (R7), del dueño de `rooms` y `profiles` |
+| P3 | RLS en las 18 tablas y **exactamente estas 42 políticas** (37 hasta la Fase 4.0; 44 hasta la 4.2), comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo). Desde la 4.0, además, cada política de escritura de `rooms`, `room_addresses` y `room_images` exige la cuenta activa (`deleted_at IS NULL`). Desde la 4.2: `rooms_select_active_public` y `room_images_select` usan `is_room_publicly_visible`; `room_images_admin_select` es solo SELECT de `authenticated` con `is_admin()`; `storage.objects` y `storage.buckets` tienen la RLS activa; `storage.objects` no tiene **ninguna política** y `storage.buckets` ninguna de escritura |
+| P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE. Desde la Fase 3.1, en `compatibility_responses`: `anon` sin ningún privilegio de tabla ni de columna; `authenticated` solo con SELECT, sin INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES ni TRIGGER ni escritura de columna. Desde la Fase 4.1, en `rooms`: `authenticated` sin INSERT ni UPDATE de tabla completa, con exactamente las columnas del GRANT (INSERT sin `status`, `deleted_at`, fechas ni `approx_*`; UPDATE además sin `id` ni `owner_id`), y con SELECT y DELETE; `anon` sin escrituras y con SELECT; `service_role`, tabla completa. Desde la Fase 4.2, en `room_images`: `anon` y `authenticated` solo con SELECT, sin ninguna escritura de tabla ni de columna, y `service_role` con INSERT, UPDATE y DELETE; EXECUTE de `is_room_publicly_visible` para `anon` y `authenticated`, no para PUBLIC ni para `service_role` |
 | P5 | Equivalente SQL de los lints del Security Advisor |
-| P6 | **Exactamente 13 triggers activos** en `public` (12 hasta la Fase 3.1, que añade `trg_compatibility_responses_integrity`). **Exactamente 11 funciones propias** (10 hasta la Fase 3.1, que añade `enforce_compatibility_responses_integrity()`), con su SECURITY DEFINER y `search_path`. EXECUTE revocado donde las migraciones lo revocan |
+| P6 | **Exactamente 14 triggers activos** en `public` (12 hasta la Fase 3.1, que añade `trg_compatibility_responses_integrity`; 13 hasta la 4.2, que añade `trg_room_images_integrity`). **Exactamente 13 funciones propias** (10 hasta la Fase 3.1; 11 hasta la 4.2, que añade `enforce_room_images_integrity()` e `is_room_publicly_visible(uuid)`), con su SECURITY DEFINER y `search_path`. EXECUTE revocado donde las migraciones lo revocan |
 
-Las 44 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
-`profiles_select_authenticated`; 37 hasta la Fase 4.0):
+Las 42 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
+`profiles_select_authenticated`; 37 hasta la Fase 4.0; 44 hasta la 4.2):
 
 | Tabla | Políticas |
 |---|---|
@@ -937,7 +948,7 @@ Las 44 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
 | `profiles` | `profiles_select_own_even_if_deleted` (SELECT), `profiles_update_own` (UPDATE), `profiles_insert_own` (INSERT), `profiles_admin_all` (ALL) |
 | `reports` | `reports_insert_own` (INSERT), `reports_select_own` (SELECT), `reports_admin_all` (ALL) |
 | `room_addresses` | `room_addresses_select_own` (SELECT), `_insert_own` (INSERT), `_update_own` (UPDATE), `_delete_own` (DELETE); desde la Fase 4.0 sustituyen a `room_addresses_owner_only` FOR ALL |
-| `room_images` | `room_images_select` (SELECT), `room_images_insert_own` (INSERT), `_update_own` (UPDATE), `_delete_own` (DELETE); desde la Fase 4.0 sustituyen a `room_images_owner_write` FOR ALL |
+| `room_images` | `room_images_select` (SELECT, con R7) y `room_images_admin_select` (SELECT, `to authenticated`, `is_admin()`). Las de escritura de la Fase 4.0 (`_insert_own`, `_update_own` y `_delete_own`, que sustituyeron a `room_images_owner_write`) se eliminan en la 4.2: solo escribe el servidor |
 | `rooms` | `rooms_select_active_public` (SELECT), `rooms_select_own` (SELECT), `rooms_insert_own` (INSERT), `rooms_update_own` (UPDATE), `rooms_delete_own` (DELETE), `rooms_admin_all` (ALL); desde la Fase 4.0 las tres de escritura sustituyen a `rooms_owner_write` FOR ALL |
 | `universities` | `universities_select_all` (SELECT), `universities_admin_write` (ALL) |
 
@@ -952,7 +963,9 @@ Las 44 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
 - `20261007120000` (Fase 3.1) sustituye `compatibility_responses_own` por
   `compatibility_responses_select_own` (siguen 37);
 - `20261013120000` (Fase 4.0) divide por comando las tres políticas FOR ALL
-  de habitaciones: −3 +10 (44).
+  de habitaciones: −3 +10 (44);
+- `20261024120000` (Fase 4.2) elimina las tres de escritura de
+  `room_images` y añade `room_images_admin_select`: −3 +1 (42).
 
 Nadie actualizó el preflight entonces. Además solo contaba, y no
 comprobaba nada de la Fase 2.
@@ -978,32 +991,57 @@ comprobaba nada de la Fase 2.
   R8. El `dry_run` (run 20) no cambió nada; el `apply` (run 21) aplicó las
   tres migraciones, y después el preflight vigente pasó como job propio, con
   44 políticas y los 73 barrios. Ver «Resultado: run 21».
+- **Fase 4.2 (2026-10-29), sin aplicar en ningún proyecto real:** desde
+  `20261024120000` y `20261025120000`, el preflight vigente exige la función
+  de R7, las restricciones de `room_images`, el bucket privado, 42 políticas,
+  14 triggers y 13 funciones. Contra `roomly-validation-3`, que sigue en la
+  4.1, fallaría en P1. R8 no usa este preflight: comprueba su llegada con la
+  copia congelada de la 4.1.
 
 **Verificación sin red:**
 - `tests/unit/validation-infra.test.ts` deriva de las migraciones el
   conjunto final de políticas y triggers y lo compara con las listas del
   preflight.
-- `tests/supabase/preflight-selftest.sh` (69 comprobaciones, en CI; 65 con
-  la 4.1 antes de R1, 50 con la 4.0, 44 antes):
+- `tests/supabase/preflight-selftest.sh` (107 comprobaciones, en CI; 69
+  hasta la 4.2, 65 con la 4.1 antes de R1, 50 con la 4.0, 44 antes):
   - con el esquema actual pasan P0–P6;
-  - cada una de 61 mutaciones falla en su check, y cada una se deshace
+  - cada una de 99 mutaciones falla en su check, y cada una se deshace
     (desde la Fase 3, también la marca `roomly-validation-2` en P0);
   - las mutaciones incluyen, entre otras, «misma cantidad, otra política
-    (44 = 44)» y «vuelve `housing_preferences_own`»;
+    (42 = 42)» y «vuelve `housing_preferences_own`»;
   - desde la Fase 3.1, otras 8 de `compatibility_responses`: vuelve la
     política FOR ALL, `anon` con SELECT, `authenticated` con INSERT, con
     UPDATE de `completed_at` o sin SELECT, falta el trigger, la función pasa
     a SECURITY DEFINER, y `authenticated` puede ejecutarla;
   - desde la Fase 4.0, otras 6 de habitaciones: vuelve `rooms_owner_write`,
     falta `room_addresses_select_own` y cuatro políticas de escritura sin la
-    comprobación de cuenta activa (o con ella solo en WITH CHECK);
+    comprobación de cuenta activa (o con ella solo en WITH CHECK). Las dos de
+    `room_images` se quitaron en la 4.2, porque esas políticas ya no
+    existen;
   - desde la Fase 4.1, otras 15: en P1, restricciones de `rooms` que faltan
     o están sin validar, la FK sobre otras columnas y otro catálogo de
     características; en P4, columnas de más o de menos en el GRANT de
     `rooms`, el GRANT de tabla completa, `anon` con escrituras y
     `service_role` sin la tabla completa;
   - con R1, otras 4 en P1: falta un barrio oficial, uno renombrado, su slug
-    cambiado y un barrio de más en Barcelona.
+    cambiado y un barrio de más en Barcelona;
+  - desde la Fase 4.2, otras 40:
+    - en P1, sin la función de R7, sin las restricciones de `room_images`,
+      con otra definición o sin validar, sin el bucket, público, sin valor de
+      `public`, con otro nombre, otro límite u otros tipos, y un rol al que
+      la RLS podría ocultar filas («no se puede comprobar»);
+    - en P2, la función de R7 sin SECURITY DEFINER, con otro `search_path`
+      o de otro dueño;
+    - en P3, vuelve una política de escritura de `room_images`, falta la del
+      admin, es FOR ALL, para todos los roles o abierta, las lecturas
+      públicas sin R7, una política en `storage.objects`, `storage.objects` o
+      `storage.buckets` sin RLS, y una política de escritura (o FOR ALL) en
+      `storage.buckets`;
+    - en P4, escrituras de clientes en `room_images`, `authenticated` sin
+      SELECT, `service_role` sin INSERT y el EXECUTE de la función de R7 (sin
+      él para anon, o con él para PUBLIC o `service_role`);
+    - en P6, falta el trigger de `room_images` o está desactivado, su función
+      pasa a SECURITY DEFINER, y `authenticated` puede ejecutarla.
 
 ## E2E: E1 local y E2 real, separados
 
@@ -1121,7 +1159,7 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P0–P6 | `tests/supabase/preflight.sql` | Ver la tabla de arriba |
-| SQL 01–18 | `tests/db/*` vía `run-sql-suite.sh` | Las 651 aserciones actuales de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real hasta `14`: 305/305 en el run 16 (Fase 3), y en verde en los runs 18 y 19.** La Fase 4 añade `15` (habitaciones y cuentas desactivadas, 4.0, 75 aserciones), `16` (integridad y publicación, 4.1, 88), `17` (transiciones de `status`, R7, 160) y `18` (barrios oficiales, R1, 22). **Los 18 archivos, en real por primera vez en el run 21, después del `apply` de R8:** cada uno revertido, 651 líneas `ok -` en el log y la comprobación final sin restos. Hasta el run 21, `15`–`18` no se habían ejecutado en real |
+| SQL 01–20 | `tests/db/*` vía `run-sql-suite.sh` | Las aserciones de `tests/db` (651 hasta la Fase 4.2) con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real hasta `14`: 305/305 en el run 16 (Fase 3), y en verde en los runs 18 y 19.** La Fase 4 añade `15` (habitaciones y cuentas desactivadas, 4.0, 75 aserciones), `16` (integridad y publicación, 4.1, 88), `17` (transiciones de `status`, R7, 160) y `18` (barrios oficiales, R1, 22). **Los 18 archivos, en real por primera vez en el run 21, después del `apply` de R8:** cada uno revertido, 651 líneas `ok -` en el log y la comprobación final sin restos. Hasta el run 21, `15`–`18` no se habían ejecutado en real. La Fase 4.2 añade `19` (fotos y Storage, 76) y `20` (R7, 32), y adapta `10`, `13`, `14` y `15` (762 aserciones en los 20 archivos, solo en local; `concurrency_room_images.sh` corre solo con `tests/db/run.sh`, que necesita dos sesiones). **`19` y `20` no se han ejecutado en real** |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
 | RO1–RO9 | api-suite | Propietario crea un borrador, lo publica, lo edita y lo pausa; no pone ni saca de `removed` (desde la 4.1, el upsert de RO6 lo frena antes el GRANT); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario. Desde la 4.1, RO1 publica con un barrio oficial de Barcelona (R1) y la ocupación. **Con la 4.1, en real por primera vez en el run 21: RO1–RO9 en verde** (antes, sin ejecutar en real con la 4.1) |
@@ -1299,6 +1337,130 @@ cubrir un run real de la Fase 4:
 niega si `public.profiles` ya existe. En local, la actualización de un
 esquema existente la prueba `migration-upgrade-selftest.sh`, y la instalación
 limpia, `tests/db/run.sh` y ese mismo selftest.
+
+### Fase 4.2: validación real
+
+**Sin hacer.** La 4.2 (`20261024120000` y `20261025120000`) solo está probada
+en local, en la rama `feature/phase4-2-rebuild`, sin publicar. Lo que hace
+falta, cada paso con su autorización:
+- **Dónde:** en un proyecto nuevo y aislado (D2, abajo), no en
+  `roomly-validation-3`: sigue en la 4.1, con la congelación de D3 de R8, y
+  aplicarle la 4.2 necesitaría una herramienta propia, como R8.
+- **Comprobar en el proyecto, sin escribir:**
+  - si el rol `postgres` ve todas las filas de `storage.buckets` y
+    `storage.objects` (dueño o BYPASSRLS). Si no, las migraciones y el
+    preflight se detienen con «no se puede comprobar»;
+  - que el proyecto no tiene ya políticas en `storage.objects` ni de
+    escritura en `storage.buckets`;
+  - los triggers propios de Storage (por ejemplo, contra el borrado directo
+    de objetos), que podrían cambiar lo que espera `tests/db/19`;
+  - el aviso del Security Advisor sobre `is_room_publicly_visible`.
+- **Casos de Storage en la api-suite**, todavía sin escribir:
+  - una subida con service_role de una foto con GPS, que se lee por una URL
+    firmada ya sin EXIF;
+  - la URL pública del mismo objeto no lo sirve, y la URL firmada caduca a su
+    hora;
+  - `listRoomImages` no firma nada para una habitación oculta por R7 (cuenta
+    desactivada) ni para otro usuario;
+  - el listado del bucket como anon y como usuario, vacío;
+  - una subida, un cambio y un borrado con el JWT de un usuario, denegados;
+  - limpieza: borrar por la API de Storage los objetos de prueba.
+- **No cubre:** el runtime de Next.js con la clave real (staging) ni el paso
+  de `roomly-validation-3` a la 4.2.
+
+### Fase 4.2: proyecto de validación aislado (D2)
+
+Decisión del propietario (2026-10-25): la 4.2, con D1–D4, se valida en un
+proyecto Supabase **nuevo y aislado**, no en `roomly-validation-3` ni en
+`uwxb…`. **Solo está el procedimiento:** no se ha creado, configurado ni
+conectado ningún proyecto. Cada paso necesita la autorización explícita del
+propietario. Claude no crea proyectos, no configura secretos ni Environments
+y no lanza workflows.
+
+1. **Requisitos previos, sin conexión:**
+   - la rama, publicada y con la CI en verde (los workflows se lanzan desde
+     GitHub);
+   - que la aprobación del Environment detiene de verdad el job, demostrado
+     antes: el run 22 la dejó como no fiable;
+   - el nombre y la marca del proyecto (por ejemplo, `roomly-validation-4`);
+   - escritos y revisados: los casos de Storage de la api-suite (ver «Fase
+     4.2: validación real») y, si se quiere en remoto, una variante de la
+     prueba de concurrencia sin su control, que cambia la función del
+     trigger y es solo local.
+2. **Crear el proyecto** (el propietario): sin datos reales, con el registro
+   de Auth cerrado, y con su marca:
+   `comment on database postgres is '<marca>'`.
+3. **Adaptar la guarda F1 y el workflow** (un cambio de código, revisado en
+   un PR): hoy la guarda solo acepta `roomly-validation-3`. Hacen falta la
+   ref, la marca, `confirm_project`, un Environment propio con Required
+   reviewers y sus secrets, que configura el propietario.
+4. **Inspección de solo lectura,** antes de aplicar nada: que existe Storage,
+   qué buckets hay, las políticas y los triggers de `storage.objects` y
+   `storage.buckets`, si `postgres` ve todas sus filas y el Security Advisor.
+5. **Instalación limpia** (`apply_migrations=true`, que se niega si
+   `public.profiles` ya existe): las 15 migraciones y el seed en una
+   transacción, y después el preflight vigente (bucket privado, 42 políticas,
+   14 triggers y 13 funciones).
+   - Valida la instalación desde cero. El paso de la 4.1 a la 4.2 (el de un
+     proyecto existente) solo está probado en local
+     (`migration-upgrade-selftest`).
+6. **Suites:** la SQL `01`–`20` (cada archivo revertido), la api-suite con
+   los casos de Storage y AU3/AU5. El E2, solo si se autoriza aparte (abre el
+   registro).
+7. **Conciliación de solo lectura** antes y después de las suites (abajo).
+   Después de la limpieza tiene que dar 0 inconsistencias.
+8. **Limpieza y cierre:** 0 usuarios `@test`, 0 objetos de prueba (borrados
+   por la API de Storage) y la conciliación limpia. Después, rotar las claves
+   y pausar o borrar el proyecto, según decida el propietario.
+
+Riesgos y recuperación: el proyecto es desechable. Si algo sale mal, se
+descarta y se crea otro; no hay migraciones inversas.
+
+### Informe de conciliación de las fotos (D3 de la 4.2)
+
+Decisión del propietario (2026-10-25): una conciliación exclusivamente de
+lectura. No es la «congelación de D3» de R8, que es otra decisión con el
+mismo nombre.
+
+`tests/supabase/room-images-reconcile.sh` compara los metadatos de Storage
+(`storage.objects`, bucket `room-images`) con `public.room_images`. **Solo
+informa:** no escribe, no borra y no tiene ningún modo de aplicación.
+
+```
+ROOMLY_RECONCILE_DB_URL='<URL de la base de datos>' bash tests/supabase/room-images-reconcile.sh [--min-age-hours 24] [--as-of 2026-10-25T12:00:00Z]
+```
+
+- **Categorías:**
+  - `objeto_sin_fila`: candidato a huérfano, más antiguo que el umbral (24 h
+    por defecto);
+  - `objeto_sin_fila_reciente`: no concluyente, la subida puede estar en
+    curso;
+  - `objeto_sin_fila_sin_fecha`: no verificable;
+  - `ruta_no_canonica`: ajena a las fotos de la app;
+  - `fila_sin_objeto`.
+- **Salida:** 0 sin inconsistencias confirmadas; 1 hay objetos sin fila o
+  filas sin objeto; 2 no se pudo inspeccionar (entrada no válida, conexión,
+  permisos, o una RLS que podría ocultar filas al rol). «No verificable» nunca
+  se presenta como «sin inconsistencias». Como decidió el propietario, puede
+  salir con 0 aunque haya objetos sin fecha o recientes: se cuentan aparte,
+  en la línea del resultado.
+- **Solo lectura, en tres niveles:** la sesión con
+  `default_transaction_read_only`, una transacción READ ONLY que termina en
+  ROLLBACK y un SQL que solo lee (`validation-infra`).
+  `room-images-reconcile-selftest.sh` (17 casos, en `test:infra` y en la CI)
+  comprueba además que una escritura añadida falla y que los datos no
+  cambian.
+- **Determinista:** con la misma `--as-of` y los mismos datos, el informe es
+  idéntico.
+- **Qué muestra:** solo rutas (ids) y horas. Nunca la URL de la base de datos,
+  tokens ni URL firmadas, tampoco cuando falla la conexión.
+- **Límite:** no comprueba que el archivo exista físicamente en el
+  almacenamiento de Storage (solo lo sabe la API de Storage, que no usa).
+- **Conexión:** pasa `default_transaction_read_only` como opción de inicio
+  (`PGOPTIONS`). Si el pooler de Supabase la rechazara, el informe termina
+  con 2 («no verificable»), nunca con un resultado (sin verificar en real).
+- Ejecutarlo contra un proyecto remoto necesita autorización: lee todas las
+  rutas de las fotos.
 
 ### Fase 4: herramienta de actualización (R8)
 
