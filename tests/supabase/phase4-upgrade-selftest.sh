@@ -10,31 +10,37 @@
 #      run_e2e_real=true, apply sin la confirmación exacta, un modo
 #      desconocido y una confirmación sin apply, antes de conectar;
 #   B. dry_run: pasa P0–P6 dentro de la transacción y no deja nada;
-#   C. apply: aplica las 3 migraciones y el esquema pasa el preflight vigente;
+#   C. apply: aplica las 3 migraciones y el esquema pasa el preflight de
+#      llegada (la copia congelada de la 4.1, tests/supabase/phase4-final-preflight.sql);
 #   D. una segunda aplicación se rechaza sin cambiar nada;
 #   E. otra marca, o ninguna, se rechaza;
 #   F. un esquema de partida inesperado se rechaza (política de más, un
 #      barrio, la 4.0 ya aplicada, una restricción de la 4.1, una tabla de
 #      otro rol, un usuario de prueba);
-#   G. un archivo con otro SHA-256 (una migración, el preflight congelado o el
-#      vigente) se rechaza antes de conectar: un psql falso demuestra que no
+#   G. un archivo con otro SHA-256 (una migración, el preflight congelado de la
+#      Fase 3 o el de llegada) se rechaza antes de conectar: un psql falso
+#      demuestra que no
 #      se llega a llamar a psql. Tampoco conecta si un archivo desaparece o
 #      cambia justo después de su comprobación, ni si un archivo fijado
 #      contiene control de transacciones o meta-comandos de psql;
 #      Desde M1, también los meta-comandos a mitad de línea y $$ pegado a un
-#      nombre; las barras invertidas de literales y comentarios se aceptan;
+#      nombre; las barras invertidas de literales y comentarios se aceptan.
+#      Desde la 4.2, el preflight vigente (tests/supabase/preflight.sql) no
+#      forma parte de R8: cambiarlo o retirarlo no cambia nada, y sin la copia
+#      congelada no se llega a conectar;
 #   N. el flujo se construye entero antes de conectar: retirar archivos entre
 #      las dos pasadas no cambia la segunda, y una entrada cortada antes del
 #      ROLLBACK o del COMMIT no se da por buena;
 #   H. un error a mitad (en la segunda migración) revierte todo;
-#   I. si el preflight vigente falla, apply no confirma nada;
+#   I. si el preflight de llegada falla, apply no confirma nada;
 #   J. un WARNING hace fallar el ensayo y apply no llega a confirmar, también
 #      con client_min_messages = error en la base de datos; una migración que
 #      oculta los WARNING (client_min_messages) se rechaza (R8-MSG);
-#   L. si falta un aviso de éxito esperado (P6 del vigente), la pasada falla;
+#   L. si falta un aviso de éxito esperado (P6 del de llegada), la pasada falla;
 #   M. un fallo solo en la pasada con COMMIT (un error, o la conexión perdida
 #      durante el propio COMMIT) da «NO CONFIRMADO» e «incierto», y pide el
-#      preflight antes de repetir: nunca «nada aplicado»;
+#      preflight de llegada (la copia congelada) antes de repetir: nunca «nada
+#      aplicado»;
 #   V. un WARNING o un aviso que falta solo en la segunda pasada, con el COMMIT
 #      ya ejecutado, da «apply NO VÁLIDO»;
 #   S. una señal (SIGINT o SIGTERM al grupo de procesos, como al cancelar un
@@ -276,7 +282,8 @@ repin() {
   name="$(basename "$rel")"
   new="$(sha256sum "$tree/$rel" | cut -c1-64)"
   # Solo la entrada de ese archivo: el nombre va precedido de " o de /, así que
-  # preflight.sql no toca la de phase3-baseline-preflight.sql.
+  # un nombre no toca la entrada de otro que termine igual (preflight.sql no
+  # coincide con phase3-baseline-preflight.sql ni con phase4-final-preflight.sql).
   [ "$(grep -cE "[\"/]${name} [0-9a-f]{64}\"" "$tree/tests/supabase/phase4-upgrade.sh")" = 1 ] \
     || { echo "   FALLO: repin no encuentra una sola entrada fijada para ${name}"; exit 1; }
   sed -i -E "s|([\"/])${name} [0-9a-f]{64}\"|\\1${name} ${new}\"|" "$tree/tests/supabase/phase4-upgrade.sh"
@@ -324,7 +331,7 @@ echo "== B. dry_run sobre el esquema de la Fase 3"
 clone
 before="$(fp "$db")"
 check "dry_run termina bien" "upgrade '$ROOT' '$db' dry_run b.log"
-check "dentro de la transacción: preflight de la Fase 3, R8-BASE, las 3 migraciones y P0–P6 vigentes" \
+check "dentro de la transacción: preflight de la Fase 3, R8-BASE, las 3 migraciones y P0–P6 de llegada" \
   "logged b.log 'ok - R8-BASE' && logged b.log 'migración ${M3}' && [ \"\$(grep -c 'ok - P6:' '$WORK/b.log')\" = 2 ] \
    && logged b.log 'rollback hecho' && logged b.log 'dry_run correcto'"
 check "R8-MSG al empezar y antes del ROLLBACK: client_min_messages = notice" \
@@ -344,9 +351,12 @@ check "apply con la confirmación termina bien, en dos pasadas" \
    && logged c.log 'rollback hecho' && logged c.log 'commit hecho' && logged c.log 'apply correcto'"
 check "el esquema cambia y tiene los 73 barrios" \
   "[ \"\$(fp \"$db_applied\")\" != '$before' ] && [ \"\$(q \"$db_applied\" 'select count(*) from public.neighborhoods')\" = 73 ]"
-check "y pasa el preflight vigente (run-preflight.sh) fuera de la transacción" \
-  "SUPABASE_VALIDATION_PROJECT_REF='$REF' SUPABASE_VALIDATION_DB_URL='$(url "$db_applied")' \
-   bash '$ROOT/tests/supabase/run-preflight.sh' >'$WORK/c-preflight.log' 2>&1"
+# Como en «Recuperación» (docs/SUPABASE_VALIDATION.md): la copia congelada,
+# con psql y en una sesión de solo lectura.
+check "y pasa el preflight de llegada (la copia congelada) fuera de la transacción, en solo lectura" \
+  "PGOPTIONS='-c default_transaction_read_only=on' psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc -d '$(url "$db_applied")' \
+     -f '$ROOT/tests/supabase/phase4-final-preflight.sql' >'$WORK/c-preflight.log' 2>&1 \
+   && [ \"\$(grep -c 'ok - P6:' '$WORK/c-preflight.log')\" = 1 ]"
 
 echo "== D. segunda aplicación"
 after="$(fp "$db_applied")"
@@ -407,14 +417,34 @@ check "el preflight congelado cambiado se rechaza antes de conectar" \
   "logged g2.log 'phase3-baseline-preflight.sql no es el fijado' && ! logged g2.log 'guard:' \
    && [ \"\$(fp \"$db\")\" = '$before' ]"
 tree="$(tree_copy sha-final)"
-echo "-- cambio" >>"$tree/tests/supabase/preflight.sql"
+echo "-- cambio" >>"$tree/tests/supabase/phase4-final-preflight.sql"
 upgrade "$tree" "$db" apply g3.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
-check "el preflight vigente cambiado se rechaza antes de conectar" \
-  "logged g3.log 'SHA-256 de tests/supabase/preflight.sql no es el fijado' && ! logged g3.log 'guard:' \
+check "el preflight de llegada (la copia congelada) cambiado se rechaza antes de conectar" \
+  "logged g3.log 'SHA-256 de tests/supabase/phase4-final-preflight.sql no es el fijado' && ! logged g3.log 'guard:' \
    && [ \"\$(fp \"$db\")\" = '$before' ]"
 offline "$tree" apply g4.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
-check "con el psql falso: el preflight vigente cambiado no llega a llamar a psql" \
-  "logged g4.log 'tests/supabase/preflight.sql no es el fijado' && ! psql_called"
+check "con el psql falso: la copia congelada cambiada no llega a llamar a psql" \
+  "logged g4.log 'tests/supabase/phase4-final-preflight.sql no es el fijado' && ! psql_called"
+# Desde la 4.2, tests/supabase/preflight.sql describe la 4.2 y R8 no lo usa:
+# cambiarlo (sin tocar el script) o retirarlo no cambia la herramienta, que
+# sigue comprobando la llegada con la copia congelada.
+tree="$(tree_copy current-changed)"
+echo "do \$\$ begin raise exception 'FALLO preflight vigente: R8 no debe leerlo'; end \$\$;" \
+  >>"$tree/tests/supabase/preflight.sql"
+check "el preflight vigente cambiado, sin tocar R8: dry_run correcto con la copia congelada (2 P6)" \
+  "upgrade '$tree' '$db' dry_run g18.log && logged g18.log 'dry_run correcto' && ! logged g18.log 'preflight vigente' \
+   && [ \"\$(grep -c 'ok - P6:' '$WORK/g18.log')\" = 2 ] && [ \"\$(fp \"$db\")\" = '$before' ]"
+tree="$(tree_copy current-missing)"
+rm "$tree/tests/supabase/preflight.sql"
+offline "$tree" apply g20.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "sin el preflight vigente, R8 construye igual el flujo (llega a la guarda)" \
+  "logged g20.log 'flujo construido y comprobado antes de conectar' && psql_called"
+tree="$(tree_copy frozen-missing)"
+rm "$tree/tests/supabase/phase4-final-preflight.sql"
+offline "$tree" apply g19.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
+check "sin la copia congelada, se rechaza antes de conectar aunque exista el preflight vigente" \
+  "logged g19.log 'falta el archivo fijado tests/supabase/phase4-final-preflight.sql' \
+   && [ -e '$tree/tests/supabase/preflight.sql' ] && ! psql_called"
 offline "$WORK/tree-sha-mig" dry_run g5.log || true
 check "con el psql falso: la migración cambiada tampoco llega a llamar a psql" \
   "logged g5.log 'supabase/migrations/${M3} no es el fijado' && ! psql_called"
@@ -422,9 +452,10 @@ check "con el psql falso: la migración cambiada tampoco llega a llamar a psql" 
 # desaparece o cambia justo después de su comprobación no llega a psql.
 tree="$(tree_copy toctou-move)"
 PATH="$TOCTOU:$PATH" offline "$tree" apply g6.log PHASE4_UPGRADE_CONFIRM="$PHRASE" \
-  R8_TOCTOU_FILE="$tree/tests/supabase/preflight.sql" R8_TOCTOU_ACTION=move || true
-check "el preflight vigente retirado justo después de su SHA-256: se rechaza sin llamar a psql" \
-  "logged g6.log 'no se pudo copiar tests/supabase/preflight.sql' && [ -e '$tree/tests/supabase/preflight.sql.retirado' ] \
+  R8_TOCTOU_FILE="$tree/tests/supabase/phase4-final-preflight.sql" R8_TOCTOU_ACTION=move || true
+check "la copia congelada retirada justo después de su SHA-256: se rechaza sin llamar a psql" \
+  "logged g6.log 'no se pudo copiar tests/supabase/phase4-final-preflight.sql' \
+   && [ -e '$tree/tests/supabase/phase4-final-preflight.sql.retirado' ] \
    && ! psql_called"
 tree="$(tree_copy toctou-append)"
 PATH="$TOCTOU:$PATH" offline "$tree" apply g7.log PHASE4_UPGRADE_CONFIRM="$PHRASE" \
@@ -445,7 +476,7 @@ validator_case() { # <log> <archivo del árbol> <texto añadido> <motivo esperad
 }
 validator_case g8.log "supabase/migrations/$M3" 'commit;\n' 'no supera roomly_sql_transform'
 validator_case g9.log "supabase/migrations/$M2" 'begin;\nselect 1;\nrollback;\n' 'bloque begin;/rollback;'
-validator_case g10.log "tests/supabase/preflight.sql" '\\connect postgres\n' 'no supera roomly_sql_transform'
+validator_case g10.log "tests/supabase/phase4-final-preflight.sql" '\\connect postgres\n' 'no supera roomly_sql_transform'
 # Un cat que, al juntar varias partes, omite la última sin dar error: el flujo
 # incompleto se detecta al comprobarlo byte a byte, antes de conectar.
 SHORT_CAT="$WORK/short-cat-bin"
@@ -470,7 +501,7 @@ check "un «commit;» dentro de un cuerpo \$\$ (pasa el validador): el flujo se 
 # Meta-comandos a mitad de línea (psql los ejecuta igual) y $$ pegado a un
 # nombre (para psql, parte del identificador): rechazados sin llamar a psql.
 validator_case g13.log "supabase/migrations/$M3" 'select 1; \\connect postgres\nselect 2;\n' 'meta-comando de psql no permitido'
-validator_case g14.log "tests/supabase/preflight.sql" 'select 1; \\set ON_ERROR_STOP 0\nselect 2;\n' 'meta-comando de psql no permitido'
+validator_case g14.log "tests/supabase/phase4-final-preflight.sql" 'select 1; \\set ON_ERROR_STOP 0\nselect 2;\n' 'meta-comando de psql no permitido'
 validator_case g15.log "tests/supabase/phase4-upgrade-baseline.sql" 'select 1; \\! echo r8-selftest;\n' 'meta-comando de psql no permitido'
 validator_case g16.log "supabase/migrations/$M2" 'select 1 as x$$;\ncommit;\nselect 2 as y$$;\n' '$$ pegado a un nombre'
 # Control: barras invertidas en un comentario, una cadena, un identificador y
@@ -499,10 +530,10 @@ check "un error en la segunda migración revierte también la primera (dry_run y
   "logged h1.log 'division by zero' && logged h2.log 'division by zero' && ! logged h2.log 'commit hecho' \
    && ! logged h1.log 'migración ${M3}' && [ \"\$(fp \"$db\")\" = '$before' ]"
 
-echo "== I. el preflight vigente falla"
+echo "== I. el preflight de llegada falla"
 tree="$(tree_copy final-preflight)"
-echo "do \$\$ begin raise exception 'FALLO P9: selftest'; end \$\$;" >>"$tree/tests/supabase/preflight.sql"
-repin "$tree" "tests/supabase/preflight.sql"
+echo "do \$\$ begin raise exception 'FALLO P9: selftest'; end \$\$;" >>"$tree/tests/supabase/phase4-final-preflight.sql"
+repin "$tree" "tests/supabase/phase4-final-preflight.sql"
 clone
 before="$(fp "$db")"
 upgrade "$tree" "$db" apply i.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
@@ -546,15 +577,15 @@ check "una migración que sube client_min_messages se rechaza (FALLO R8-MSG) y a
 
 echo "== L. avisos de éxito esperados"
 tree="$(tree_copy no-p6)"
-[ "$(grep -c "raise notice 'ok - P6:" "$tree/tests/supabase/preflight.sql")" = 1 ] \
-  || { echo "   FALLO: el preflight vigente no tiene exactamente un aviso P6"; exit 1; }
-sed -i "s/raise notice 'ok - P6:/raise notice 'P6 sin aviso:/" "$tree/tests/supabase/preflight.sql"
-repin "$tree" "tests/supabase/preflight.sql"
+[ "$(grep -c "raise notice 'ok - P6:" "$tree/tests/supabase/phase4-final-preflight.sql")" = 1 ] \
+  || { echo "   FALLO: el preflight de llegada no tiene exactamente un aviso P6"; exit 1; }
+sed -i "s/raise notice 'ok - P6:/raise notice 'P6 sin aviso:/" "$tree/tests/supabase/phase4-final-preflight.sql"
+repin "$tree" "tests/supabase/phase4-final-preflight.sql"
 clone
 before="$(fp "$db")"
 upgrade "$tree" "$db" dry_run l1.log || true
 upgrade "$tree" "$db" apply l2.log PHASE4_UPGRADE_CONFIRM="$PHRASE" || true
-check "sin el P6 del preflight vigente, la pasada falla aunque psql termine bien, y apply no confirma" \
+check "sin el P6 del preflight de llegada, la pasada falla aunque psql termine bien, y apply no confirma" \
   "logged l1.log 'rollback hecho' && logged l1.log 'faltan avisos de éxito' && logged l1.log 'ensayo FALLIDO' \
    && ! logged l1.log 'dry_run correcto' && logged l2.log 'ensayo FALLIDO' && ! logged l2.log 'commit hecho' \
    && [ \"\$(fp \"$db\")\" = '$before' ]"
@@ -566,7 +597,8 @@ echo "== M. fallo solo en la pasada con COMMIT"
 # schema r8_selftest, que los preflights y R8-BASE no miran.
 pass2_message() { # <log>: los mensajes de un resultado sin confirmar
   logged "$1" 'rollback hecho' && logged "$1" 'ensayo limpio' && ! logged "$1" 'commit hecho' \
-    && logged "$1" 'apply NO CONFIRMADO' && logged "$1" 'incierto' && logged "$1" 'run-preflight.sh' \
+    && logged "$1" 'apply NO CONFIRMADO' && logged "$1" 'incierto' \
+    && logged "$1" 'tests/supabase/phase4-final-preflight.sql' && ! logged "$1" 'run-preflight.sh' \
     && ! logged "$1" 'nada aplicado' && ! logged "$1" 'se ha revertido' && ! logged "$1" 'apply correcto'
 }
 tree="$(tree_copy pass2-error)"
@@ -597,15 +629,15 @@ check "la conexión perdida durante el COMMIT: NO CONFIRMADO, incierto y preflig
 check "(en local se ve que no se aplicó: misma huella)" "[ \"\$(fp \"$db\")\" = '$before' ]"
 
 echo "== N. el flujo se construye entero antes de conectar"
-# Retirar el preflight vigente y la tercera migración después de la pasada de
+# Retirar el preflight de llegada y la tercera migración después de la pasada de
 # ensayo no cambia la pasada con COMMIT: lee el flujo ya construido.
 tree="$(tree_copy between-passes)"
 clone
 before="$(fp "$db")"
 check "archivos retirados entre las dos pasadas: apply correcto con el mismo flujo completo" \
   "hooked '$tree' '$db' apply n1.log PHASE4_UPGRADE_CONFIRM='$PHRASE' \
-     R8_HOOK_AFTER_ROLLBACK='$tree/tests/supabase/preflight.sql $tree/supabase/migrations/$M3' \
-   && [ -e '$tree/tests/supabase/preflight.sql.retirado' ] && [ -e '$tree/supabase/migrations/$M3.retirado' ] \
+     R8_HOOK_AFTER_ROLLBACK='$tree/tests/supabase/phase4-final-preflight.sql $tree/supabase/migrations/$M3' \
+   && [ -e '$tree/tests/supabase/phase4-final-preflight.sql.retirado' ] && [ -e '$tree/supabase/migrations/$M3.retirado' ] \
    && [ \"\$(grep -c 'ok - P6:' '$WORK/n1.log')\" = 4 ] && [ \"\$(grep -c 'migración ${M3}' '$WORK/n1.log')\" = 2 ] \
    && logged n1.log 'commit hecho' && logged n1.log 'apply correcto' \
    && [ \"\$(q \"$db\" 'select count(*) from public.neighborhoods')\" = 73 ]"
@@ -636,14 +668,14 @@ check "un WARNING solo en la pasada con COMMIT: NO VÁLIDO, con error, y el COMM
   "[ $rc -ne 0 ] && logged v1.log 'WARNING: r8 selftest: solo en la segunda pasada' && logged v1.log 'commit hecho' \
    && logged v1.log 'apply NO VÁLIDO' && logged v1.log 'el COMMIT se ejecutó' && ! logged v1.log 'NO CONFIRMADO' \
    && ! logged v1.log 'apply correcto' && [ \"\$(q \"$db\" 'select count(*) from public.neighborhoods')\" = 73 ]"
-# Sin WARNING: en la segunda pasada, el preflight vigente corre con los NOTICE
+# Sin WARNING: en la segunda pasada, el preflight de llegada corre con los NOTICE
 # ocultos y vuelve a notice al final, así que R8-MSG pasa pero falta su P6.
 tree="$(tree_copy pass2-missing-notice)"
 echo "do \$\$ begin if nextval('r8_selftest.pass') > 1 then perform set_config('client_min_messages', 'warning', true); end if; end \$\$;" \
   >>"$tree/supabase/migrations/$M3"
-echo "set local client_min_messages = notice;" >>"$tree/tests/supabase/preflight.sql"
+echo "set local client_min_messages = notice;" >>"$tree/tests/supabase/phase4-final-preflight.sql"
 repin "$tree" "supabase/migrations/$M3"
-repin "$tree" "tests/supabase/preflight.sql"
+repin "$tree" "tests/supabase/phase4-final-preflight.sql"
 clone
 q "$db" "create schema r8_selftest; create sequence r8_selftest.pass" >/dev/null
 rc=0
@@ -723,13 +755,13 @@ outcome() { # <clase> <log>...
   for log in "$@"; do [ "$(result_of "$log")" = "$class" ] || return 1; done
 }
 check "correcto: solo el apply válido (c, n1, o3)" "outcome correcto c.log n1.log o3.log"
-check "dry_run correcto (b)" "outcome dry_run_correcto b.log"
+check "dry_run correcto (b, g18)" "outcome dry_run_correcto b.log g18.log"
 check "NO VÁLIDO: COMMIT ejecutado y segunda pasada sin validar (v1, v2)" "outcome no_valido v1.log v2.log"
 check "NO CONFIRMADO: incierto tras la pasada con COMMIT (m1, m2, n2, o1)" "outcome no_confirmado m1.log m2.log n2.log o1.log"
 check "ensayo FALLIDO: antes de cualquier COMMIT (d, h2, i, j2, j4, j6, l2, n3, o2)" \
   "outcome ensayo_fallido d.log h2.log i.log j2.log j4.log j6.log l2.log n3.log o2.log"
-check "NO ejecutada: antes de conectar (a3, g2, g3, g6–g16)" \
-  "outcome no_ejecutada a3.log g2.log g3.log g6.log g7.log g8.log g9.log g10.log g11.log g12.log g13.log g14.log g15.log g16.log"
+check "NO ejecutada: antes de conectar (a3, g2, g3, g6–g16, g19)" \
+  "outcome no_ejecutada a3.log g2.log g3.log g6.log g7.log g8.log g9.log g10.log g11.log g12.log g13.log g14.log g15.log g16.log g19.log"
 check "INTERRUMPIDO: incierto en la pasada con COMMIT (s1), sin COMMIT en el ensayo (s2)" \
   "outcome interrumpido_incierto s1.log && outcome interrumpido_sin_commit s2.log"
 

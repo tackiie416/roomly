@@ -1465,11 +1465,13 @@ Pasos, con fallo cerrado en cada uno:
    `confirm_phase4_upgrade` igual a `aplicar-fase4-en-roomly-validation-3`.
    La guarda del workflow hace la misma comprobación antes de leer secrets.
 2. **SHA-256** (sin conectar), fijados en el script, de seis archivos: las
-   tres migraciones, los dos de estado de partida y el preflight vigente
-   (`tests/supabase/preflight.sql`, `PHASE4_FINAL_PREFLIGHT`). Un archivo
-   distinto aborta. El preflight congelado describe el estado de partida y el
-   vigente, el de llegada: son dos entradas distintas. Para cambiar el del
-   vigente, ver «Cambiar el SHA-256 del preflight vigente», más abajo.
+   tres migraciones, los dos de estado de partida y el preflight de llegada
+   (`tests/supabase/phase4-final-preflight.sql`, `PHASE4_FINAL_PREFLIGHT`). Un
+   archivo distinto aborta. El preflight congelado de la Fase 3 describe el
+   estado de partida y el de llegada, el que dejan las tres migraciones: son
+   dos entradas distintas. Desde la 4.2, el de llegada es una copia congelada
+   del preflight de la 4.1, y R8 ya no lee `tests/supabase/preflight.sql`: ver
+   «Copia congelada del preflight de la 4.1», más abajo.
 3. **El flujo SQL, entero y antes de conectar:**
    - una copia de cada archivo fijado en un directorio temporal, con el
      SHA-256 comprobado otra vez sobre la copia. Un archivo que desaparece o
@@ -1504,7 +1506,7 @@ Pasos, con fallo cerrado en cada uno:
      7 universidades, sin usuarios de prueba ni `roomly_test`, y las tablas
      del rol que conecta;
    - las tres migraciones, en orden;
-   - el preflight vigente (P0–P6);
+   - el preflight de llegada (P0–P6 de la 4.1, la copia congelada);
    - `R8-MSG` otra vez: ninguna migración ha cambiado `client_min_messages`;
    - `ROLLBACK` en `dry_run`, `COMMIT` en `apply`.
    Un error corta psql (`ON_ERROR_STOP`) antes del final de la transacción.
@@ -1519,8 +1521,9 @@ Pasos, con fallo cerrado en cada uno:
      la línea final no probaría nada;
    - no hay WARNING;
    - aparecen los avisos de éxito esperados, en orden: `ok - R8-MSG`, el
-     `ok - P6:` del preflight congelado, `ok - R8-BASE`, el `ok - P6:` del
-     vigente y `ok - R8-MSG`. Solo cuentan las líneas NOTICE del servidor.
+     `ok - P6:` del preflight congelado de la Fase 3, `ok - R8-BASE`, el
+     `ok - P6:` del de llegada y `ok - R8-MSG`. Solo cuentan las líneas NOTICE
+     del servidor.
 
    Si falta cualquiera de esas cosas, la pasada falla aunque psql haya
    terminado bien.
@@ -1558,18 +1561,23 @@ Pasos, con fallo cerrado en cada uno:
   Vercel. No imprime la cadena de conexión: solo NOTICE, WARNING y ERROR
   filtrados.
 
-**Probado en local** (`phase4-upgrade-selftest.sh`, 76 comprobaciones, contra
-PostgreSQL 16 local; el mismo selftest está en `test:infra`):
-- entradas incompatibles, `dry_run` sin efectos, `apply` y el preflight
-  vigente después, la segunda aplicación rechazada, otra marca o ninguna, y
+**Probado en local** (`phase4-upgrade-selftest.sh`, 79 comprobaciones desde
+la 4.2, contra PostgreSQL 16 local; el mismo selftest está en `test:infra`):
+- entradas incompatibles, `dry_run` sin efectos, `apply` y el preflight de
+  llegada después (la copia congelada, con psql en solo lectura, como en
+  «Recuperación»), la segunda aplicación rechazada, otra marca o ninguna, y
   seis estados de partida inesperados;
-- archivos con otro SHA-256: una migración, el preflight congelado y el
-  vigente. Un psql falso en el `PATH` demuestra que no se llega a llamar a
-  psql; su control comprueba que sí se le llama cuando las entradas y los
-  archivos son correctos;
+- archivos con otro SHA-256: una migración, el preflight congelado de la Fase
+  3 y el de llegada. Un psql falso en el `PATH` demuestra que no se llega a
+  llamar a psql; su control comprueba que sí se le llama cuando las entradas y
+  los archivos son correctos;
+- el preflight vigente (`tests/supabase/preflight.sql`) fuera de R8: cambiado
+  sin tocar el script, el `dry_run` sigue siendo correcto con la copia
+  congelada; retirado, el flujo se construye igual; y sin la copia congelada
+  se rechaza antes de conectar aunque el vigente exista;
 - el flujo, antes de conectar:
-  - un archivo que desaparece o al que se le añade `commit;` justo después
-    de su comprobación;
+  - un archivo (la copia congelada o una migración) que desaparece o al que
+    se le añade `commit;` justo después de su comprobación;
   - `commit;`, un bloque `begin;`/`rollback;` o `\connect` con el SHA-256 al
     día;
   - meta-comandos a mitad de línea (`\connect`, `\set ON_ERROR_STOP 0`, `\!`)
@@ -1584,10 +1592,10 @@ PostgreSQL 16 local; el mismo selftest está en `test:infra`):
   completo. Una entrada cortada justo antes del `COMMIT` da «NO
   CONFIRMADO… incierto», y una cortada antes del `ROLLBACK`, «ensayo
   FALLIDO»;
-- un error a mitad, y un preflight vigente que falla;
+- un error a mitad, y un preflight de llegada que falla;
 - un WARNING, también con `client_min_messages = error` en la base de datos,
   y una migración que sube `client_min_messages` (`FALLO R8-MSG`);
-- un aviso de éxito que falta (el P6 del vigente);
+- un aviso de éxito que falta (el P6 del de llegada);
 - fallos solo en la pasada con `COMMIT`: un error, y la conexión perdida
   durante el propio `COMMIT` (un trigger diferido que termina su backend).
   Los dos dan «NO CONFIRMADO… incierto», nunca «nada aplicado»;
@@ -1608,7 +1616,10 @@ Mutaciones: 14/14 de la versión inicial, 5/5 de la primera ronda de
 correcciones, 12/12 de la segunda y 6/6 de la tercera (M1 y L1;
 `docs/TESTING.md`). Además, cada selftest se ejecutó contra el código
 anterior: el de 67 contra el script de `2278cf7` falla en 16 comprobaciones,
-y el de 76 contra el validador y el script de `3e4cdee`, en 9.
+y el de 76 contra el validador y el script de `3e4cdee`, en 9. El de 79 (4.2,
+etapa 0), contra el `phase4-upgrade.sh` de la base `9391015`, que aún leía el
+preflight vigente, falla en 6 comprobaciones y se detiene en el primer `repin`
+de la copia congelada, que no encuentra su pin.
 `sql-suite-selftest` (89), contra el validador de `3e4cdee`, falla en 10.
 
 **En la CI:** el selftest corre en el job `db-security` de la CI del PR.
@@ -1975,8 +1986,9 @@ Actions detiene el proceso.
 
 | | Qué ejecuta | Qué deja escrito | Qué dice del estado |
 |---|---|---|---|
-| `dry_run` (`phase4_upgrade=dry_run`) | La guarda, y en una transacción que termina en `ROLLBACK`: el preflight congelado, R8-BASE, las 3 migraciones y el preflight vigente. No lanza suites | Nada | Si pasa, el proyecto sigue en el estado de partida (la Fase 4 **no** se aplicó). Si falla en el estado de partida (`FALLO P3` del congelado, o `FALLO R8-BASE` por objetos de la 4.1 o barrios), ya no está en la Fase 3 |
-| Validación normal (`phase4_upgrade=none`, `apply_migrations=false`, `run_e2e_real=false`) | La guarda y el preflight vigente (P0–P6). **Si el preflight pasa, siguen la suite SQL, la api-suite y AU3/AU5**: no es una comprobación aislada | La suite SQL revierte cada archivo. La api-suite crea usuarios de prueba y los borra al terminar | Si el preflight pasa, la Fase 4 está aplicada, y entera. Si falla, no se ejecuta nada más |
+| `dry_run` (`phase4_upgrade=dry_run`) | La guarda, y en una transacción que termina en `ROLLBACK`: el preflight congelado, R8-BASE, las 3 migraciones y el preflight de llegada (la copia congelada de la 4.1). No lanza suites | Nada | Si pasa, el proyecto sigue en el estado de partida (la Fase 4 **no** se aplicó). Si falla en el estado de partida (`FALLO P3` del congelado, o `FALLO R8-BASE` por objetos de la 4.1 o barrios), ya no está en la Fase 3 |
+| Preflight de llegada (`tests/supabase/phase4-final-preflight.sql`, con psql y en una sesión de solo lectura; paso 4) | P0–P6 de la 4.1 sobre el estado actual. No lanza suites | Nada | Si pasa, las tres migraciones de R8 están aplicadas, y enteras. Si falla, el estado no es el de llegada |
+| Validación normal (`phase4_upgrade=none`, `apply_migrations=false`, `run_e2e_real=false`) | La guarda y el preflight vigente (P0–P6). **Si el preflight pasa, siguen la suite SQL, la api-suite y AU3/AU5**: no es una comprobación aislada | La suite SQL revierte cada archivo. La api-suite crea usuarios de prueba y los borra al terminar | Desde la 4.2, el preflight vigente describe la 4.2: **no confirma** el estado de llegada de R8, y fallaría en P1 aunque R8 se hubiera aplicado bien. No se usa para investigar un `apply` de R8 |
 | `apply` | — | — | **No se usa para investigar** |
 
 **Cómo investigar un resultado incierto o un log sin `RESULTADO:`**, en este
@@ -1993,61 +2005,98 @@ orden:
    - falla por otra causa (conexión, `lock_timeout`, WARNING, P0): no es
      concluyente. Se resuelve la causa y se repite el `dry_run`, no el
      `apply`.
-4. **La validación normal** (`phase4_upgrade=none`), sabiendo que lanza las
-   suites si el preflight pasa:
-   - pasa: la Fase 4 está aplicada, y las suites validan el resultado;
+4. **El preflight de llegada** (`tests/supabase/phase4-final-preflight.sql`,
+   la copia congelada de la 4.1), **no** la validación normal ni
+   `tests/supabase/run-preflight.sh`: desde la 4.2 ejecutan el preflight
+   vigente, que describe la 4.2 y fallaría en P1 aunque R8 se hubiera
+   aplicado bien (L5).
+   - Ninguna entrada del workflow ejecuta la copia sola. Hay que lanzarla con
+     psql contra el proyecto, en una sesión de solo lectura (el preflight solo
+     lee el catálogo) y con su autorización:
+
+     ```
+     PGOPTIONS='-c default_transaction_read_only=on' psql "<URL de la base de datos>" -X -q -v ON_ERROR_STOP=1 --no-psqlrc -f tests/supabase/phase4-final-preflight.sql
+     ```
+
+   - pasa: las tres migraciones de R8 están aplicadas (el estado de llegada);
    - falla: el estado no es ni el de partida ni el de llegada. Se detiene todo
      y se investiga sin escribir.
+
+   El caso C de `phase4-upgrade-selftest.sh` ejecuta esta misma orden en local
+   después de un `apply`.
 5. **Documentar** los runs.
 
 **«apply NO VÁLIDO»:** el `COMMIT` se ejecutó, así que el `dry_run` no aporta
 nada. Primero hay que entender el WARNING o el aviso que falta. Después, con su
-autorización, la validación normal confirma el estado de llegada.
+autorización, el preflight de llegada (la copia congelada, como en el paso 4)
+confirma el estado de llegada.
 
 Repetir `apply` sobre un proyecto ya actualizado no aplica nada dos veces: el
 preflight congelado (37 políticas frente a 44) y R8-BASE lo rechazan antes de
 la primera migración. Lo prueba el caso D del selftest, en local. Aun así,
 `apply` no se usa como comprobación.
 
-#### Cambiar el SHA-256 del preflight vigente
+#### Copia congelada del preflight de la 4.1
 
-`PHASE4_FINAL_PREFLIGHT` fija el `tests/supabase/preflight.sql` revisado.
-`validation-infra` exige que coincida con el archivo, así que cualquier cambio
-de `preflight.sql` obliga a cambiar también esa línea en el mismo PR, a la
-vista. El pin protege frente a un archivo distinto del revisado. Que el
-contenido sea seguro lo garantiza la revisión.
+`PHASE4_FINAL_PREFLIGHT` fija `tests/supabase/phase4-final-preflight.sql`, el
+preflight de llegada de R8. Es una copia byte a byte del
+`tests/supabase/preflight.sql` de la base `9391015` (la punta de
+`claude/phase4-r8-upgrade-tool`, PR #27), el mismo que pasó en el run 21:
+- SHA-256 `38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec`
+  (el que el pin ya tenía);
+- blob de git `7f28f5d90cfd8b9f55d12c85db0a6bf3a1a9a4ec`.
 
-Si `preflight.sql` cambia de forma legítima:
-1. **Revisar el diff del SQL** (`git diff <base> -- tests/supabase/preflight.sql`):
-   - sin control de transacciones ni meta-comandos de psql, y sin
-     `client_min_messages`;
-   - el aviso de P6 sigue empezando por `ok - P6:`, que `EXPECTED_NOTICES`
-     exige;
-   - sigue describiendo exactamente el estado después de las tres migraciones
-     de R8. Si describe objetos de fases posteriores, la herramienta fallará
-     (de forma segura), y no hay que actualizar el pin.
-2. **Pasar el validador**, el mismo que la herramienta aplica a la copia:
+En los logs de los runs 20 y 21, «preflight vigente» es ese mismo archivo.
 
-   ```
-   bash -c 'source tests/supabase/sql-suite-lib.sh && out="$(roomly_sql_transform tests/supabase/preflight.sql)" && ! grep -q roomly_file <<<"$out" && echo "validador: OK"'
-   ```
+**Por qué una copia (decisión del propietario para la reconstrucción de la 4.2,
+2026-10-29).** R8 aplica solo las tres migraciones de la Fase 4 (4.0, 4.1 y
+R1) y comprueba la llegada antes del `COMMIT`. La 4.2 adapta
+`tests/supabase/preflight.sql` a su propio estado (más políticas, triggers y
+funciones, y Storage). Si R8 siguiera leyéndolo, fallaría siempre en P1–P6
+aunque la actualización fuera correcta, y actualizar su pin al nuevo archivo
+cambiaría lo que la herramienta comprueba. Por eso:
+1. la copia no cambia nunca: `validation-infra` fija su SHA-256 y su blob, como
+   el del preflight congelado de la Fase 3 (`PHASE3_BASELINE`);
+2. el pin de R8 apunta a la copia, con el mismo SHA-256. En
+   `phase4-upgrade.sh` cambian una sola línea de pin (la ruta de
+   `PHASE4_FINAL_PREFLIGHT`), la etiqueta de su sección en el flujo y los
+   textos que remiten al preflight (los resultados inciertos, L5). Las tres
+   migraciones, los demás archivos fijados, la frase de `apply`, la guarda, los
+   avisos esperados y la clasificación de los resultados no cambian;
+3. `tests/supabase/preflight.sql` describe el estado vigente del repositorio y
+   cambia con la 4.2 sin tocar R8.
 
-   Tiene que imprimir `validador: OK`.
-3. **Actualizar solo el hash previsto:**
-   - calcularlo con `sha256sum tests/supabase/preflight.sql` y sustituir el
-     hash de la línea `PHASE4_FINAL_PREFLIGHT=`;
-   - no tocar `PHASE3_BASELINE` (el preflight congelado no cambia nunca:
-     `validation-infra` fija su blob de git) ni las demás;
-   - `git diff tests/supabase/phase4-upgrade.sh` tiene que mostrar una sola
-     línea cambiada, la de `PHASE4_FINAL_PREFLIGHT`.
-4. **Ejecutar las pruebas:**
-   - `bash tests/supabase/phase4-upgrade-selftest.sh`;
-   - `npm run test:infra`, que incluye `preflight-selftest`;
-   - `npm run test`: en `validation-infra`, los pines coinciden con los
-     archivos y el congelado es distinto del vigente;
-   - y `npm run test:db`, si el cambio acompaña a una migración.
-5. **Revisar otra vez el diff completo** antes de aceptar el cambio, en un PR
-   revisado.
+Este cambio de referencia es de la rama de la reconstrucción de la 4.2. La
+congelación de D3 (las tres migraciones, los seis archivos fijados y el
+preflight congelado no cambian hasta decidir el siguiente paso del PR #26)
+sigue igual: el contenido fijado es el mismo, ahora en otra ruta.
+
+| Archivo | Describe | Lo usa |
+|---|---|---|
+| `tests/supabase/phase3-baseline-preflight.sql` | El estado de partida de R8: la Fase 3 (37 políticas). Blob `7155e796…` | R8, antes de las migraciones |
+| `tests/supabase/phase4-final-preflight.sql` | El estado de llegada de R8: la 4.1 (44 políticas, 13 triggers y 11 funciones). Blob `7f28f5d9…` | R8, antes del `COMMIT`, y el paso 4 de «Recuperación» |
+| `tests/supabase/preflight.sql` | El estado vigente del repositorio (desde la 4.2, el de la 4.2) | `run-preflight.sh` y la validación normal. Nunca R8 |
+
+**Cómo se comprueba:**
+- `validation-infra`: el pin apunta a la copia; su SHA-256 y su blob son los de
+  arriba, escritos literalmente en el test; el código de `phase4-upgrade.sh`
+  (sin comentarios) no nombra `tests/supabase/preflight.sql` ni
+  `run-preflight.sh`; y los resultados inciertos remiten a la copia;
+- `phase4-upgrade-selftest.sh`: el preflight vigente cambiado sin tocar el
+  script deja el `dry_run` correcto (g18); sin el vigente, el flujo se
+  construye igual (g20); sin la copia, se rechaza antes de conectar (g19); la
+  copia cambiada o retirada se rechaza sin llamar a psql (G3, G4 y G6); y el
+  caso C comprueba la llegada con la copia, en solo lectura, como el paso 4;
+- la copia pasa el mismo validador que la herramienta aplica a cada archivo
+  fijado (`roomly_sql_transform`):
+
+  ```
+  bash -c 'source tests/supabase/sql-suite-lib.sh && out="$(roomly_sql_transform tests/supabase/phase4-final-preflight.sql)" && ! grep -q roomly_file <<<"$out" && echo "validador: OK"'
+  ```
+
+Si R8 tuviera que comprobar algún día otro estado de llegada, sería otra
+herramienta, con su revisión y su autorización. No se edita la copia, no se
+actualiza su pin y R8 no vuelve a apuntar al preflight vigente.
 
 Nunca se rebaja la comprobación para que pase una prueba: quitar el pin,
 aceptar varios hashes o saltarse el validador.

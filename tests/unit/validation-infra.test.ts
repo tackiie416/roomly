@@ -513,15 +513,19 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     }
   });
 
-  it("el preflight vigente está fijado con su SHA-256 real, aparte del congelado, y se comprueba antes de conectar", () => {
-    const [, file, hash] = pinnedFile("preflight.sql") ?? [];
-    expect(file).toBe("tests/supabase/preflight.sql");
-    expect(sha256(file)).toBe(hash);
+  it("el preflight de llegada es la copia congelada de la 4.1 (blob 7f28f5d9…), fijada con su SHA-256 real, aparte del de la Fase 3, y se comprueba antes de conectar", () => {
+    const frozen = "tests/supabase/phase4-final-preflight.sql";
+    const [, file, hash] = pinnedFile("phase4-final-preflight.sql") ?? [];
+    expect(file).toBe(frozen);
+    // Literales: la copia es la del run 21 y no cambia aunque cambie el pin.
+    expect(hash).toBe("38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec");
+    expect(sha256(frozen)).toBe(hash);
+    expect(gitBlob(frozen)).toBe("7f28f5d90cfd8b9f55d12c85db0a6bf3a1a9a4ec");
     expect(script).toMatch(
-      /^PHASE4_FINAL_PREFLIGHT="tests\/supabase\/preflight\.sql [0-9a-f]{64}"$/m
+      /^PHASE4_FINAL_PREFLIGHT="tests\/supabase\/phase4-final-preflight\.sql [0-9a-f]{64}"$/m
     );
-    const [, , frozenHash] = pinnedFile("phase3-baseline-preflight.sql") ?? [];
-    expect(frozenHash).not.toBe(hash);
+    const [, , baselineHash] = pinnedFile("phase3-baseline-preflight.sql") ?? [];
+    expect(baselineHash).not.toBe(hash);
     expect(script).toContain(
       'pinned=("$PHASE3_BASELINE" "$PHASE4_BASELINE_CHECKS" "$PHASE4_FINAL_PREFLIGHT")'
     );
@@ -535,6 +539,36 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     expect(script).not.toContain('cat "$ROOT/tests/supabase/preflight.sql"');
   });
 
+  it("R8 no lee el preflight vigente: ni pin, ni ruta en el código, ni run-preflight.sh", () => {
+    // Desde la 4.2, tests/supabase/preflight.sql describe la 4.2: si R8 lo
+    // leyera, fallaría en P1 aunque la actualización fuera correcta.
+    expect(pinnedFile("preflight.sql")).toBeNull();
+    const code = script
+      .split("\n")
+      .filter((line) => !/^\s*#/.test(line))
+      .join("\n");
+    expect(code).not.toContain("tests/supabase/preflight.sql");
+    expect(code).not.toContain("run-preflight.sh");
+    expect(code).not.toMatch(/[\s"/]preflight\.sql\b/);
+    expect(
+      [...code.matchAll(/^[A-Z0-9_]+="tests\/supabase\/([^ "]+) [0-9a-f]{64}"$/gm)]
+        .map((m) => m[1])
+        .sort()
+    ).toEqual([
+      "phase3-baseline-preflight.sql",
+      "phase4-final-preflight.sql",
+      "phase4-upgrade-baseline.sql",
+    ]);
+    // El selftest lo comprueba en ejecución: el vigente cambiado sin tocar el
+    // script, sin él, y sin la copia congelada.
+    const selftest = read("tests/supabase/phase4-upgrade-selftest.sh");
+    for (const id of ["g18.log", "g19.log", "g20.log"]) {
+      expect(selftest, id).toContain(id);
+    }
+    expect(selftest).toContain("outcome dry_run_correcto b.log g18.log");
+    expect(selftest).toMatch(/outcome no_ejecutada [^"]* g19\.log"/);
+  });
+
   it("WARNING: client_min_messages = notice dentro de la transacción, R8-MSG al empezar y al final, y avisos de éxito obligatorios", () => {
     const begin = script.indexOf('echo "begin;"');
     const cmm = script.indexOf('echo "set local client_min_messages = notice;"');
@@ -546,7 +580,7 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
       fn("pass_head").indexOf('msg_check "al empezar"')
     );
     expect(fn("build_pass")).toContain('concat_verified "$pass" "$head" "$BODY" "$foot"');
-    // En el cuerpo, el preflight congelado va primero y el vigente, el último.
+    // En el cuerpo, el preflight congelado va primero y el de llegada, el último.
     const bodyOrder = [
       'body_parts+=("$(src_of "$PHASE3_BASELINE")")',
       'body_parts+=("$(src_of "$PHASE4_BASELINE_CHECKS")")',
@@ -569,7 +603,7 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     const streamFiles = [
       "tests/supabase/phase3-baseline-preflight.sql",
       "tests/supabase/phase4-upgrade-baseline.sql",
-      "tests/supabase/preflight.sql",
+      "tests/supabase/phase4-final-preflight.sql",
       ...pinned.map((p) => `supabase/migrations/${p.file}`),
     ];
     for (const file of streamFiles) {
@@ -577,11 +611,12 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     }
   });
 
-  it("un fallo en la pasada con COMMIT no afirma que no se aplicó nada: pide el preflight antes de repetir", () => {
+  it("un fallo en la pasada con COMMIT no afirma que no se aplicó nada: pide el preflight de llegada antes de repetir", () => {
     const afterCommit = script.slice(script.indexOf("run_pass commit"));
     expect(afterCommit).toContain("apply NO CONFIRMADO");
     expect(afterCommit).toContain("incierto");
-    expect(afterCommit).toContain("tests/supabase/run-preflight.sh");
+    expect(afterCommit).toContain("tests/supabase/phase4-final-preflight.sql");
+    expect(afterCommit).not.toContain("run-preflight.sh");
     expect(afterCommit).not.toMatch(/nada aplicado|se ha revertido/);
     const runPass = script.slice(
       script.indexOf("run_pass() {"),
@@ -683,7 +718,7 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
       ].map((m) => m[1] ?? m[2])
     );
     expect([...cited].sort()).toEqual([
-      "Cambiar el SHA-256 del preflight vigente",
+      "Copia congelada del preflight de la 4.1",
       "Recuperación",
     ]);
     for (const name of cited) {
@@ -701,15 +736,53 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     );
     expect(recovery).toContain("Que falte esa línea no demuestra que la transacción se");
     expect(recovery).toContain("**no se repite `apply`**");
-    const pin = section("Cambiar el SHA-256 del preflight vigente");
+    const pin = section("Copia congelada del preflight de la 4.1");
     for (const step of [
       "roomly_sql_transform",
       "PHASE3_BASELINE",
       "phase4-upgrade-selftest.sh",
       "una sola",
+      "38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec",
+      "7f28f5d90cfd8b9f55d12c85db0a6bf3a1a9a4ec",
+      "Nunca R8",
+      "Nunca se rebaja la comprobación",
     ]) {
       expect(pin, step).toContain(step);
     }
+    expect(doc).not.toContain("#### Cambiar el SHA-256 del preflight vigente");
+  });
+
+  it("L5: los resultados inciertos y la recuperación remiten a la copia congelada, no al preflight vigente", () => {
+    const results = script
+      .split("\n")
+      .filter((line) => line.includes('echo "RESULTADO:'));
+    expect(results.length).toBeGreaterThan(0);
+    for (const line of results) {
+      expect(line).not.toContain("run-preflight.sh");
+    }
+    for (const kind of ["apply NO CONFIRMADO", "apply NO VÁLIDO"]) {
+      const line = results.find((l) => l.includes(`RESULTADO: ${kind}`)) ?? "";
+      expect(line, kind).toContain(
+        "la copia congelada tests/supabase/phase4-final-preflight.sql"
+      );
+      expect(line, kind).toContain("«Recuperación» en docs/SUPABASE_VALIDATION.md");
+    }
+    expect(script).toContain(
+      'add_line "$(section "preflight de llegada (copia congelada de la 4.1) sobre el resultado")"'
+    );
+    expect(script).not.toMatch(/section "preflight vigente/);
+    const doc = read("docs/SUPABASE_VALIDATION.md");
+    const start = doc.indexOf("#### Recuperación\n");
+    const recovery = doc.slice(start, doc.indexOf("\n#### ", start + 1));
+    expect(recovery).toContain(
+      "4. **El preflight de llegada** (`tests/supabase/phase4-final-preflight.sql`"
+    );
+    expect(recovery).toContain("default_transaction_read_only=on");
+    expect(recovery).toContain("-f tests/supabase/phase4-final-preflight.sql");
+    expect(recovery).not.toContain(
+      "**La validación normal** (`phase4_upgrade=none`), sabiendo"
+    );
+    expect(recovery).toContain("**no confirma** el estado de llegada de R8");
   });
 
   it("dry_run termina siempre en ROLLBACK; apply ensaya antes y exige la confirmación exacta", () => {
