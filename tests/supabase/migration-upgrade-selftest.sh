@@ -16,6 +16,12 @@
 #   - Fase 4.1: una habitación activa completa y un borrador incompleto pasan
 #     la comprobación previa y se conservan; con una habitación que incumple
 #     las reglas nuevas, la migración se detiene sin cambiar nada.
+#   - Fase 4.2 (fotos en Storage y R7): una foto anterior con la ruta canónica
+#     se conserva y sigue siendo pública; la habitación activa anterior de
+#     una cuenta desactivada deja de serlo sin cambiar sus datos; con fotos
+#     incompatibles (ruta libre o más de 8) o con un bucket room-images de
+#     otra configuración (o el nombre room-images en otro bucket), la
+#     migración se detiene sin cambiar nada.
 #   - Fase 4.1, R1 (barrios oficiales de Barcelona):
 #     - en una instalación existente, un barrio oficial que ya estaba se
 #       conserva con su id y se añaden los que faltan;
@@ -36,6 +42,7 @@ DB="migration_upgrade_selftest_$$"
 LAST_PHASE2="20261004120100_profiles_privacy.sql"
 PHASE41="20261015120000_rooms_integrity_publication.sql"
 R1="20261016120000_barcelona_neighborhoods.sql"
+PHASE42="20261024120000_room_images_storage_visibility.sql"
 # Huella de los barrios de Barcelona con sus id: detecta cualquier cambio.
 BARRIS_FP="select count(*) || ':' || md5(string_agg(n.id::text || '|' || n.slug || '|' || n.name, ',' order by n.slug collate \"C\")) from public.neighborhoods n join public.cities c on c.id = n.city_id where c.slug = 'barcelona'"
 WORK="$(mktemp -d)"
@@ -98,9 +105,20 @@ insert into public.rooms (id, owner_id, title, city_id, price_month, available_f
   select 'f1000000-0000-0000-0000-00000000000c', 'f0000000-0000-0000-0000-00000000000c',
          'Habitación antigua C', c.id, 500, '2026-11-01'
   from public.cities c where c.slug = 'barcelona';
+-- Fase 4.2: C tiene además una habitación activa y completa, que con R7 deja
+-- de ser pública; A, una foto con la ruta canónica, que se conserva.
+insert into public.rooms (id, owner_id, title, city_id, neighborhood_id, price_month,
+                          available_from, total_roommates, total_rooms, status)
+  select 'f1000000-0000-0000-0000-0000000000c2', 'f0000000-0000-0000-0000-00000000000c',
+         'Habitación antigua activa de C', c.id, 'f2000000-0000-0000-0000-000000000001', 480,
+         '2026-11-01', 1, 2, 'active'
+  from public.cities c where c.slug = 'barcelona';
+insert into public.room_images (id, room_id, storage_path, position) values
+  ('f3000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-00000000000a',
+   'f1000000-0000-0000-0000-00000000000a/f3000000-0000-0000-0000-000000000001.webp', 0);
 update public.profiles set deleted_at = now() where id = 'f0000000-0000-0000-0000-00000000000c';
 SQL
-echo "   ok - 2 filas de compatibility_responses con los DEFAULT de la Fase 2 y 2 habitaciones"
+echo "   ok - 2 filas de compatibility_responses con los DEFAULT de la Fase 2, 3 habitaciones y 1 foto"
 
 # Fase 4.1: con datos que incumplen las reglas nuevas, la migración se detiene
 # en su comprobación previa y no deja nada a medias (la transacción se aborta).
@@ -174,10 +192,69 @@ SQL
   echo "   ok - $(basename "$migration"): con barrios incompatibles se detiene (neighborhoods_r1_precheck) sin cambiar nada"
 }
 
+# Fase 4.2: con fotos incompatibles (una ruta libre, como las de antes, y una
+# habitación con 9), con un bucket room-images de otra configuración o con el
+# nombre room-images en otro bucket, la migración se detiene en su
+# comprobación previa y no deja nada.
+phase42_state() {
+  "${P[@]}" -At -c "select (select count(*) from public.room_images) || ':' ||
+                           (select count(*) from pg_policies where schemaname = 'public') || ':' ||
+                           (select count(*) from storage.buckets) || ':' ||
+                           (select count(*) from pg_trigger where tgname = 'trg_room_images_integrity') || ':' ||
+                           (select count(*) from pg_constraint where conname like 'chk_room_images_%') || ':' ||
+                           (select count(*) from pg_proc where proname = 'is_room_publicly_visible')"
+}
+phase42_refuses_one() { # <migración> <caso> <SQL previo> <log> <texto esperado>
+  local migration="$1" label="$2" setup="$3" log="$WORK/$4" expected="$5"
+  if { echo "begin;"; printf '%s\n' "$setup"; cat "$migration"; echo "commit;"; } \
+       | "${P[@]}" >"$log" 2>&1; then
+    echo "   FALLO: la 4.2 se aplicó con ${label}"
+    return 1
+  fi
+  if ! grep -qF "$expected" "$log"; then
+    echo "   FALLO: con ${label}, la 4.2 falló, pero no en su comprobación previa («${expected}»):"
+    grep -E "ERROR" "$log" | head -3
+    return 1
+  fi
+}
+phase42_refuses() {
+  local migration="$1" before
+  before="$(phase42_state)"
+  phase42_refuses_one "$migration" "fotos que incumplen sus reglas" \
+    "insert into public.room_images (id, room_id, storage_path, position) values
+       ('f3000000-0000-0000-0000-0000000000e1', 'f1000000-0000-0000-0000-00000000000a', 'rooms/a/libre.jpg', 1);
+     insert into public.room_images (id, room_id, storage_path, position)
+       select ('f3000000-0000-0000-0000-0000000001' || lpad(n::text, 2, '0'))::uuid,
+              'f1000000-0000-0000-0000-00000000000c',
+              'f1000000-0000-0000-0000-00000000000c/f3000000-0000-0000-0000-0000000001' || lpad(n::text, 2, '0') || '.webp', n
+       from generate_series(1, 9) as n;" \
+    refuse-42.log \
+    "room_images_4_2_precheck: hay fotos que incumplen las reglas nuevas (ruta distinta de room_id/id.webp: 1; posición negativa: 0; habitaciones con más de 8 fotos: 1)" \
+    || exit 1
+  phase42_refuses_one "$migration" "un bucket room-images privado (otra configuración)" \
+    "insert into storage.buckets (id, name, public) values ('room-images', 'room-images', false);" \
+    refuse-42-bucket.log \
+    "room_images_4_2_precheck: el bucket room-images ya existe con otra configuración" \
+    || exit 1
+  phase42_refuses_one "$migration" "el nombre room-images en otro bucket" \
+    "insert into storage.buckets (id, name, public) values ('fotos', 'room-images', true);" \
+    refuse-42-name.log \
+    "room_images_4_2_precheck: hay un bucket llamado room-images con otro id (fotos)" \
+    || exit 1
+  if [ "$(phase42_state)" != "$before" ]; then
+    echo "   FALLO: la 4.2 rechazada dejó restos ($(phase42_state), antes ${before})"
+    exit 1
+  fi
+  echo "   ok - $(basename "$migration"): con fotos incompatibles, otro bucket room-images o su nombre en otro bucket se detiene (room_images_4_2_precheck) sin cambiar nada"
+}
+
 echo "== migraciones nuevas sobre esos datos"
 for migration in "${new_migrations[@]}"; do
   if [ "$(basename "$migration")" = "$PHASE41" ]; then
     phase41_refuses "$migration"
+  fi
+  if [ "$(basename "$migration")" = "$PHASE42" ]; then
+    phase42_refuses "$migration"
   fi
   if [ "$(basename "$migration")" = "$R1" ]; then
     barris_before="$("${P[@]}" -At -c "$BARRIS_FP")"
@@ -227,11 +304,12 @@ select roomly_test.expect_error(
   '23514', 'UP4: la fila antigua de una cuenta eliminada ya no se puede escribir');
 reset role;
 select roomly_test.ok(
-  (select count(*) = 44 from pg_policies where schemaname = 'public'),
-  'UP5: 44 políticas (37 hasta la 4.0)');
+  (select count(*) = 42 from pg_policies where schemaname = 'public'),
+  'UP5: 42 políticas (37 hasta la 4.0; 44 hasta la 4.2)');
 select roomly_test.ok(
-  (select count(*) = 2 from public.rooms
-   where id in ('f1000000-0000-0000-0000-00000000000a', 'f1000000-0000-0000-0000-00000000000c')),
+  (select count(*) = 3 from public.rooms
+   where id in ('f1000000-0000-0000-0000-00000000000a', 'f1000000-0000-0000-0000-00000000000c',
+                'f1000000-0000-0000-0000-0000000000c2')),
   'UP6: las habitaciones anteriores se conservan');
 set role authenticated;
 select roomly_test.login('f0000000-0000-0000-0000-00000000000a');
@@ -275,6 +353,32 @@ select roomly_test.ok(
   (select id = 'f2000000-0000-0000-0000-000000000001' from public.neighborhoods where slug = 'el-raval')
   and (select count(*) = 1 from public.cities where slug = 'barcelona'),
   'UP10: el barrio oficial que ya existía conserva su id, y Barcelona sigue siendo una');
+select roomly_test.ok(
+  (select storage_path = 'f1000000-0000-0000-0000-00000000000a/f3000000-0000-0000-0000-000000000001.webp'
+          and position = 0
+   from public.room_images where id = 'f3000000-0000-0000-0000-000000000001')
+  and (select count(*) = 1 from public.room_images)
+  and exists (select 1 from storage.buckets where id = 'room-images'),
+  'UP11: la 4.2 conserva la foto anterior y crea el bucket room-images');
+set role anon;
+select roomly_test.login(null);
+select roomly_test.expect_rows(
+  $$select 1 from public.room_images where id = 'f3000000-0000-0000-0000-000000000001'$$,
+  1, 'UP11: la foto anterior de la habitación activa de A sigue siendo pública');
+select roomly_test.expect_rows(
+  $$select 1 from public.rooms where id = 'f1000000-0000-0000-0000-0000000000c2'$$,
+  0, 'UP12: con R7, la habitación activa anterior de la cuenta desactivada ya no es pública');
+reset role;
+select roomly_test.ok(
+  (select status = 'active' and deleted_at is null
+   from public.rooms where id = 'f1000000-0000-0000-0000-0000000000c2'),
+  'UP12: sin cambiar sus datos: sigue activa');
+set role authenticated;
+select roomly_test.login('f0000000-0000-0000-0000-00000000000a');
+select roomly_test.expect_error(
+  $$update public.room_images set position = 1 where id = 'f3000000-0000-0000-0000-000000000001'$$,
+  '42501', 'UP13: desde la 4.2, la propietaria ya no escribe sus fotos desde el cliente');
+reset role;
 SQL
 
 echo "== instalación limpia: migraciones → seed (R1)"

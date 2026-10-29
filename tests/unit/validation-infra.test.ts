@@ -170,15 +170,15 @@ function preflightValues(block: RegExp) {
 describe("preflight.sql: lista exacta derivada de las migraciones", () => {
   const derived = fromMigrations();
 
-  it("44 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
+  it("42 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
     const expected = preflightValues(
       /-- P3[\s\S]*?with expected\(tablename, policyname, cmd\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.policies.size).toBe(44);
+    expect(derived.policies.size).toBe(42);
     expect([...expected].sort()).toEqual([...derived.policies].sort());
   });
 
-  it("rooms, room_addresses y room_images: las políticas por comando de 20261013120000, sin las antiguas FOR ALL", () => {
+  it("rooms, room_addresses y room_images: las políticas por comando de 20261013120000, sin las antiguas FOR ALL, y room_images solo de lectura desde 20261024120000", () => {
     const rooms = [...derived.policies].filter((p) =>
       /^room(s|_addresses|_images)\./.test(p)
     );
@@ -187,10 +187,8 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
       "room_addresses.room_addresses_insert_own",
       "room_addresses.room_addresses_select_own",
       "room_addresses.room_addresses_update_own",
-      "room_images.room_images_delete_own",
-      "room_images.room_images_insert_own",
+      "room_images.room_images_admin_select",
       "room_images.room_images_select",
-      "room_images.room_images_update_own",
       "rooms.rooms_admin_all",
       "rooms.rooms_delete_own",
       "rooms.rooms_insert_own",
@@ -227,11 +225,11 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
     expect(cr).toEqual(["compatibility_responses.compatibility_responses_select_own"]);
   });
 
-  it("13 triggers, los mismos que crean las migraciones", () => {
+  it("14 triggers, los mismos que crean las migraciones", () => {
     const expected = preflightValues(
       /-- P6[\s\S]*?with expected\(tablename, tgname, fn\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.triggers.size).toBe(13);
+    expect(derived.triggers.size).toBe(14);
     expect([...expected].sort()).toEqual([...derived.triggers].sort());
   });
 

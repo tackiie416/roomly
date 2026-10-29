@@ -68,4 +68,49 @@ begin
   raise exception 'FALLO: % (la sentencia se ejecutó sin error)', p_msg;
 end $$;
 
+-- Como expect_error, y además exige que el mensaje empiece por p_prefix: los
+-- triggers usan el mismo SQLSTATE (23514) para reglas distintas, y lo que las
+-- distingue es su prefijo estable (account_deleted:, room_images_limit:…).
+create function roomly_test.expect_error_prefix(p_sql text, p_sqlstate text, p_prefix text, p_msg text)
+returns void
+language plpgsql as $$
+begin
+  begin
+    execute p_sql;
+  exception when others then
+    if sqlstate = p_sqlstate and starts_with(sqlerrm, p_prefix) then
+      raise notice 'ok - % (rechazado: %)', p_msg, sqlerrm;
+      return;
+    end if;
+    raise exception 'FALLO: % (esperado SQLSTATE % con «%», obtenido %: %)',
+      p_msg, p_sqlstate, p_prefix, sqlstate, sqlerrm;
+  end;
+  raise exception 'FALLO: % (la sentencia se ejecutó sin error)', p_msg;
+end $$;
+
+-- Exige que p_sql incumpla exactamente el CHECK p_constraint (23514). Se mira
+-- el nombre de la restricción, no el texto del mensaje (que depende del
+-- idioma del servidor), y un 23514 de un trigger (sin restricción) no vale.
+create function roomly_test.expect_check_violation(p_sql text, p_constraint text, p_msg text)
+returns void
+language plpgsql as $$
+declare
+  violated text;
+begin
+  begin
+    execute p_sql;
+  exception
+    when check_violation then
+      get stacked diagnostics violated = constraint_name;
+      if violated = p_constraint then
+        raise notice 'ok - % (rechazado por %)', p_msg, violated;
+        return;
+      end if;
+      raise exception 'FALLO: % (esperado %, rechazado por «%»: %)', p_msg, p_constraint, violated, sqlerrm;
+    when others then
+      raise exception 'FALLO: % (esperado 23514 de %, obtenido %: %)', p_msg, p_constraint, sqlstate, sqlerrm;
+  end;
+  raise exception 'FALLO: % (la sentencia se ejecutó sin error)', p_msg;
+end $$;
+
 grant execute on all functions in schema roomly_test to anon, authenticated, service_role;

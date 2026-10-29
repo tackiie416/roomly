@@ -110,7 +110,43 @@ begin
     end if;
   end;
 
-  raise notice 'ok - P1: 18 tablas, funciones y trigger de la migración de seguridad presentes, Barcelona con sus 73 barrios oficiales, restricciones de rooms de la Fase 4.1 presentes';
+  -- Fase 4.2 (20261024120000): R7 y las restricciones de room_images (ruta
+  -- canónica room_id/id.webp y posición ≥ 0), validadas y con esa definición,
+  -- y el bucket room-images de Storage (5 MiB, solo image/webp).
+  declare
+    missing text;
+  begin
+    if to_regprocedure('public.is_room_publicly_visible(uuid)') is null then
+      raise exception 'FALLO P1: falta public.is_room_publicly_visible(uuid) (R7, migración 20261024120000)';
+    end if;
+    select string_agg(v.conname, ', ' order by v.conname) into missing
+    from (values ('chk_room_images_position', '^CHECK \(\("position" >= 0\)\)$'),
+                 ('chk_room_images_storage_path',
+                  '^CHECK \(\(storage_path = \(\(\(\(room_id\)::text \|\| ''/''::text\) \|\| \(id\)::text\) \|\| ''\.webp''::text\)\)\)$'))
+         as v(conname, definition)
+    where not exists (
+      select 1 from pg_constraint c
+      where c.conrelid = 'public.room_images'::regclass and c.conname = v.conname
+        and c.contype = 'c' and c.convalidated
+        and pg_get_constraintdef(c.oid) ~ v.definition
+    );
+    if missing is not null then
+      raise exception 'FALLO P1: faltan, no están validadas o tienen otra definición restricciones de room_images de la Fase 4.2 (migración 20261024120000): %', missing;
+    end if;
+    if to_regclass('storage.buckets') is null or to_regclass('storage.objects') is null then
+      raise exception 'FALLO P1: faltan storage.buckets o storage.objects (Supabase Storage)';
+    end if;
+    if not exists (
+      select 1 from storage.buckets b
+      where b.id = 'room-images' and b.name = 'room-images'
+        and b.file_size_limit = 5242880
+        and b.allowed_mime_types = array['image/webp']::text[]
+    ) then
+      raise exception 'FALLO P1: falta el bucket room-images con 5242880 bytes e image/webp (migración 20261024120000)';
+    end if;
+  end;
+
+  raise notice 'ok - P1: 18 tablas, funciones y trigger de la migración de seguridad presentes, Barcelona con sus 73 barrios oficiales, restricciones de rooms de la Fase 4.1 presentes, R7, restricciones de room_images y bucket room-images de la Fase 4.2 presentes';
 end $$;
 
 -- ============================================================
@@ -147,9 +183,23 @@ begin
     raise exception 'FALLO P2: is_conversation_participant no tiene search_path vacío';
   end if;
 
+  -- R7 (Fase 4.2): is_room_publicly_visible lee rooms y profiles con los
+  -- derechos de su dueño; tiene que ser el de las dos tablas (sin FORCE RLS,
+  -- arriba), SECURITY DEFINER y con search_path vacío.
+  if (select p.proowner from pg_proc p where p.oid = 'public.is_room_publicly_visible(uuid)'::regprocedure)
+       is distinct from (select c.relowner from pg_class c where c.oid = 'public.rooms'::regclass)
+     or (select p.proowner from pg_proc p where p.oid = 'public.is_room_publicly_visible(uuid)'::regprocedure)
+       is distinct from (select c.relowner from pg_class c where c.oid = 'public.profiles'::regclass) then
+    raise exception 'FALLO P2: is_room_publicly_visible no es del mismo dueño que rooms y profiles';
+  end if;
+  if not (select p.prosecdef and p.proconfig @> array['search_path=""'] from pg_proc p
+          where p.oid = 'public.is_room_publicly_visible(uuid)'::regprocedure) then
+    raise exception 'FALLO P2: is_room_publicly_visible no es SECURITY DEFINER con search_path vacío';
+  end if;
+
   select r.rolbypassrls into owner_bypass from pg_roles r where r.oid = cp_owner::oid;
   raise notice 'P2 info - dueño de tablas y función: % (rolbypassrls=%)', cp_owner, owner_bypass;
-  raise notice 'ok - P2: función y tabla con el mismo dueño, sin FORCE RLS, SECURITY DEFINER con search_path vacío';
+  raise notice 'ok - P2: funciones y tablas con el mismo dueño, sin FORCE RLS, SECURITY DEFINER con search_path vacío (is_conversation_participant e is_room_publicly_visible)';
 end $$;
 
 -- ============================================================
@@ -163,12 +213,16 @@ end $$;
 -- (Fase 3.1) `compatibility_responses_own` (ALL) se sustituye por
 -- `compatibility_responses_select_own` (SELECT). En 20261013120000 (Fase
 -- 4.0) `rooms_owner_write`, `room_addresses_owner_only` y
--- `room_images_owner_write` (ALL) se dividen por comando: −3 +10. Total: 44 en
--- 18 tablas.
+-- `room_images_owner_write` (ALL) se dividen por comando: −3 +10. En
+-- 20261024120000 (Fase 4.2) se eliminan las tres de escritura de room_images
+-- y se añade `room_images_admin_select`: −3 +1. Total: 42 en 18 tablas.
 -- Se compara (tabla, política, comando) en los dos sentidos: falta o sobra
 -- cualquiera → fallo, con el nombre. Además (Fase 4.0), cada política de
 -- escritura de rooms, room_addresses y room_images exige la cuenta activa
--- (`deleted_at IS NULL`) en todas sus expresiones.
+-- (`deleted_at IS NULL`) en todas sus expresiones. Y desde la Fase 4.2 (R7),
+-- la lectura pública de habitaciones y fotos pasa por
+-- is_room_publicly_visible, la del admin es solo SELECT con is_admin(), y
+-- storage.objects no tiene ninguna política.
 do $$
 declare
   no_rls text;
@@ -216,10 +270,8 @@ begin
     ('room_addresses', 'room_addresses_insert_own', 'INSERT'),
     ('room_addresses', 'room_addresses_select_own', 'SELECT'),
     ('room_addresses', 'room_addresses_update_own', 'UPDATE'),
-    ('room_images', 'room_images_delete_own', 'DELETE'),
-    ('room_images', 'room_images_insert_own', 'INSERT'),
+    ('room_images', 'room_images_admin_select', 'SELECT'),
     ('room_images', 'room_images_select', 'SELECT'),
-    ('room_images', 'room_images_update_own', 'UPDATE'),
     ('rooms', 'rooms_admin_all', 'ALL'),
     ('rooms', 'rooms_delete_own', 'DELETE'),
     ('rooms', 'rooms_insert_own', 'INSERT'),
@@ -242,8 +294,8 @@ begin
      from (select * from actual except select * from expected) a)
   into n_expected, missing, unexpected;
 
-  if n_expected <> 44 then
-    raise exception 'FALLO P3: la lista esperada no tiene 44 entradas (error del propio preflight)';
+  if n_expected <> 42 then
+    raise exception 'FALLO P3: la lista esperada no tiene 42 entradas (error del propio preflight)';
   end if;
   if missing is not null or unexpected is not null then
     raise exception 'FALLO P3: políticas distintas de las esperadas. Faltan: %. Sobran: %',
@@ -268,7 +320,42 @@ begin
       writes_without_account;
   end if;
 
-  raise notice 'ok - P3: RLS activa en las 18 tablas, exactamente las 44 políticas esperadas y las escrituras de habitaciones exigen cuenta activa';
+  -- Fase 4.2 (R7): la lectura pública mira la cuenta del propietario.
+  if not exists (
+    select 1 from pg_policies p
+    where p.schemaname = 'public' and p.tablename = 'rooms' and p.policyname = 'rooms_select_active_public'
+      and p.qual like '%is_room_publicly_visible(id)%'
+  ) or not exists (
+    select 1 from pg_policies p
+    where p.schemaname = 'public' and p.tablename = 'room_images' and p.policyname = 'room_images_select'
+      and p.qual like '%is_room_publicly_visible(room_id)%'
+  ) then
+    raise exception 'FALLO P3: la lectura pública de rooms o de room_images no pasa por is_room_publicly_visible (R7)';
+  end if;
+  if not exists (
+    select 1 from pg_policies p
+    where p.schemaname = 'public' and p.tablename = 'room_images' and p.policyname = 'room_images_admin_select'
+      and p.cmd = 'SELECT' and p.roles = array['authenticated']::name[] and p.qual = 'is_admin()'
+  ) then
+    raise exception 'FALLO P3: room_images_admin_select no es solo SELECT de authenticated con is_admin()';
+  end if;
+
+  -- Storage (Fase 4.2): ninguna política en storage.objects. Darían a los
+  -- clientes la subida directa (sin limpiar la foto) o la lectura sin la
+  -- autorización del servidor.
+  declare
+    object_policies text;
+  begin
+    select string_agg(p.policyname || ' (' || p.cmd || ')', ', ' order by p.policyname)
+      into object_policies
+    from pg_policies p
+    where p.schemaname = 'storage' and p.tablename = 'objects';
+    if object_policies is not null then
+      raise exception 'FALLO P3: storage.objects tiene políticas: %', object_policies;
+    end if;
+  end;
+
+  raise notice 'ok - P3: RLS activa en las 18 tablas, exactamente las 42 políticas esperadas, las escrituras de habitaciones exigen cuenta activa, la lectura pública pasa por R7 y storage.objects sin políticas';
 end $$;
 
 -- ============================================================
@@ -446,10 +533,54 @@ begin
     end if;
   end;
 
+  -- room_images (20261024120000, Fase 4.2): solo escribe el servidor. anon y
+  -- authenticated conservan SELECT (RLS), sin ninguna escritura ni de tabla
+  -- ni de columna; service_role, INSERT, UPDATE y DELETE.
+  foreach col in array array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] loop
+    if has_table_privilege('anon', 'public.room_images', col) then
+      failures := failures || format('anon tiene %s en room_images', col);
+    end if;
+    if has_table_privilege('authenticated', 'public.room_images', col) then
+      failures := failures || format('authenticated tiene %s en room_images', col);
+    end if;
+  end loop;
+  if has_any_column_privilege('anon', 'public.room_images', 'INSERT')
+     or has_any_column_privilege('anon', 'public.room_images', 'UPDATE')
+     or has_any_column_privilege('authenticated', 'public.room_images', 'INSERT')
+     or has_any_column_privilege('authenticated', 'public.room_images', 'UPDATE') then
+    failures := failures || 'anon o authenticated tienen escritura de columna en room_images'::text;
+  end if;
+  if not has_table_privilege('anon', 'public.room_images', 'SELECT')
+     or not has_table_privilege('authenticated', 'public.room_images', 'SELECT') then
+    failures := failures || 'anon o authenticated NO tienen SELECT en room_images (rompería la lectura de fotos)'::text;
+  end if;
+  if not has_table_privilege('service_role', 'public.room_images', 'INSERT')
+     or not has_table_privilege('service_role', 'public.room_images', 'UPDATE')
+     or not has_table_privilege('service_role', 'public.room_images', 'DELETE') then
+    failures := failures || 'service_role sin INSERT/UPDATE/DELETE en room_images (el servidor no podría guardar fotos)'::text;
+  end if;
+
+  -- is_room_publicly_visible (R7): solo anon y authenticated, que la llaman
+  -- desde la lectura pública. Ni PUBLIC ni service_role.
+  if not has_function_privilege('anon', 'public.is_room_publicly_visible(uuid)', 'EXECUTE')
+     or not has_function_privilege('authenticated', 'public.is_room_publicly_visible(uuid)', 'EXECUTE') then
+    failures := failures || 'anon o authenticated NO pueden ejecutar is_room_publicly_visible (rompería la lectura pública)'::text;
+  end if;
+  if has_function_privilege('service_role', 'public.is_room_publicly_visible(uuid)', 'EXECUTE') then
+    failures := failures || 'service_role puede ejecutar is_room_publicly_visible'::text;
+  end if;
+  if exists (
+    select 1 from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+    where p.oid = 'public.is_room_publicly_visible(uuid)'::regprocedure
+      and a.grantee = 0 and a.privilege_type = 'EXECUTE'
+  ) then
+    failures := failures || 'PUBLIC puede ejecutar is_room_publicly_visible'::text;
+  end if;
+
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses y rooms)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms, room_images e is_room_publicly_visible)';
 end $$;
 
 -- ============================================================
@@ -506,11 +637,13 @@ end $$;
 -- ============================================================
 -- Derivado de supabase/migrations: triggers de 20260925120000 (updated_at,
 -- rate limit), 20260926120000 (moderación), 20260929120000 (barrios),
--- 20260930120000 (onboarding), 20260930140000 (ciudad y universidad) y
--- 20261007120000 (integridad de compatibility_responses, Fase 3.1).
+-- 20260930120000 (onboarding), 20260930140000 (ciudad y universidad),
+-- 20261007120000 (integridad de compatibility_responses, Fase 3.1) y
+-- 20261024120000 (integridad de room_images, Fase 4.2).
 -- Seguridad de funciones según cada migración: SECURITY DEFINER solo
--- is_admin, is_conversation_participant y enforce_neighborhood_not_referenced;
--- search_path fijo; EXECUTE revocado donde la migración lo revoca.
+-- is_admin, is_conversation_participant, enforce_neighborhood_not_referenced
+-- e is_room_publicly_visible; search_path fijo; EXECUTE revocado donde la
+-- migración lo revoca.
 do $$
 declare
   missing text;
@@ -530,6 +663,7 @@ begin
     ('profiles', 'trg_profiles_onboarding_completion', 'enforce_onboarding_completion()'),
     ('profiles', 'trg_profiles_updated_at', 'set_updated_at()'),
     ('room_addresses', 'trg_room_addresses_updated_at', 'set_updated_at()'),
+    ('room_images', 'trg_room_images_integrity', 'enforce_room_images_integrity()'),
     ('rooms', 'trg_rooms_moderation', 'enforce_room_moderation()'),
     ('rooms', 'trg_rooms_updated_at', 'set_updated_at()')
   ),
@@ -570,9 +704,11 @@ begin
     ('enforce_interest_rate_limit()', false, 'search_path=public'),
     ('enforce_neighborhood_not_referenced()', true, 'search_path=""'),
     ('enforce_onboarding_completion()', false, 'search_path=""'),
+    ('enforce_room_images_integrity()', false, 'search_path=""'),
     ('enforce_room_moderation()', false, 'search_path=""'),
     ('is_admin()', true, 'search_path=public'),
     ('is_conversation_participant(uuid)', true, 'search_path=""'),
+    ('is_room_publicly_visible(uuid)', true, 'search_path=""'),
     ('set_updated_at()', false, 'search_path=public')
   ),
   actual as (
@@ -603,7 +739,8 @@ begin
       ('public.enforce_onboarding_completion()', true),
       ('public.enforce_housing_city_after_onboarding()', true),
       ('public.enforce_housing_preferences_university()', true),
-      ('public.enforce_housing_preferences_neighborhoods()', false)
+      ('public.enforce_housing_preferences_neighborhoods()', false),
+      ('public.enforce_room_images_integrity()', true)
     ) as v(sig, also_authenticated)
   loop
     if has_function_privilege('anon', fn.sig::regprocedure, 'EXECUTE') then
@@ -621,5 +758,5 @@ begin
     raise exception 'FALLO P6: %', array_to_string(failures, '; ');
   end if;
 
-  raise notice 'ok - P6: 13 triggers activos, 11 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
+  raise notice 'ok - P6: 14 triggers activos, 13 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
 end $$;

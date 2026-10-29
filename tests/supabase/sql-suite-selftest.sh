@@ -4,7 +4,9 @@
 # pooler postgres.<ref> y la marca exacta, y comprueba:
 #   A. run-sql-suite.sh completo (con guard.sh) pasa todos los archivos de
 #      tests/db (01–14 desde la Fase 3.1; el número se cuenta, no se fija), con las
-#      mismas aserciones que tests/db/run.sh, y no deja restos.
+#      mismas aserciones que los archivos SQL de tests/db/run.sh (sin las de
+#      concurrency_room_images.sh, que solo corren en local: necesitan dos
+#      sesiones a la vez), y no deja restos.
 #   B. El ROLLBACK propio de un test deshace solo su bloque: lo anterior del
 #      mismo archivo y roomly_test siguen vivos, y los demás archivos no se
 #      ven afectados.
@@ -101,14 +103,17 @@ check "ningún WARNING" '! grep -q "WARNING" "$WORK/full.log"'
 remote_asserts="$(grep -c "^   ok - " "$WORK/full.log" || true)"
 # Una comprobación de aislamiento por archivo, más la final de restos.
 remote_asserts=$((remote_asserts - N_FILES - 1))
-local_asserts="$(bash "$ROOT/tests/db/run.sh" 2>&1 | grep -c "^   ok - " || true)"
-check "mismas aserciones que tests/db/run.sh (${remote_asserts} = ${local_asserts})" \
+# Solo las de las secciones «== NN_….sql» de run.sh: las de concurrencia (su
+# propia sección) no tienen equivalente remoto.
+local_asserts="$(bash "$ROOT/tests/db/run.sh" 2>&1 \
+  | awk '/^== /{sql = ($2 ~ /^[0-9][0-9]_.*\.sql$/)} sql && /^   ok - /{n++} END{print n + 0}')"
+check "mismas aserciones que los archivos SQL de tests/db/run.sh (${remote_asserts} = ${local_asserts})" \
   '[ "$remote_asserts" -eq "$local_asserts" ] && [ "$remote_asserts" -gt 0 ]'
 check "11 recorre sus dos bloques y OWN4" \
   '[ "$(grep -c "ok - OWN" "$WORK/full.log")" -ge 10 ] && grep -q "OWN4: housing_preferences sigue con sus 4 políticas" "$WORK/full.log"'
 check "sin restos: usuarios @test, roomly_test, políticas zz_test" '[ "$(leftovers)" = "0" ]'
-check "siguen las 44 políticas" \
-  '[ "$("${Q[@]}" -c "select count(*) from pg_policies where schemaname = '"'"'public'"'"'")" = "44" ]'
+check "siguen las 42 políticas" \
+  '[ "$("${Q[@]}" -c "select count(*) from pg_policies where schemaname = '"'"'public'"'"'")" = "42" ]'
 if bash "$ROOT/tests/supabase/run-preflight.sh" >"$WORK/preflight.log" 2>&1; then
   ok "preflight completo sigue pasando después de la suite"
 else
