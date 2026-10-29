@@ -17,9 +17,9 @@ import { uuidSchema } from "@/lib/validation/common";
  */
 
 /**
- * Bucket de Storage de las fotos (lo crea
- * `20261024120000_room_images_storage_visibility.sql`). Solo escribe el
- * servidor, y las fotos se sirven con URL firmadas que emite el servidor (D1).
+ * Bucket de Storage de las fotos: privado desde
+ * `20261025120000_room_images_private_bucket.sql` (D1). Solo escribe el
+ * servidor, y las fotos se sirven con URL firmadas que emite el servidor.
  */
 export const ROOM_IMAGES_BUCKET = "room-images";
 

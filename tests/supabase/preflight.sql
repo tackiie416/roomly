@@ -110,11 +110,16 @@ begin
     end if;
   end;
 
-  -- Fase 4.2 (20261024120000): R7 y las restricciones de room_images (ruta
-  -- canónica room_id/id.webp y posición ≥ 0), validadas y con esa definición,
-  -- y el bucket room-images de Storage (5 MiB, solo image/webp).
+  -- Fase 4.2 (20261024120000 y 20261025120000): R7 y las restricciones de
+  -- room_images (ruta canónica room_id/id.webp y posición ≥ 0), validadas y
+  -- con esa definición, y el bucket room-images de Storage: privado (D1), un
+  -- solo bucket con id = nombre, 5 MiB y solo image/webp. Si la RLS de
+  -- storage.buckets pudiera ocultar filas al rol que conecta, no se puede
+  -- comprobar (L6_N2): «no lo veo» no es «no existe».
   declare
     missing text;
+    can_bypass boolean;
+    hidden text;
   begin
     if to_regprocedure('public.is_room_publicly_visible(uuid)') is null then
       raise exception 'FALLO P1: falta public.is_room_publicly_visible(uuid) (R7, migración 20261024120000)';
@@ -136,17 +141,29 @@ begin
     if to_regclass('storage.buckets') is null or to_regclass('storage.objects') is null then
       raise exception 'FALLO P1: faltan storage.buckets o storage.objects (Supabase Storage)';
     end if;
+    select r.rolsuper or r.rolbypassrls into can_bypass from pg_roles r where r.rolname = current_user;
+    select string_agg(c.oid::regclass::text, ', ' order by c.relname) into hidden
+    from pg_class c
+    where c.oid in ('storage.buckets'::regclass, 'storage.objects'::regclass)
+      and c.relrowsecurity and not coalesce(can_bypass, false)
+      and (c.relforcerowsecurity or pg_get_userbyid(c.relowner) <> current_user);
+    if hidden is not null then
+      raise exception 'FALLO P1: no se puede comprobar %: tiene la RLS activa y el rol % no es su dueño ni tiene BYPASSRLS, así que podría no ver todas las filas', hidden, current_user;
+    end if;
     if not exists (
       select 1 from storage.buckets b
-      where b.id = 'room-images' and b.name = 'room-images'
+      where b.id = 'room-images' and b.name = 'room-images' and b.public is false
         and b.file_size_limit = 5242880
         and b.allowed_mime_types = array['image/webp']::text[]
     ) then
-      raise exception 'FALLO P1: falta el bucket room-images con 5242880 bytes e image/webp (migración 20261024120000)';
+      raise exception 'FALLO P1: falta el bucket room-images privado con 5242880 bytes e image/webp (migraciones 20261024120000 y 20261025120000)';
+    end if;
+    if exists (select 1 from storage.buckets b where b.name = 'room-images' and b.id <> 'room-images') then
+      raise exception 'FALLO P1: hay un bucket llamado room-images con otro id';
     end if;
   end;
 
-  raise notice 'ok - P1: 18 tablas, funciones y trigger de la migración de seguridad presentes, Barcelona con sus 73 barrios oficiales, restricciones de rooms de la Fase 4.1 presentes, R7, restricciones de room_images y bucket room-images de la Fase 4.2 presentes';
+  raise notice 'ok - P1: 18 tablas, funciones y trigger de la migración de seguridad presentes, Barcelona con sus 73 barrios oficiales, restricciones de rooms de la Fase 4.1 presentes, R7, restricciones de room_images y bucket room-images privado de la Fase 4.2 presentes';
 end $$;
 
 -- ============================================================
@@ -221,8 +238,9 @@ end $$;
 -- escritura de rooms, room_addresses y room_images exige la cuenta activa
 -- (`deleted_at IS NULL`) en todas sus expresiones. Y desde la Fase 4.2 (R7),
 -- la lectura pública de habitaciones y fotos pasa por
--- is_room_publicly_visible, la del admin es solo SELECT con is_admin(), y
--- storage.objects no tiene ninguna política.
+-- is_room_publicly_visible, la del admin es solo SELECT con is_admin(),
+-- storage.objects y storage.buckets tienen la RLS activa, storage.objects no
+-- tiene ninguna política y storage.buckets ninguna de escritura.
 do $$
 declare
   no_rls text;
@@ -340,22 +358,39 @@ begin
     raise exception 'FALLO P3: room_images_admin_select no es solo SELECT de authenticated con is_admin()';
   end if;
 
-  -- Storage (Fase 4.2): ninguna política en storage.objects. Darían a los
-  -- clientes la subida directa (sin limpiar la foto) o la lectura sin la
-  -- autorización del servidor.
+  -- Fase 4.2 (Storage): ningún cliente escribe, lista ni descarga objetos.
+  -- Las fotos las sube el servidor y las sirve con URL firmadas (D1), así que
+  -- storage.objects no necesita ninguna política; storage.buckets, ninguna de
+  -- escritura (podría volver a hacer público el bucket). Las dos, con la RLS
+  -- activa: sin ella, no tener políticas no protege nada.
   declare
-    object_policies text;
+    storage_policies text;
   begin
-    select string_agg(p.policyname || ' (' || p.cmd || ')', ', ' order by p.policyname)
-      into object_policies
+    if to_regclass('storage.objects') is null or to_regclass('storage.buckets') is null then
+      raise exception 'FALLO P3: no se pueden comprobar las políticas de Storage: falta storage.objects o storage.buckets';
+    end if;
+    if not coalesce((select c.relrowsecurity from pg_class c where c.oid = 'storage.objects'::regclass), false) then
+      raise exception 'FALLO P3: storage.objects no tiene la RLS activa';
+    end if;
+    if not coalesce((select c.relrowsecurity from pg_class c where c.oid = 'storage.buckets'::regclass), false) then
+      raise exception 'FALLO P3: storage.buckets no tiene la RLS activa';
+    end if;
+    select string_agg(p.policyname || ' (' || p.cmd || ')', ', ' order by p.policyname) into storage_policies
     from pg_policies p
     where p.schemaname = 'storage' and p.tablename = 'objects';
-    if object_policies is not null then
-      raise exception 'FALLO P3: storage.objects tiene políticas: %', object_policies;
+    if storage_policies is not null then
+      raise exception 'FALLO P3: storage.objects tiene políticas (la escritura y la lectura de room-images son solo del servidor): %',
+        storage_policies;
+    end if;
+    select string_agg(p.policyname || ' (' || p.cmd || ')', ', ' order by p.policyname) into storage_policies
+    from pg_policies p
+    where p.schemaname = 'storage' and p.tablename = 'buckets' and p.cmd <> 'SELECT';
+    if storage_policies is not null then
+      raise exception 'FALLO P3: storage.buckets tiene políticas de escritura: %', storage_policies;
     end if;
   end;
 
-  raise notice 'ok - P3: RLS activa en las 18 tablas, exactamente las 42 políticas esperadas, las escrituras de habitaciones exigen cuenta activa, la lectura pública pasa por R7 y storage.objects sin políticas';
+  raise notice 'ok - P3: RLS activa en las 18 tablas, exactamente las 42 políticas esperadas, las escrituras de habitaciones exigen cuenta activa, la lectura pública de habitaciones y fotos aplica R7, storage.objects y storage.buckets tienen la RLS activa, storage.objects no tiene políticas y storage.buckets ninguna de escritura';
 end $$;
 
 -- ============================================================

@@ -156,6 +156,13 @@ P4|service_role sin INSERT en room_images|revoke insert on public.room_images fr
 P4|PUBLIC puede ejecutar is_room_publicly_visible|grant execute on function public.is_room_publicly_visible(uuid) to public;
 P4|service_role puede ejecutar is_room_publicly_visible|grant execute on function public.is_room_publicly_visible(uuid) to service_role;
 P4|anon sin EXECUTE de is_room_publicly_visible|revoke execute on function public.is_room_publicly_visible(uuid) from anon;
+P1|bucket room-images público (como antes de 20261025120000, D1)|update storage.buckets set public = true where id = 'room-images';
+P1|bucket room-images sin el valor de public|update storage.buckets set public = null where id = 'room-images';
+P1|no se puede comprobar Storage: un rol al que la RLS podría ocultar filas|create role zz_selftest_reader nologin; grant usage on schema public, storage to zz_selftest_reader; grant select on all tables in schema public to zz_selftest_reader; grant select on storage.buckets, storage.objects to zz_selftest_reader; set local role zz_selftest_reader;
+P3|storage.objects sin RLS|alter table storage.objects disable row level security;
+P3|storage.buckets sin RLS|alter table storage.buckets disable row level security;
+P3|storage.buckets con una política de escritura|create policy zz_selftest_bucket on storage.buckets for update to authenticated using (true);
+P3|storage.buckets con una política FOR ALL (también escribe)|create policy zz_selftest_bucket_all on storage.buckets for all to authenticated using (true);
 P6|falta trg_room_images_integrity (4.2)|drop trigger trg_room_images_integrity on public.room_images;
 P6|trg_room_images_integrity desactivado|alter table public.room_images disable trigger trg_room_images_integrity;
 P6|enforce_room_images_integrity pasa a SECURITY DEFINER|alter function public.enforce_room_images_integrity() security definer;

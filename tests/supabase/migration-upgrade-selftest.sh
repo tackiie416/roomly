@@ -21,7 +21,11 @@
 #     una cuenta desactivada deja de serlo sin cambiar sus datos; con fotos
 #     incompatibles (ruta libre o más de 8) o con un bucket room-images de
 #     otra configuración (o el nombre room-images en otro bucket), la
-#     migración se detiene sin cambiar nada.
+#     migración se detiene sin cambiar nada. Después, 20261025120000 deja el
+#     bucket privado (D1), es idempotente y se detiene sin cambiar nada con el
+#     bucket incoherente o ausente, con políticas en storage.objects o de
+#     escritura en storage.buckets, sin la RLS de storage.objects o de
+#     storage.buckets, o cuando no se puede comprobar (L6_N2).
 #   - Fase 4.1, R1 (barrios oficiales de Barcelona):
 #     - en una instalación existente, un barrio oficial que ya estaba se
 #       conserva con su id y se añaden los que faltan;
@@ -43,6 +47,7 @@ LAST_PHASE2="20261004120100_profiles_privacy.sql"
 PHASE41="20261015120000_rooms_integrity_publication.sql"
 R1="20261016120000_barcelona_neighborhoods.sql"
 PHASE42="20261024120000_room_images_storage_visibility.sql"
+PHASE42_PRIVATE="20261025120000_room_images_private_bucket.sql"
 # Huella de los barrios de Barcelona con sus id: detecta cualquier cambio.
 BARRIS_FP="select count(*) || ':' || md5(string_agg(n.id::text || '|' || n.slug || '|' || n.name, ',' order by n.slug collate \"C\")) from public.neighborhoods n join public.cities c on c.id = n.city_id where c.slug = 'barcelona'"
 WORK="$(mktemp -d)"
@@ -248,6 +253,70 @@ phase42_refuses() {
   echo "   ok - $(basename "$migration"): con fotos incompatibles, otro bucket room-images o su nombre en otro bucket se detiene (room_images_4_2_precheck) sin cambiar nada"
 }
 
+# Fase 4.2 (D1, L6_N2): el paso a bucket privado se detiene, sin cambiar nada,
+# con un bucket incoherente o ausente, con políticas en storage.objects o de
+# escritura en storage.buckets, sin la RLS de storage.objects o de
+# storage.buckets, y cuando no se puede comprobar (un rol al que la RLS podría
+# ocultar filas).
+private_state() {
+  "${P[@]}" -At -c "select (select string_agg(id || '/' || name || '/' || public || '/' || coalesce(file_size_limit::text, '-'), ',' order by id) from storage.buckets) || ':' ||
+                           (select count(*) from pg_policies where schemaname = 'storage') || ':' ||
+                           (select relrowsecurity from pg_class where oid = 'storage.objects'::regclass) || ':' ||
+                           (select relrowsecurity from pg_class where oid = 'storage.buckets'::regclass)"
+}
+private_refuses_one() { # <migración> <caso> <SQL previo> <texto esperado>
+  local migration="$1" label="$2" setup="$3" expected="$4" before
+  before="$(private_state)"
+  if { echo "begin;"; echo "$setup"; cat "$migration"; echo "commit;"; } \
+       | "${P[@]}" >"$WORK/refuse-42p.log" 2>&1; then
+    echo "   FALLO: el bucket privado se aplicó con ${label}"
+    return 1
+  fi
+  if ! grep -qF "$expected" "$WORK/refuse-42p.log"; then
+    echo "   FALLO: con ${label}, la migración falló sin el motivo esperado («${expected}»):"
+    grep -E "ERROR" "$WORK/refuse-42p.log" | head -3
+    return 1
+  fi
+  if [ "$(private_state)" != "$before" ]; then
+    echo "   FALLO: con ${label}, la migración rechazada dejó restos ($(private_state), antes ${before})"
+    return 1
+  fi
+}
+phase42_private_refuses() {
+  local migration="$1"
+  private_refuses_one "$migration" "una política en storage.objects" \
+    "create policy zz_selftest_read on storage.objects for select to authenticated using (true);" \
+    "storage.objects tiene políticas: zz_selftest_read (SELECT)" || return 1
+  private_refuses_one "$migration" "una política de escritura en storage.buckets" \
+    "create policy zz_selftest_bucket on storage.buckets for update to authenticated using (true);" \
+    "storage.buckets tiene políticas de escritura: zz_selftest_bucket (UPDATE)" || return 1
+  private_refuses_one "$migration" "storage.objects sin RLS" \
+    "alter table storage.objects disable row level security;" \
+    "storage.objects no tiene la RLS activa" || return 1
+  private_refuses_one "$migration" "storage.buckets sin RLS" \
+    "alter table storage.buckets disable row level security;" \
+    "storage.buckets no tiene la RLS activa" || return 1
+  private_refuses_one "$migration" "el bucket con otro nombre" \
+    "update storage.buckets set name = 'room-images-antiguo' where id = 'room-images';" \
+    "el bucket con id room-images se llama room-images-antiguo" || return 1
+  private_refuses_one "$migration" "el nombre room-images en otro bucket" \
+    "update storage.buckets set name = 'room-images-antiguo' where id = 'room-images'; insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types) values ('fotos', 'room-images', false, 5242880, array['image/webp']);" \
+    "hay un bucket llamado room-images con otro id (fotos)" || return 1
+  private_refuses_one "$migration" "sin el bucket" \
+    "delete from storage.buckets where id = 'room-images';" \
+    "falta el bucket room-images" || return 1
+  private_refuses_one "$migration" "otro límite de tamaño" \
+    "update storage.buckets set file_size_limit = 10485760 where id = 'room-images';" \
+    "el bucket room-images tiene otra configuración (límite 10485760" || return 1
+  private_refuses_one "$migration" "otros tipos" \
+    "update storage.buckets set allowed_mime_types = array['image/webp', 'image/svg+xml'] where id = 'room-images';" \
+    "el bucket room-images tiene otra configuración (límite 5242880, tipos {image/webp,image/svg+xml})" || return 1
+  private_refuses_one "$migration" "un rol al que la RLS podría ocultar filas" \
+    "create role zz_selftest_migrator nologin; grant usage on schema storage to zz_selftest_migrator; grant select, update on storage.buckets, storage.objects to zz_selftest_migrator; set local role zz_selftest_migrator;" \
+    "no se puede comprobar storage.buckets: tiene la RLS activa y el rol zz_selftest_migrator" || return 1
+  echo "   ok - $(basename "$migration"): con el bucket incoherente o ausente, políticas en Storage, sin RLS o sin poder comprobarlo se detiene sin cambiar nada"
+}
+
 echo "== migraciones nuevas sobre esos datos"
 for migration in "${new_migrations[@]}"; do
   if [ "$(basename "$migration")" = "$PHASE41" ]; then
@@ -255,6 +324,9 @@ for migration in "${new_migrations[@]}"; do
   fi
   if [ "$(basename "$migration")" = "$PHASE42" ]; then
     phase42_refuses "$migration"
+  fi
+  if [ "$(basename "$migration")" = "$PHASE42_PRIVATE" ]; then
+    phase42_private_refuses "$migration" || exit 1
   fi
   if [ "$(basename "$migration")" = "$R1" ]; then
     barris_before="$("${P[@]}" -At -c "$BARRIS_FP")"
@@ -267,6 +339,15 @@ for migration in "${new_migrations[@]}"; do
   "${P[@]}" -f "$migration" >/dev/null
   echo "   ok - $(basename "$migration") aplicada"
 done
+
+# El paso a bucket privado es idempotente: aplicarlo otra vez no cambia nada.
+private_applied="$(private_state)"
+"${P[@]}" -f "$ROOT/supabase/migrations/$PHASE42_PRIVATE" >/dev/null
+if [ "$(private_state)" != "$private_applied" ] || [ "$("${P[@]}" -At -c "select public from storage.buckets where id = 'room-images'")" != "f" ]; then
+  echo "   FALLO: aplicar $PHASE42_PRIVATE otra vez cambió el bucket (${private_applied} → $(private_state))"
+  exit 1
+fi
+echo "   ok - $PHASE42_PRIVATE es idempotente: el bucket sigue privado y sin cambios"
 
 # R1 es idempotente: aplicarla otra vez no cambia ningún barrio.
 barris_loaded="$("${P[@]}" -At -c "$BARRIS_FP")"
@@ -358,8 +439,8 @@ select roomly_test.ok(
           and position = 0
    from public.room_images where id = 'f3000000-0000-0000-0000-000000000001')
   and (select count(*) = 1 from public.room_images)
-  and exists (select 1 from storage.buckets where id = 'room-images'),
-  'UP11: la 4.2 conserva la foto anterior y crea el bucket room-images');
+  and exists (select 1 from storage.buckets where id = 'room-images' and not public),
+  'UP11: la 4.2 conserva la foto anterior y deja el bucket privado (20261025120000)');
 set role anon;
 select roomly_test.login(null);
 select roomly_test.expect_rows(

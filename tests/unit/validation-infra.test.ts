@@ -522,6 +522,67 @@ describe("Fase 4.2: fotos, R7 y Storage coherentes entre código, migración y p
   });
 });
 
+describe("Fase 4.2, D1: bucket privado (20261025120000) aditivo, idempotente y con L6_N2", () => {
+  const MIGRATION = "supabase/migrations/20261025120000_room_images_private_bucket.sql";
+  const sql = read(MIGRATION).replace(/--.*$/gm, "");
+  const preflight = read("tests/supabase/preflight.sql");
+  const p1 = preflight.match(/-- P1[\s\S]*?-- P2/)?.[0] ?? "";
+  const p3 = preflight.match(/-- P3[\s\S]*?-- P4/)?.[0] ?? "";
+
+  it("es aditiva: no crea ni borra tablas, políticas, triggers ni funciones, ni toca la 20261024120000", () => {
+    expect(sql).not.toMatch(/\b(create|drop|alter)\s+(table|policy|trigger|function)\b/i);
+    expect(sql).not.toMatch(/\b(grant|revoke)\b/i);
+    expect(sql).not.toMatch(/\bdelete\s+from\b/i);
+    // Solo un UPDATE, del bucket, y solo si todavía es público.
+    expect([...sql.matchAll(/\bupdate\s+([a-z_.]+)/gi)].map(([, t]) => t)).toEqual([
+      "storage.buckets",
+    ]);
+    expect(sql).toMatch(
+      /update storage\.buckets\s+set public = false, updated_at = now\(\)\s+where id = 'room-images' and public;/
+    );
+  });
+
+  it("comprueba el bucket con los mismos valores que el código y P1", () => {
+    expect(sql).toContain(
+      `bucket.file_size_limit is not distinct from ${ROOM_IMAGES_BUCKET_MAX_BYTES}`
+    );
+    expect(sql).toContain(
+      `bucket.allowed_mime_types is not distinct from array['${ROOM_IMAGE_STORED_TYPE}']::text[]`
+    );
+    expect(sql).toContain(`where b.id = '${ROOM_IMAGES_BUCKET}'`);
+    expect(p1).toContain("b.public is false");
+  });
+
+  it("L6_N2: RLS de las dos tablas, ninguna política en objects ni de escritura en buckets, y «no se puede comprobar»", () => {
+    for (const table of ["objects", "buckets"]) {
+      expect(sql, table).toMatch(
+        new RegExp(
+          `if not coalesce\\(\\(select c\\.relrowsecurity from pg_catalog\\.pg_class c\\s+where c\\.oid = 'storage\\.${table}'::regclass\\), false\\) then`
+        )
+      );
+      expect(p3, table).toContain(`FALLO P3: storage.${table} no tiene la RLS activa`);
+    }
+    expect(sql).toMatch(/where p\.schemaname = 'storage' and p\.tablename = 'objects';/);
+    expect(sql).toMatch(
+      /where p\.schemaname = 'storage' and p\.tablename = 'buckets' and p\.cmd <> 'SELECT';/
+    );
+    expect(sql).toContain("no se puede comprobar %s: tiene la RLS activa");
+    expect(sql).toContain("exception when insufficient_privilege then");
+    expect(p1).toContain("FALLO P1: no se puede comprobar %");
+    // Todos los rechazos llevan el mismo código y un prefijo estable.
+    const raises = [
+      ...sql.matchAll(
+        /raise exception using\s+errcode = '(\d{5})',\s+message = (?:format\()?\s*'([a-z_]+):/g
+      ),
+    ];
+    expect(raises.length).toBeGreaterThanOrEqual(11);
+    expect(new Set(raises.map(([, code]) => code))).toEqual(new Set(["55000"]));
+    expect(new Set(raises.map(([, , prefix]) => prefix))).toEqual(
+      new Set(["room_images_private_precheck", "room_images_private_postcheck"])
+    );
+  });
+});
+
 describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", () => {
   const SCRIPT = "tests/supabase/phase4-upgrade.sh";
   const script = read(SCRIPT);

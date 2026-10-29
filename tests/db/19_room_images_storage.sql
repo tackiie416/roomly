@@ -1,5 +1,6 @@
 -- Fase 4.2 — Fotos de habitaciones: room_images y Storage
--- (20261024120000_room_images_storage_visibility.sql).
+-- (20261024120000_room_images_storage_visibility.sql y
+-- 20261025120000_room_images_private_bucket.sql).
 -- Debe fallar si:
 --   - un cliente (anon, la propietaria, otro usuario o un admin) vuelve a
 --     escribir en room_images, o en storage.objects;
@@ -12,6 +13,8 @@
 --   - el servidor deja de poder borrar fotos, o el borrado en cascada de
 --     rooms se bloquea;
 --   - un cliente lista o descarga objetos del bucket por la API;
+--   - el bucket deja de ser privado (D1), o un cliente puede volver a hacerlo
+--     público o cambiar sus límites (ST0 y ST1);
 --   - el admin deja de leer las fotos ocultas, o las lee otro usuario.
 --
 -- A: propietaria activa · B: otro usuario · D: propietaria que se desactiva
@@ -111,6 +114,14 @@ select roomly_test.ok(
   (select c.relrowsecurity from pg_class c where c.oid = 'storage.objects'::regclass)
   and not exists (select 1 from pg_policies p where p.schemaname = 'storage' and p.tablename = 'objects'),
   'IM0: storage.objects tiene la RLS activa y ninguna política');
+select roomly_test.ok(
+  exists (select 1 from storage.buckets b where b.id = 'room-images' and b.public is false),
+  'ST0: el bucket room-images es privado (D1, 20261025120000): sin URL públicas');
+select roomly_test.ok(
+  (select c.relrowsecurity from pg_class c where c.oid = 'storage.buckets'::regclass)
+  and not exists (select 1 from pg_policies p
+                  where p.schemaname = 'storage' and p.tablename = 'buckets' and p.cmd <> 'SELECT'),
+  'ST0: storage.buckets tiene la RLS activa y ninguna política de escritura');
 
 -- ------------------------------------------------------------
 -- 1. Ningún cliente escribe en room_images
@@ -481,3 +492,52 @@ select roomly_test.expect_rows(
   $$select 1 from storage.objects where name like 'roomly-test-19/%'$$,
   2, 'IM9-control: los objetos existen: service_role (el servidor) los ve');
 reset role;
+
+-- ------------------------------------------------------------
+-- 9. ST1: nadie vuelve público el bucket desde un cliente
+-- ------------------------------------------------------------
+set role anon;
+select roomly_test.login(null);
+select roomly_test.expect_affected(
+  $$update storage.buckets set public = true where id = 'room-images'$$,
+  0, 'ST1: anon no vuelve público el bucket');
+reset role;
+set role authenticated;
+select roomly_test.login('19000000-0000-0000-0000-00000000000a');
+select roomly_test.expect_affected(
+  $$update storage.buckets set public = true, file_size_limit = null where id = 'room-images'$$,
+  0, 'ST1: la propietaria tampoco, ni le quita el límite');
+select roomly_test.login('19000000-0000-0000-0000-0000000000ad');
+select roomly_test.expect_affected(
+  $$update storage.buckets set public = true where id = 'room-images'$$,
+  0, 'ST1: ni un admin (su rol en la app no cuenta en Storage)');
+select roomly_test.expect_error(
+  $$insert into storage.buckets (id, name, public) values ('roomly-test-19', 'roomly-test-19', true)$$,
+  '42501', 'ST1: ni crea otro bucket público');
+select roomly_test.expect_affected(
+  $$delete from storage.buckets where id = 'room-images'$$,
+  0, 'ST1: ni borra el bucket');
+reset role;
+select roomly_test.ok(
+  exists (select 1 from storage.buckets b
+          where b.id = 'room-images' and b.public is false and b.file_size_limit = 5242880),
+  'ST1: el bucket sigue privado y con su límite');
+-- Control: lo que los frena es la RLS de storage.buckets (sin políticas de
+-- escritura). Con una política de UPDATE abierta (y una de lectura, que un
+-- UPDATE con WHERE también necesita), la propietaria sí podría.
+begin;
+create policy "zz_test_buckets_select_temporal" on storage.buckets
+  for select to authenticated using (true);
+create policy "zz_test_buckets_update_temporal" on storage.buckets
+  for update to authenticated using (true) with check (true);
+set role authenticated;
+select roomly_test.login('19000000-0000-0000-0000-00000000000a');
+select roomly_test.expect_affected(
+  $$update storage.buckets set public = true where id = 'room-images'$$,
+  1, 'ST1-control: con una política de escritura en storage.buckets, un cliente lo haría público');
+rollback;
+reset role;
+select roomly_test.ok(
+  exists (select 1 from storage.buckets b where b.id = 'room-images' and b.public is false)
+  and not exists (select 1 from pg_policies where policyname like 'zz_test%'),
+  'ST1-control: deshecho: privado y sin la política temporal');
