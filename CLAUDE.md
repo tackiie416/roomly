@@ -282,7 +282,7 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       ruta `room_id/id.webp`, 8 fotos, bucket) y `20261025120000` (bucket
       privado, L6_N2): 42 políticas, 14 triggers y 13 funciones;
     - `lib/services/room-images.ts` (tercer servicio con service_role, URL
-      firmadas de 600 s), `lib/images/sanitize-room-image.ts` (sharp 0.35.4,
+      firmadas de 600 s), `lib/images/sanitize-room-image.ts` (sharp 0.35.5,
       N1 y L3) y `lib/validation/room-images.ts`;
     - R8 comprueba su llegada con la copia congelada
       `tests/supabase/phase4-final-preflight.sql`: el preflight vigente ya es
@@ -291,8 +291,10 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - en local: `test` 1186, `test:db` 767, `test:infra` 356 y E1 32/32
       (orientativo). **Sin validar en Supabase real, con la API de Storage
       real ni en la CI.** Sin Server Action ni interfaz;
-    - publicar la rama, validarla (D2, en un proyecto aislado) y la versión
-      de sharp (aviso GHSA-wq5f-xc86-pv6w, corregido en 0.35.5) necesitan la
+    - dependencias (sesión 64, autorizada por el propietario): sharp 0.35.5
+      y next 16.4.3, entre otras; `npm audit` sin alertas
+      (`docs/SECURITY.md`, «Dependencias»);
+    - publicar la rama y validarla (D2, en un proyecto aislado) necesitan la
       decisión o la autorización del propietario.
   - R8 (decisión del 2026-10-17: antes de decidir el merge del PR #26): la
     herramienta `tests/supabase/phase4-upgrade.sh` (entrada `phase4_upgrade`
@@ -632,7 +634,6 @@ borrado de cuenta (H6).
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.
 - Fase 4.2 (reconstruida en local, sin publicar): si se publica la rama
-  `feature/phase4-2-rebuild` y cómo se valida (D2, un proyecto aislado);
-  si `sharp` sube de 0.35.4 a 0.35.5 por GHSA-wq5f-xc86-pv6w; y la
+  `feature/phase4-2-rebuild` y cómo se valida (D2, un proyecto aislado); y la
   documentación de los runs 23 y 24, que estaba en el stash perdido y no se
   ha recuperado (`PROGRESS.md`, sesión 63).

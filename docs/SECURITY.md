@@ -587,12 +587,9 @@ públicas ni se aplica a usuarios normales o a un admin desactivado
   el servidor. La conciliación los detecta, pero no los borra.
 - Tras un resultado ambiguo del INSERT puede quedar un objeto sin fila: lo
   detecta la conciliación, y borrarlo es otra decisión.
-- `sharp` 0.35.4 (decisión del propietario, dependencia directa y exacta):
-  `npm audit` marca GHSA-wq5f-xc86-pv6w (alta, en librsvg, corregida en
-  0.35.5). librsvg es el decodificador de SVG, y por N1 un SVG no llega a
-  sharp; aun así, **actualizar a 0.35.5 queda para decidir aparte**. Las
-  alertas de `next` 16.3.6 que marca el mismo `npm audit` son anteriores a la
-  4.2 y no se han revisado aquí.
+- `sharp` es una dependencia directa y exacta (decisión del propietario).
+  Desde la sesión 64 está en 0.35.5, que corrige GHSA-wq5f-xc86-pv6w
+  (librsvg 2.63.2). Ver «Dependencias», abajo.
 
 **Sin validar:**
 - en Supabase real: `roomly-validation-3` sigue en la 4.1. Aplicar la 4.2
@@ -959,10 +956,32 @@ sería invisible.
 `npm audit` en CI, Dependabot activado en el repositorio de GitHub en
 cuanto exista.
 
-- `sharp` 0.35.4, dependencia directa y exacta desde la Fase 4.2
-  (`tests/unit/sharp-dependency.test.ts`). `npm audit` (2026-10-29) marca
-  GHSA-wq5f-xc86-pv6w (librsvg, < 0.35.5): ver «Riesgos residuales» de la
-  4.2, arriba. Pendiente de decisión del propietario.
+- `sharp` es una dependencia directa y exacta desde la Fase 4.2
+  (`tests/unit/sharp-dependency.test.ts`).
+- **Revisión del 2026-10-29 (sesión 64).** Antes, `npm audit` daba 8
+  paquetes vulnerables: 1 crítico, 4 altos y 3 moderados. Después, 0.
+  - Se actualizaron solo los paquetes afectados, sin `npm audit fix --force`
+    ni `overrides`.
+  - `npm ci` en un directorio temporal reproduce la instalación sin cambiar
+    el lockfile.
+  - `tests/unit/sharp-dependency.test.ts` falla si alguno vuelve por debajo
+    de su versión corregida.
+
+| Paquete (ruta) | Antes → después | Alertas | Aplicabilidad en ROOMLY |
+| --- | --- | --- | --- |
+| `next` (directa) | 16.3.6 → 16.4.3 | **Crítica**: GHSA-2464-fhr4-w9xw (RCE en Image Optimization con SVG y sharp vulnerable, Linux glibc) y GHSA-673q-mjm6-r5xr (RCE en `use cache` con typed arrays), ≤ 16.4.0, corregidas en 16.4.1. **Alta**: GHSA-p3m5-59mp-jv5r (DoS con Server Actions, ≤ 16.4.0) y GHSA-cjq9-62q9-8jv4 (SSRF en Image Optimization, < 16.3.8). Además, 6 moderadas y 1 baja, < 16.3.8 | La de Server Actions aplica: la app las usa. La de Image Optimization: el endpoint existe por defecto, aunque la app no usa `next/image`. `use cache` no se usa, y sin `images.remotePatterns` no aplica la SSRF. Se corrigen todas igualmente |
+| `sharp` (directa) | 0.35.4 → 0.35.5 | **Alta**: GHSA-wq5f-xc86-pv6w (librsvg, < 0.35.5) | Por N1, un SVG no llega al sanitizador. Lo usaba Image Optimization de `next` (la crítica de arriba) |
+| `zod` (directa; también de `eslint-plugin-react-hooks`) | 4.6.5 → 4.6.7 | **Alta**: GHSA-mrhx-c7xc-m3w5 (memoria con arrays sin límite, < 4.6.6) | `lib/` y `app/` no usan `z.array`. Se corrige igualmente |
+| `source-map-js` (transitiva: `postcss` de `next` y de Tailwind, `magicast`) | 1.2.1 → 1.2.2 | **Alta**: GHSA-68fv-2mgg-jv7q (DoS con source maps indexados) | Solo en el build, sin source maps de terceros |
+| `vite` (transitiva de desarrollo: `vitest`, `@vitejs/plugin-react`) | 8.3.1 → 8.3.5 | **Alta**: GHSA-587h-7wmj-h5pm (launch-editor, Windows), 4 moderadas y 1 baja | Solo en el servidor de desarrollo de Vite; la app no lo usa |
+| `vitest`, `@vitest/mocker`, `@vitest/coverage-v8` (desarrollo) | 5.0.2 → 5.0.5 | Moderadas: GHSA-qxg6-89mg-rqv8 y GHSA-xp26-3454-mjgp | Solo en los tests |
+
+  - `react` y `react-dom` siguen en 19.2.8, que `next` 16.4.3 acepta
+    (`^19.0.0`) y que no tiene alertas. `eslint-config-next` sube con `next`
+    (16.4.3).
+  - No queda ninguna alerta pendiente. Esto describe la base de datos de
+    avisos del 2026-10-29: vuelve a comprobarse con `npm audit` antes de cada
+    despliegue.
 
 ## RGPD — lo que es responsabilidad técnica y lo que no
 
