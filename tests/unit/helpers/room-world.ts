@@ -99,6 +99,10 @@ export function createRoomWorld(options: WorldOptions = {}) {
     images: [...(options.images ?? [])],
     objects: new Set(options.objects ?? []),
     uploads: [] as Array<{ path: string; body: unknown; options: unknown }>,
+    /** Rutas que `remove` da por borradas sin borrarlas (limpieza parcial). */
+    undeletable: new Set<string>(),
+    /** Rutas pedidas en cada `remove`. */
+    removes: [] as string[][],
     /** Orden de todas las operaciones de los dos clientes y de Storage. */
     log: [] as string[],
     adminCreated: 0,
@@ -252,7 +256,10 @@ export function createRoomWorld(options: WorldOptions = {}) {
         remove: async (paths: string[]) => {
           const failure = storageFailure("remove");
           if (failure) return { data: null, error: failure };
-          const removed = paths.filter((p) => state.objects.delete(p));
+          state.removes.push([...paths]);
+          const removed = paths.filter(
+            (p) => !state.undeletable.has(p) && state.objects.delete(p)
+          );
           return { data: removed.map((name) => ({ name })), error: null };
         },
         createSignedUrls: async (paths: string[]) => {

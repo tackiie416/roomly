@@ -129,13 +129,23 @@ const SANITIZE_MESSAGES: Record<SanitizeRejection, string> = {
  *   - room_image_insert_unverified: no se pudo comprobar si la fila existe;
  *     el objeto se conserva;
  *   - room_image_orphan_after_delete: fila borrada, pero no el objeto.
+ * Al borrar una habitación (`removeDeletedRoomObjects`), con la ruta de la
+ * carpeta (`room_id/`) o la de cada objeto:
+ *   - room_objects_cleanup_skipped: no se ha podido confirmar que la
+ *     habitación ya no existe; no se ha borrado ningún objeto;
+ *   - room_image_orphan_after_room_delete: el objeto sigue en el bucket
+ *     después de la limpieza;
+ *   - room_objects_unverified: no se ha podido comprobar si quedan objetos.
  */
 export type RecoveryEvent =
   | "room_image_upload_unconfirmed"
   | "room_image_orphan_after_insert"
   | "room_image_insert_unconfirmed"
   | "room_image_insert_unverified"
-  | "room_image_orphan_after_delete";
+  | "room_image_orphan_after_delete"
+  | "room_objects_cleanup_skipped"
+  | "room_image_orphan_after_room_delete"
+  | "room_objects_unverified";
 
 export type RoomImagesDeps = {
   /** Cliente con service_role para escribir y firmar. Se inyecta en los tests. */
@@ -602,4 +612,126 @@ export async function deleteRoomImage(
   if (removed.error)
     deps.reportRecovery("room_image_orphan_after_delete", image.storage_path);
   return ok(true);
+}
+
+/** Resultado de la limpieza de los objetos de una habitación borrada. */
+export type RoomObjectsCleanup = {
+  /**
+   * `true` solo si se ha comprobado, después de borrar, que no queda ningún
+   * objeto de la habitación en el bucket. Si no, los que queden son huérfanos
+   * (sin fila que los firme) y se han avisado para la conciliación.
+   */
+  complete: boolean;
+};
+
+/** Nombre de un objeto que pudo escribir este servicio: `<uuid>.webp`, en minúsculas. */
+const CANONICAL_OBJECT_NAME =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp$/;
+
+/** Objetos de una carpeta por listado: como mucho 8 fotos más los huérfanos. */
+const ROOM_OBJECTS_LIST_LIMIT = 100;
+
+type Bucket = ReturnType<DbClient["storage"]["from"]>;
+
+/**
+ * Nombres de los objetos de la carpeta `roomId/` (sin la carpeta), o `null`
+ * si no se pueden listar. Incluye cualquier nombre, también los que no son
+ * canónicos o las subcarpetas.
+ */
+async function listRoomObjects(bucket: Bucket, roomId: string): Promise<string[] | null> {
+  try {
+    const { data, error } = await bucket.list(roomId, {
+      limit: ROOM_OBJECTS_LIST_LIMIT,
+    });
+    if (error || !Array.isArray(data)) return null;
+    return data
+      .map((item) => (item && typeof item.name === "string" ? item.name : null))
+      .filter((name): name is string => name !== null && name.length > 0);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Borra del bucket los objetos de una habitación **ya borrada** (borrado de
+ * habitaciones, lib/services/rooms.ts). Es la única operación de Storage que
+ * no parte de una fila de `room_images`: cuando se llama, la fila de la
+ * habitación ya no existe y la cascada se ha llevado las de sus fotos.
+ *
+ *   1. Con service_role se comprueba que la habitación no existe (solo su id).
+ *      Si existe, o no se puede comprobar, no se borra nada: sus objetos
+ *      siguen siendo de una habitación viva. Esta comprobación es la que
+ *      impide usar la función para borrar las fotos de otra persona.
+ *   2. Se borran las rutas canónicas `roomId/<id>.webp` de las fotos que el
+ *      servidor leyó antes de borrar la habitación (`imageIds`) y las que
+ *      aparecen al listar la carpeta `roomId/` (huérfanos de subidas
+ *      ambiguas o fotos añadidas mientras tanto). Las rutas las construye el
+ *      servidor con `roomImageStoragePath`, nunca llegan del navegador, y
+ *      un nombre que no es canónico no se borra.
+ *   3. Se vuelve a listar la carpeta: solo si está vacía la limpieza es
+ *      completa. Lo que quede se avisa (`room_image_orphan_after_room_delete`)
+ *      y lo detecta la conciliación (tests/supabase/room-images-reconcile.sql).
+ *
+ * Una subida en curso para la habitación borrada falla en el INSERT (sin
+ * habitación, la FK lo rechaza de forma definitiva) y borra su objeto (M2).
+ * Carrera residual, documentada: `id` está en el GRANT de INSERT de `rooms`,
+ * así que alguien podría crear una habitación nueva con el mismo id justo
+ * entre la comprobación del paso 1 y el borrado del paso 2, y subirle una
+ * foto en ese instante. Solo se perdería el objeto de esa foto nueva, de
+ * quien reutiliza el id; nunca el de otra habitación, porque la carpeta es la
+ * del id.
+ */
+export async function removeDeletedRoomObjects(
+  roomId: unknown,
+  imageIds: readonly unknown[],
+  deps: RoomImagesDeps = DEFAULT_DEPS
+): Promise<RoomObjectsCleanup> {
+  const parsed = uuidSchema.safeParse(roomId);
+  if (!parsed.success) return { complete: false };
+  const id = parsed.data;
+  const folder = `${id}/`;
+
+  const admin = deps.adminClient();
+  const { data: stillThere, error } = await admin
+    .from("rooms")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || stillThere) {
+    deps.reportRecovery("room_objects_cleanup_skipped", folder);
+    return { complete: false };
+  }
+
+  const bucket = admin.storage.from(ROOM_IMAGES_BUCKET);
+  const known = imageIds
+    .map((imageId) => uuidSchema.safeParse(imageId))
+    .filter((result) => result.success)
+    .map((result) => roomImageStoragePath(id, result.data));
+  const listed = (await listRoomObjects(bucket, id)) ?? [];
+  const paths = [
+    ...new Set([
+      ...known,
+      ...listed
+        .filter((name) => CANONICAL_OBJECT_NAME.test(name))
+        .map((name) => `${folder}${name}`),
+    ]),
+  ];
+  if (paths.length > 0) {
+    try {
+      // Si falla, la comprobación de abajo lo dirá: no hace falta su resultado.
+      await bucket.remove(paths);
+    } catch {
+      // Igual: se comprueba listando.
+    }
+  }
+
+  const remaining = await listRoomObjects(bucket, id);
+  if (remaining === null) {
+    deps.reportRecovery("room_objects_unverified", folder);
+    return { complete: false };
+  }
+  for (const name of remaining) {
+    deps.reportRecovery("room_image_orphan_after_room_delete", `${folder}${name}`);
+  }
+  return { complete: remaining.length === 0 };
 }

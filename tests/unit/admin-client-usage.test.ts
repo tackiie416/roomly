@@ -139,4 +139,24 @@ describe("fotos de habitaciones (Fase 4.2, D1): sin URL públicas ni Storage fue
     const sharp = APP_FILES.filter((file) => /from\s+["']sharp["']/.test(code(file)));
     expect(sharp).toEqual(["lib/images/sanitize-room-image.ts"]);
   });
+
+  it("la limpieza de una habitación borrada solo la llama el servicio de habitaciones, que no usa service_role", () => {
+    const callers = APP_FILES.filter(
+      (file) =>
+        file !== "lib/services/room-images.ts" &&
+        /removeDeletedRoomObjects/.test(code(file))
+    );
+    expect(callers).toEqual(["lib/services/rooms.ts"]);
+    expect(code("lib/services/rooms.ts")).not.toMatch(
+      /@\/lib\/supabase\/admin|createAdminClient|\.storage\s*\.from\(/
+    );
+    expect(code("lib/services/rooms.ts")).toMatch(/^import "server-only";/);
+  });
+
+  it("ninguna Server Action ni página borra habitaciones directamente: solo deleteOwnRoom", () => {
+    const deleters = APP_FILES.filter((file) =>
+      /from\(\s*["']rooms["']\s*\)[\s\S]{0,200}?\.delete\(/.test(code(file))
+    );
+    expect(deleters).toEqual(["lib/services/rooms.ts"]);
+  });
 });
