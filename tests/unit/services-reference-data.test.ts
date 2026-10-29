@@ -23,7 +23,7 @@ describe("reference-data", () => {
         operation: "select",
         columns: "id, name",
         filters: [{ kind: "eq", column: "is_active", value: true }],
-        order: "name",
+        order: ["name"],
       }),
     ]);
   });

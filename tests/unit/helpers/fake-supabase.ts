@@ -22,7 +22,11 @@ export type Call = {
     value: unknown;
     operator?: string;
   }>;
-  order?: string;
+  /**
+   * Cada `order()`, en el orden en que se llamó (columna, con `.desc` si
+   * `ascending: false`): el orden completo de la consulta, no solo el último.
+   */
+  order?: string[];
   terminal: "single" | "maybeSingle" | "await";
 };
 
@@ -49,7 +53,12 @@ export function createFakeSupabase(options: {
   function builder(table: string) {
     const call: Omit<Call, "terminal"> = { table, operation: "select", filters: [] };
     const finish = (terminal: Call["terminal"]) => {
-      const recorded: Call = { ...call, filters: [...call.filters], terminal };
+      const recorded: Call = {
+        ...call,
+        filters: [...call.filters],
+        ...(call.order ? { order: [...call.order] } : {}),
+        terminal,
+      };
       calls.push(recorded);
       return Promise.resolve(respond(recorded, calls.length - 1));
     };
@@ -93,8 +102,9 @@ export function createFakeSupabase(options: {
         call.filters.push({ kind: "in", column, value });
         return chain;
       },
-      order(column: string) {
-        call.order = column;
+      order(column: string, options?: { ascending?: boolean }) {
+        const entry = options?.ascending === false ? `${column}.desc` : column;
+        call.order = [...(call.order ?? []), entry];
         return chain;
       },
       single: () => finish("single"),
