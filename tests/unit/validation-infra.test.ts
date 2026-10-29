@@ -6,6 +6,13 @@ import {
   ROOM_FEATURE_KEYS,
   ROOM_PUBLICATION_REQUIRED_FIELDS,
 } from "@/lib/validation/rooms";
+import {
+  ROOM_IMAGE_MAX_COUNT,
+  ROOM_IMAGE_STORED_TYPE,
+  ROOM_IMAGES_BUCKET,
+  ROOM_IMAGES_BUCKET_MAX_BYTES,
+  roomImageStoragePath,
+} from "@/lib/validation/room-images";
 
 // Fase 2.8 — coherencia de la infraestructura de validación, sin red:
 //   - identidad roomly-validation-3 en todos los puntos de entrada (Fase 3:
@@ -450,6 +457,68 @@ describe("Fase 4.1, R1: barrios oficiales de Barcelona coherentes", () => {
       expect(read(file)).toContain(`'${fingerprint}'`);
     }
     expect(preflight).toMatch(new RegExp(`n_barcelona <> ${official.length} or`));
+  });
+});
+
+describe("Fase 4.2: fotos, R7 y Storage coherentes entre código, migración y preflight", () => {
+  const MIGRATION =
+    "supabase/migrations/20261024120000_room_images_storage_visibility.sql";
+  const migration = read(MIGRATION).replace(/--.*$/gm, "");
+  const preflight = read("tests/supabase/preflight.sql");
+  const p1 = preflight.match(/-- P1[\s\S]*?-- P2/)?.[0] ?? "";
+
+  it("el límite de fotos del trigger y de la comprobación previa es ROOM_IMAGE_MAX_COUNT", () => {
+    expect(ROOM_IMAGE_MAX_COUNT).toBe(8);
+    expect(migration).toContain(`if n_images >= ${ROOM_IMAGE_MAX_COUNT} then`);
+    expect(migration).toContain(`having count(*) > ${ROOM_IMAGE_MAX_COUNT}`);
+    expect(migration).toMatch(/for no key update;/);
+  });
+
+  it("el bucket (nombre, 5 MiB, image/webp) es el mismo en el código, la migración y P1", () => {
+    const insert =
+      migration.match(
+        /insert into storage\.buckets[\s\S]*?on conflict \(id\) do nothing;/
+      )?.[0] ?? "";
+    expect(insert).toContain(
+      `('${ROOM_IMAGES_BUCKET}', '${ROOM_IMAGES_BUCKET}', true, ${ROOM_IMAGES_BUCKET_MAX_BYTES}, array['${ROOM_IMAGE_STORED_TYPE}'])`
+    );
+    expect(p1).toContain(
+      `b.id = '${ROOM_IMAGES_BUCKET}' and b.name = '${ROOM_IMAGES_BUCKET}'`
+    );
+    expect(p1).toContain(`b.file_size_limit = ${ROOM_IMAGES_BUCKET_MAX_BYTES}`);
+    expect(p1).toContain(
+      `b.allowed_mime_types = array['${ROOM_IMAGE_STORED_TYPE}']::text[]`
+    );
+  });
+
+  it("la ruta del código es la que exige chk_room_images_storage_path", () => {
+    expect(migration).toMatch(
+      /add constraint chk_room_images_storage_path\s+check \(storage_path = room_id::text \|\| '\/' \|\| id::text \|\| '\.webp'\);/
+    );
+    expect(roomImageStoragePath("r", "i")).toBe("r/i.webp");
+  });
+
+  it("P1 exige exactamente las restricciones que añade la migración a room_images", () => {
+    const added = [
+      ...migration.matchAll(
+        /alter table public\.room_images\s+add constraint ([a-z_]+)/g
+      ),
+    ]
+      .map(([, name]) => name)
+      .sort();
+    const required = [...p1.matchAll(/\('(chk_room_images_[a-z_]+)',/g)]
+      .map(([, name]) => name)
+      .sort();
+    expect(added).toEqual(["chk_room_images_position", "chk_room_images_storage_path"]);
+    expect(required).toEqual(added);
+  });
+
+  it("ninguna política de la migración toca storage.objects, y room_images no tiene escritura de clientes", () => {
+    expect(migration).not.toMatch(/create policy[^;]*on storage\./i);
+    expect(migration).toMatch(
+      /revoke insert, update, delete, truncate, references, trigger\s+on public\.room_images from anon, authenticated;/
+    );
+    expect(migration).not.toMatch(/grant [^;]*on public\.room_images/i);
   });
 });
 
