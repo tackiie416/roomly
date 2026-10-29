@@ -181,14 +181,24 @@ describe("isProtectedPath (proxy)", () => {
     "/bienvenida/perfil",
     "/bienvenida/preferencias",
     "/cuenta-desactivada",
+    // Fase 4.2: gestión de las habitaciones propias.
+    "/habitaciones/22222222-3333-4444-8555-666666666666/fotos",
+    "/habitaciones/22222222-3333-4444-8555-666666666666/borrar",
+    "/habitaciones/borrada",
   ])("%s exige sesión", (path) => {
     expect(isProtectedPath(path)).toBe(true);
   });
 
-  it.each(["/", "/login", "/callback", "/registro", "/administracion", "/perfiles"])(
-    "%s es pública",
-    (path) => {
-      expect(isProtectedPath(path)).toBe(false);
-    }
-  );
+  it.each([
+    "/",
+    "/login",
+    "/callback",
+    "/registro",
+    "/administracion",
+    "/perfiles",
+    "/barcelona/habitaciones",
+    "/habitacionesx",
+  ])("%s es pública", (path) => {
+    expect(isProtectedPath(path)).toBe(false);
+  });
 });

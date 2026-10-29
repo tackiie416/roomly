@@ -98,6 +98,25 @@ export async function requireOwnProfile(
   return state;
 }
 
+/**
+ * Gestión de habitaciones (Fase 4.2: fotos y borrado): una sesión con un
+ * perfil propio activo, como `requireOwnProfile`. Sin perfil → paso 1 del
+ * onboarding; cuenta eliminada → pantalla de cuenta desactivada, sin leer ni
+ * escribir nada de la habitación. Aquí no se decide si la habitación es suya:
+ * lo comprueban los servicios en cada operación. `currentPath` (una ruta de
+ * lib/rooms/paths.ts, con el id ya validado) solo sirve para volver tras el
+ * login.
+ */
+export async function requireActiveProfile(
+  currentPath?: string
+): Promise<EditableProfileState> {
+  const state = await requireSessionState(currentPath);
+  if (state.status === "no_profile" || state.status === "deleted") {
+    redirect(resolveDestination(state));
+  }
+  return state;
+}
+
 const ONBOARDING_STEP_PATHS = {
   perfil: ONBOARDING_PROFILE_PATH,
   preferencias: ONBOARDING_PREFERENCES_PATH,
