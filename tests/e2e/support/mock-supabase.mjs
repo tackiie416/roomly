@@ -15,8 +15,16 @@
 //           con la clave service_role ficticia, la lectura cruzada de
 //           candidatos: GET /profiles con housing_preferences!inner y
 //           compatibility_responses!inner embebidos.
+//           Fase 4.2: rooms (la propietaria lee y borra las suyas, con la
+//           cuenta activa; las públicas se leen) y room_images (lectura por
+//           RLS; solo service_role escribe, con las reglas del trigger), y la
+//           API de Storage del bucket privado room-images, solo con
+//           service_role: subir, firmar (URL de 10 minutos), borrar y listar.
+//           Las URL firmadas se sirven sin apikey, como en Supabase.
 //   Test  — /__test/*: el "buzón" (último enlace enviado a un email), reset,
-//           desactivar una cuenta (operación de servidor) y leer el estado.
+//           desactivar una cuenta (operación de servidor), leer el estado y,
+//           desde la Fase 4.2, sembrar una habitación y leer sus fotos y
+//           objetos.
 //
 // Uso: node tests/e2e/support/mock-supabase.mjs   (puerto y origen en mock-config.mjs)
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
@@ -77,6 +85,12 @@ const REFERENCE = {
   ],
 };
 
+// WebP de 1×1 px para las fotos sembradas (las subidas pasan por sharp).
+const TINY_WEBP = Buffer.from(
+  "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAA=",
+  "base64"
+);
+
 // GRANT de columnas (20260926120000, 20260925120100, 20260929120000).
 const PROFILE_INSERT = [
   "id",
@@ -114,6 +128,10 @@ function reset() {
     profiles: new Map(),
     preferences: new Map(),
     responses: new Map(), // profile_id → compatibility_responses
+    rooms: new Map(), // id → rooms (columnas que usa la app)
+    images: new Map(), // id → room_images
+    objects: new Map(), // ruta en room-images → { body, contentType }
+    signTokens: new Map(), // token → { path, expiresAt }
     log: [],
   };
 }
@@ -622,7 +640,200 @@ function handleService(req, res, url, body, table) {
       return respondRows(req, res, updated, columns);
     }
   }
+  if (table === "rooms" && req.method === "GET") {
+    return respondRows(
+      req,
+      res,
+      applyFilters([...state.rooms.values()], url),
+      parseSelect(url)
+    );
+  }
+  if (table === "room_images") {
+    const columns = parseSelect(url);
+    if (req.method === "POST") {
+      const row = { ...body, created_at: new Date().toISOString() };
+      roomImagesTrigger(row);
+      state.images.set(row.id, row);
+      return respondRows(req, res, [row], columns);
+    }
+    if (req.method === "DELETE") {
+      const targets = applyFilters([...state.images.values()], url);
+      targets.forEach((image) => state.images.delete(image.id));
+      return respondRows(req, res, targets, columns);
+    }
+  }
   throw new DbError(400, "E1SRV", `service_role no emulado para ${req.method} ${table}`);
+}
+
+// ---------------------------------------------------------------- Fase 4.2
+const ownerActive = (ownerId) => state.profiles.get(ownerId)?.deleted_at === null;
+/** rooms_select_own y rooms_select_active_public con R7 (sin admins en el mock). */
+const roomVisibleTo = (room, uid) =>
+  room.owner_id === uid ||
+  (room.status === "active" && room.deleted_at === null && ownerActive(room.owner_id));
+const sortImages = (rows) =>
+  [...rows].sort(
+    (a, b) =>
+      a.position - b.position ||
+      a.created_at.localeCompare(b.created_at) ||
+      a.id.localeCompare(b.id)
+  );
+
+function handleUserRooms(req, res, url, uid, columns) {
+  if (req.method === "GET") {
+    const visible = [...state.rooms.values()].filter((room) => roomVisibleTo(room, uid));
+    return respondRows(req, res, applyFilters(visible, url), columns);
+  }
+  if (req.method === "DELETE") {
+    // rooms_delete_own (20261013120000): propietaria con la cuenta activa.
+    // ON DELETE CASCADE: se van las filas de room_images, no los objetos.
+    const targets = applyFilters([...state.rooms.values()], url).filter(
+      (room) => room.owner_id === uid && ownerActive(uid)
+    );
+    for (const room of targets) {
+      state.rooms.delete(room.id);
+      for (const image of [...state.images.values()])
+        if (image.room_id === room.id) state.images.delete(image.id);
+    }
+    return respondRows(req, res, targets, columns);
+  }
+  throw denied("rooms");
+}
+
+// trg_room_images_integrity (20261024120000), también para service_role.
+function roomImagesTrigger(row) {
+  const room = state.rooms.get(row.room_id);
+  if (!room)
+    throw new DbError(
+      409,
+      "23503",
+      'insert or update on table "room_images" violates foreign key constraint "room_images_room_id_fkey"'
+    );
+  if (room.deleted_at !== null || room.status === "removed")
+    throw new DbError(400, "23514", "room_not_writable: habitación retirada o eliminada");
+  if (!ownerActive(room.owner_id))
+    throw new DbError(400, "23514", "account_deleted: la cuenta está desactivada");
+  if ([...state.images.values()].filter((i) => i.room_id === room.id).length >= 8)
+    throw new DbError(400, "23514", "room_images_limit: como mucho 8 fotos");
+  if (row.storage_path !== `${row.room_id}/${row.id}.webp`)
+    throw new DbError(
+      400,
+      "23514",
+      'violates check constraint "chk_room_images_storage_path"'
+    );
+}
+
+const BUCKET = "room-images";
+const BUCKET_MAX_BYTES = 5 * 1024 * 1024;
+const storageError = (res, status, statusCode, error, message) =>
+  send(res, status, { statusCode, error, message });
+
+/**
+ * Storage del bucket privado room-images. Escribir, firmar, borrar y listar
+ * exigen service_role (sin políticas en storage.objects: ningún cliente
+ * escribe ni lista). Las URL firmadas se sirven sin apikey hasta que caducan.
+ */
+function handleStorage(req, res, url, raw, isService) {
+  const path = url.pathname.replace("/storage/v1", "");
+  const signedPrefix = `/object/sign/${BUCKET}/`;
+  if (req.method === "GET" && path.startsWith(signedPrefix)) {
+    const objectPath = decodeURIComponent(path.slice(signedPrefix.length));
+    const grant = state.signTokens.get(url.searchParams.get("token") ?? "");
+    const object = state.objects.get(objectPath);
+    if (!grant || grant.path !== objectPath || grant.expiresAt < Date.now() || !object)
+      return storageError(res, 400, "403", "InvalidJWT", "invalid signature");
+    res.writeHead(200, {
+      "content-type": object.contentType,
+      "cache-control": `max-age=${object.cacheControl}`,
+    });
+    return res.end(object.body);
+  }
+  if (!isService)
+    return storageError(
+      res,
+      400,
+      "403",
+      "Unauthorized",
+      "new row violates row-level security policy"
+    );
+
+  const json = () => (raw.length ? JSON.parse(raw.toString("utf8")) : {});
+  if (req.method === "POST" && path === `/object/sign/${BUCKET}`) {
+    const { expiresIn, paths } = json();
+    return send(
+      res,
+      200,
+      paths.map((objectPath) => {
+        if (!state.objects.has(objectPath))
+          return {
+            path: objectPath,
+            signedURL: null,
+            error: "Either the object does not exist or you do not have access to it",
+          };
+        const token = randomBytes(16).toString("hex");
+        state.signTokens.set(token, {
+          path: objectPath,
+          expiresAt: Date.now() + expiresIn * 1000,
+        });
+        return {
+          path: objectPath,
+          signedURL: `/object/sign/${BUCKET}/${objectPath}?token=${token}`,
+          error: null,
+        };
+      })
+    );
+  }
+  if (req.method === "POST" && path === `/object/list/${BUCKET}`) {
+    const { prefix = "", limit = 100, offset = 0 } = json();
+    const folder = prefix ? `${prefix.replace(/\/$/, "")}/` : "";
+    const names = [...state.objects.keys()]
+      .filter((objectPath) => objectPath.startsWith(folder))
+      .map((objectPath) => objectPath.slice(folder.length))
+      .sort()
+      .slice(offset, offset + limit);
+    return send(
+      res,
+      200,
+      names.map((name) => ({ name, id: randomUUID(), metadata: {} }))
+    );
+  }
+  if (req.method === "DELETE" && path === `/object/${BUCKET}`) {
+    const { prefixes = [] } = json();
+    const removed = prefixes.filter((objectPath) => state.objects.delete(objectPath));
+    return send(
+      res,
+      200,
+      removed.map((name) => ({ name, bucket_id: BUCKET }))
+    );
+  }
+  const objectPrefix = `/object/${BUCKET}/`;
+  if (req.method === "POST" && path.startsWith(objectPrefix)) {
+    const objectPath = decodeURIComponent(path.slice(objectPrefix.length));
+    const contentType = req.headers["content-type"];
+    if (contentType !== "image/webp")
+      return storageError(
+        res,
+        400,
+        "415",
+        "invalid_mime_type",
+        `mime type ${contentType} is not supported`
+      );
+    if (raw.length > BUCKET_MAX_BYTES)
+      return storageError(
+        res,
+        400,
+        "413",
+        "Payload too large",
+        "The object exceeded the maximum allowed size"
+      );
+    if (state.objects.has(objectPath) && req.headers["x-upsert"] !== "true")
+      return storageError(res, 400, "409", "Duplicate", "The resource already exists");
+    const cacheControl =
+      /max-age=(\d+)/.exec(req.headers["cache-control"] ?? "")?.[1] ?? "3600";
+    state.objects.set(objectPath, { body: raw, contentType, cacheControl });
+    return send(res, 200, { Key: `${BUCKET}/${objectPath}`, Id: randomUUID() });
+  }
+  return storageError(res, 404, "404", "not_found", "not found");
 }
 
 function handleRest(req, res, url, body, uid, isService) {
@@ -643,6 +854,18 @@ function handleRest(req, res, url, body, uid, isService) {
     if (req.method !== "GET") throw denied(table);
     const own = [...state.responses.values()].filter((r) => r.profile_id === uid);
     return respondRows(req, res, applyFilters(own, url), columns);
+  }
+
+  if (table === "rooms") return handleUserRooms(req, res, url, uid, columns);
+  if (table === "room_images") {
+    // room_images_select (R7): las fotos de las habitaciones que puede ver.
+    // Sin INSERT, UPDATE ni DELETE para authenticated (20261024120000).
+    if (req.method !== "GET") throw denied(table);
+    const visible = [...state.images.values()].filter((image) => {
+      const room = state.rooms.get(image.room_id);
+      return room && roomVisibleTo(room, uid);
+    });
+    return respondRows(req, res, sortImages(applyFilters(visible, url)), columns);
   }
 
   if (table === "profiles") {
@@ -827,6 +1050,53 @@ function handleTest(req, res, url) {
     }
     case "/__test/log":
       return send(res, 200, state.log);
+    case "/__test/seed-room": {
+      // Habitación de una usuaria con perfil (datos de servidor). Parámetros:
+      // email, title, status (draft por defecto), photos (número de fotos ya
+      // subidas, con su objeto).
+      const user = findUser(email);
+      if (!user || !state.profiles.get(user.id))
+        return send(res, 404, { error: "sin perfil" });
+      const q = url.searchParams;
+      const id = randomUUID();
+      state.rooms.set(id, {
+        id,
+        owner_id: user.id,
+        title: q.get("title") ?? "Habitación E1",
+        status: q.get("status") ?? "draft",
+        deleted_at: null,
+        city_id: BCN,
+      });
+      const photos = Number(q.get("photos") ?? "0");
+      for (let n = 0; n < photos; n += 1) {
+        const imageId = randomUUID();
+        const storagePath = `${id}/${imageId}.webp`;
+        state.images.set(imageId, {
+          id: imageId,
+          room_id: id,
+          storage_path: storagePath,
+          position: n,
+          created_at: new Date(Date.now() + n).toISOString(),
+        });
+        state.objects.set(storagePath, {
+          body: TINY_WEBP,
+          contentType: "image/webp",
+          cacheControl: "600",
+        });
+      }
+      return send(res, 200, { id });
+    }
+    case "/__test/room": {
+      // Estado de una habitación: su fila, sus fotos y los objetos de su carpeta.
+      const id = url.searchParams.get("id") ?? "";
+      return send(res, 200, {
+        room: state.rooms.get(id) ?? null,
+        images: [...state.images.values()].filter((image) => image.room_id === id),
+        objects: [...state.objects.keys()].filter((objectPath) =>
+          objectPath.startsWith(`${id}/`)
+        ),
+      });
+    }
     case "/__test/seed-own-response": {
       // Test propio ya guardado (datos de servidor), p. ej. en una versión
       // anterior del cuestionario. Parámetros: email, version (obligatoria),
@@ -901,9 +1171,11 @@ function handleTest(req, res, url) {
 
 // ---------------------------------------------------------------- servidor
 const server = createServer((req, res) => {
-  let raw = "";
-  req.on("data", (chunk) => (raw += chunk));
+  const chunks = [];
+  req.on("data", (chunk) => chunks.push(chunk));
   req.on("end", () => {
+    const rawBuffer = Buffer.concat(chunks);
+    const raw = rawBuffer.toString("utf8");
     const url = new URL(req.url, SELF);
     if (req.method === "OPTIONS") {
       return send(res, 204, undefined, {
@@ -927,15 +1199,31 @@ const server = createServer((req, res) => {
             ? "service_role"
             : (verifyJwt(bearer)?.role ?? "none"),
     });
-    // El enlace del email lo abre el navegador sin apikey, como en Supabase.
+    // El enlace del email y las URL firmadas de Storage los abre el
+    // navegador sin apikey, como en Supabase.
     const isVerifyLink = url.pathname === "/auth/v1/verify";
+    const isSignedObject =
+      req.method === "GET" &&
+      url.pathname.startsWith(`/storage/v1/object/sign/${BUCKET}/`);
     const isService =
       apikey === MOCK_SERVICE_ROLE_KEY && bearer === MOCK_SERVICE_ROLE_KEY;
-    if (!isVerifyLink && apikey !== MOCK_ANON_KEY && !isService)
+    if (!isVerifyLink && !isSignedObject && apikey !== MOCK_ANON_KEY && !isService)
       return authError(res, 401, "no_api_key", "Invalid API key");
-    // La clave service_role solo vale para REST (lo que usa la app).
-    if (isService && !url.pathname.startsWith("/rest/v1/"))
-      return authError(res, 401, "no_api_key", "service_role solo en REST");
+    // La clave service_role solo vale para REST y Storage (lo que usa la app).
+    if (
+      isService &&
+      !url.pathname.startsWith("/rest/v1/") &&
+      !url.pathname.startsWith("/storage/v1/")
+    )
+      return authError(res, 401, "no_api_key", "service_role solo en REST y Storage");
+    if (url.pathname.startsWith("/storage/v1/")) {
+      try {
+        return handleStorage(req, res, url, rawBuffer, isService);
+      } catch (error) {
+        console.error(error);
+        return storageError(res, 500, "500", "internal", "internal mock error");
+      }
+    }
 
     let body = {};
     try {
