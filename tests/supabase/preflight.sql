@@ -44,6 +44,9 @@ begin
   if not exists (select 1 from pg_trigger where tgname = 'trg_rooms_moderation' and not tgisinternal) then
     raise exception 'FALLO P1: falta el trigger trg_rooms_moderation';
   end if;
+  if to_regprocedure('public.delete_own_room(uuid, uuid)') is null then
+    raise exception 'FALLO P1: falta public.delete_own_room(uuid, uuid) (migración 20261030120000 no aplicada)';
+  end if;
   if not exists (select 1 from public.cities where slug = 'barcelona' and is_active) then
     raise exception 'FALLO P1: falta la ciudad barcelona activa (la crean la migración 20261016120000 y el seed)';
   end if;
@@ -232,7 +235,9 @@ end $$;
 -- 4.0) `rooms_owner_write`, `room_addresses_owner_only` y
 -- `room_images_owner_write` (ALL) se dividen por comando: −3 +10. En
 -- 20261024120000 (Fase 4.2) se eliminan las tres de escritura de room_images
--- y se añade `room_images_admin_select`: −3 +1. Total: 42 en 18 tablas.
+-- y se añade `room_images_admin_select`: −3 +1. En 20261030120000 (sesión
+-- 65) se elimina `rooms_delete_own`: el borrado lo hace el servidor. Total: 41
+-- en 18 tablas.
 -- Se compara (tabla, política, comando) en los dos sentidos: falta o sobra
 -- cualquiera → fallo, con el nombre. Además (Fase 4.0), cada política de
 -- escritura de rooms, room_addresses y room_images exige la cuenta activa
@@ -291,7 +296,6 @@ begin
     ('room_images', 'room_images_admin_select', 'SELECT'),
     ('room_images', 'room_images_select', 'SELECT'),
     ('rooms', 'rooms_admin_all', 'ALL'),
-    ('rooms', 'rooms_delete_own', 'DELETE'),
     ('rooms', 'rooms_insert_own', 'INSERT'),
     ('rooms', 'rooms_select_active_public', 'SELECT'),
     ('rooms', 'rooms_select_own', 'SELECT'),
@@ -312,8 +316,8 @@ begin
      from (select * from actual except select * from expected) a)
   into n_expected, missing, unexpected;
 
-  if n_expected <> 42 then
-    raise exception 'FALLO P3: la lista esperada no tiene 42 entradas (error del propio preflight)';
+  if n_expected <> 41 then
+    raise exception 'FALLO P3: la lista esperada no tiene 41 entradas (error del propio preflight)';
   end if;
   if missing is not null or unexpected is not null then
     raise exception 'FALLO P3: políticas distintas de las esperadas. Faltan: %. Sobran: %',
@@ -390,7 +394,7 @@ begin
     end if;
   end;
 
-  raise notice 'ok - P3: RLS activa en las 18 tablas, exactamente las 42 políticas esperadas, las escrituras de habitaciones exigen cuenta activa, la lectura pública de habitaciones y fotos aplica R7, storage.objects y storage.buckets tienen la RLS activa, storage.objects no tiene políticas y storage.buckets ninguna de escritura';
+  raise notice 'ok - P3: RLS activa en las 18 tablas, exactamente las 41 políticas esperadas, las escrituras de habitaciones exigen cuenta activa, la lectura pública de habitaciones y fotos aplica R7, storage.objects y storage.buckets tienen la RLS activa, storage.objects no tiene políticas y storage.buckets ninguna de escritura';
 end $$;
 
 -- ============================================================
@@ -525,20 +529,33 @@ begin
 
   -- rooms (20261015120000, Fase 4.1): authenticated escribe por columnas
   -- (sin status al crear; sin deleted_at, created_at, updated_at, approx_lat
-  -- ni approx_lng; id y owner_id fuera del UPDATE), conserva SELECT y DELETE
-  -- (RLS); anon solo SELECT; service_role, tabla completa.
+  -- ni approx_lng; id y owner_id fuera del UPDATE) y conserva SELECT (RLS);
+  -- desde 20261030120000 (sesión 65), ni authenticated ni anon tienen DELETE
+  -- ni TRUNCATE: el borrado lo hace el servidor con delete_own_room. anon,
+  -- solo SELECT; service_role, tabla completa.
   if has_table_privilege('authenticated', 'public.rooms', 'INSERT')
      or has_table_privilege('authenticated', 'public.rooms', 'UPDATE') then
     failures := failures || 'authenticated tiene INSERT/UPDATE de tabla completa en rooms'::text;
   end if;
-  if not has_table_privilege('authenticated', 'public.rooms', 'SELECT')
-     or not has_table_privilege('authenticated', 'public.rooms', 'DELETE') then
-    failures := failures || 'authenticated NO tiene SELECT/DELETE en rooms (fix demasiado restrictivo)'::text;
+  if not has_table_privilege('authenticated', 'public.rooms', 'SELECT') then
+    failures := failures || 'authenticated NO tiene SELECT en rooms (fix demasiado restrictivo)'::text;
+  end if;
+  if has_table_privilege('authenticated', 'public.rooms', 'DELETE')
+     or has_table_privilege('authenticated', 'public.rooms', 'TRUNCATE') then
+    failures := failures || 'authenticated puede borrar rooms directamente (DELETE o TRUNCATE)'::text;
   end if;
   if has_any_column_privilege('anon', 'public.rooms', 'INSERT')
      or has_any_column_privilege('anon', 'public.rooms', 'UPDATE')
-     or has_table_privilege('anon', 'public.rooms', 'DELETE') then
+     or has_table_privilege('anon', 'public.rooms', 'DELETE')
+     or has_table_privilege('anon', 'public.rooms', 'TRUNCATE') then
     failures := failures || 'anon tiene escritura en rooms'::text;
+  end if;
+  if exists (
+    select 1 from pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+    where c.oid = 'public.rooms'::regclass
+      and a.grantee = 0 and a.privilege_type in ('DELETE', 'TRUNCATE')
+  ) then
+    failures := failures || 'PUBLIC puede borrar rooms (DELETE o TRUNCATE)'::text;
   end if;
   if not has_table_privilege('anon', 'public.rooms', 'SELECT') then
     failures := failures || 'anon NO tiene SELECT en rooms (rompería la lectura pública)'::text;
@@ -595,6 +612,23 @@ begin
     failures := failures || 'service_role sin INSERT/UPDATE/DELETE en room_images (el servidor no podría guardar fotos)'::text;
   end if;
 
+  -- delete_own_room (20261030120000, sesión 65): solo service_role. Ni
+  -- PUBLIC, ni anon, ni authenticated.
+  if not has_function_privilege('service_role', 'public.delete_own_room(uuid, uuid)', 'EXECUTE') then
+    failures := failures || 'service_role NO puede ejecutar delete_own_room (el servidor no podría borrar habitaciones)'::text;
+  end if;
+  if has_function_privilege('anon', 'public.delete_own_room(uuid, uuid)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.delete_own_room(uuid, uuid)', 'EXECUTE') then
+    failures := failures || 'anon o authenticated pueden ejecutar delete_own_room'::text;
+  end if;
+  if exists (
+    select 1 from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+    where p.oid = 'public.delete_own_room(uuid, uuid)'::regprocedure
+      and a.grantee = 0 and a.privilege_type = 'EXECUTE'
+  ) then
+    failures := failures || 'PUBLIC puede ejecutar delete_own_room'::text;
+  end if;
+
   -- is_room_publicly_visible (R7): solo anon y authenticated, que la llaman
   -- desde la lectura pública. Ni PUBLIC ni service_role.
   if not has_function_privilege('anon', 'public.is_room_publicly_visible(uuid)', 'EXECUTE')
@@ -615,7 +649,7 @@ begin
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms, room_images e is_room_publicly_visible)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room e is_room_publicly_visible)';
 end $$;
 
 -- ============================================================
@@ -674,7 +708,8 @@ end $$;
 -- rate limit), 20260926120000 (moderación), 20260929120000 (barrios),
 -- 20260930120000 (onboarding), 20260930140000 (ciudad y universidad),
 -- 20261007120000 (integridad de compatibility_responses, Fase 3.1) y
--- 20261024120000 (integridad de room_images, Fase 4.2).
+-- 20261024120000 (integridad de room_images, Fase 4.2). Funciones: además,
+-- delete_own_room (20261030120000, sesión 65), SECURITY INVOKER.
 -- Seguridad de funciones según cada migración: SECURITY DEFINER solo
 -- is_admin, is_conversation_participant, enforce_neighborhood_not_referenced
 -- e is_room_publicly_visible; search_path fijo; EXECUTE revocado donde la
@@ -744,6 +779,7 @@ begin
     ('is_admin()', true, 'search_path=public'),
     ('is_conversation_participant(uuid)', true, 'search_path=""'),
     ('is_room_publicly_visible(uuid)', true, 'search_path=""'),
+    ('delete_own_room(uuid,uuid)', false, 'search_path=""'),
     ('set_updated_at()', false, 'search_path=public')
   ),
   actual as (
@@ -775,7 +811,8 @@ begin
       ('public.enforce_housing_city_after_onboarding()', true),
       ('public.enforce_housing_preferences_university()', true),
       ('public.enforce_housing_preferences_neighborhoods()', false),
-      ('public.enforce_room_images_integrity()', true)
+      ('public.enforce_room_images_integrity()', true),
+      ('public.delete_own_room(uuid, uuid)', true)
     ) as v(sig, also_authenticated)
   loop
     if has_function_privilege('anon', fn.sig::regprocedure, 'EXECUTE') then
@@ -793,5 +830,5 @@ begin
     raise exception 'FALLO P6: %', array_to_string(failures, '; ');
   end if;
 
-  raise notice 'ok - P6: 14 triggers activos, 13 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
+  raise notice 'ok - P6: 14 triggers activos, 14 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
 end $$;

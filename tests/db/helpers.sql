@@ -113,4 +113,49 @@ begin
   raise exception 'FALLO: % (la sentencia se ejecutó sin error)', p_msg;
 end $$;
 
+-- Exige que p_sql falle por falta de privilegio (42501) y no por una regla
+-- propia: las reglas propias de ROOMLY con 42501 (account_deleted:,
+-- room_moderation:…) empiezan por un prefijo `nombre:`. No depende del idioma
+-- de los mensajes del servidor. Quien lo usa comprueba además, aparte, que el
+-- rol no tiene el privilegio (has_table_privilege, has_function_privilege).
+create function roomly_test.expect_denied(p_sql text, p_msg text)
+returns void
+language plpgsql as $$
+begin
+  begin
+    execute p_sql;
+  exception when others then
+    if sqlstate = '42501' and sqlerrm !~ '^[a-z_]+:' then
+      raise notice 'ok - % (rechazado: %)', p_msg, sqlerrm;
+      return;
+    end if;
+    raise exception 'FALLO: % (esperado 42501 por falta de privilegio, obtenido %: %)', p_msg, sqlstate, sqlerrm;
+  end;
+  raise exception 'FALLO: % (la sentencia se ejecutó sin error)', p_msg;
+end $$;
+
+-- Exige que p_sql falle por la FK p_constraint (23503), por su nombre: no
+-- depende del idioma del servidor.
+create function roomly_test.expect_fk_violation(p_sql text, p_constraint text, p_msg text)
+returns void
+language plpgsql as $$
+declare
+  violated text;
+begin
+  begin
+    execute p_sql;
+  exception
+    when foreign_key_violation then
+      get stacked diagnostics violated = constraint_name;
+      if violated = p_constraint then
+        raise notice 'ok - % (rechazado por %)', p_msg, violated;
+        return;
+      end if;
+      raise exception 'FALLO: % (esperado %, rechazado por «%»: %)', p_msg, p_constraint, violated, sqlerrm;
+    when others then
+      raise exception 'FALLO: % (esperado 23503 de %, obtenido %: %)', p_msg, p_constraint, sqlstate, sqlerrm;
+  end;
+  raise exception 'FALLO: % (la sentencia se ejecutó sin error)', p_msg;
+end $$;
+
 grant execute on all functions in schema roomly_test to anon, authenticated, service_role;

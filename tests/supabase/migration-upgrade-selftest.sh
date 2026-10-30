@@ -385,8 +385,8 @@ select roomly_test.expect_error(
   '23514', 'UP4: la fila antigua de una cuenta eliminada ya no se puede escribir');
 reset role;
 select roomly_test.ok(
-  (select count(*) = 42 from pg_policies where schemaname = 'public'),
-  'UP5: 42 políticas (37 hasta la 4.0; 44 hasta la 4.2)');
+  (select count(*) = 41 from pg_policies where schemaname = 'public'),
+  'UP5: 41 políticas (37 hasta la 4.0; 44 hasta la 4.2; 42 hasta 20261030120000)');
 select roomly_test.ok(
   (select count(*) = 3 from public.rooms
    where id in ('f1000000-0000-0000-0000-00000000000a', 'f1000000-0000-0000-0000-00000000000c',
@@ -459,7 +459,25 @@ select roomly_test.login('f0000000-0000-0000-0000-00000000000a');
 select roomly_test.expect_error(
   $$update public.room_images set position = 1 where id = 'f3000000-0000-0000-0000-000000000001'$$,
   '42501', 'UP13: desde la 4.2, la propietaria ya no escribe sus fotos desde el cliente');
+-- Sesión 65 (20261030120000): la propietaria ya no borra su habitación
+-- anterior desde el cliente; el servidor sí, y recibe la ruta de su foto.
+select roomly_test.expect_rows(
+  $$select 1 from public.rooms where id = 'f1000000-0000-0000-0000-00000000000a'$$,
+  1, 'UP14: la propietaria ve su habitación anterior');
+select roomly_test.expect_error(
+  $$delete from public.rooms where id = 'f1000000-0000-0000-0000-00000000000a'$$,
+  '42501', 'UP14: y ya no la borra desde el cliente (sin DELETE)');
 reset role;
+set role service_role;
+select roomly_test.ok(
+  public.delete_own_room('f1000000-0000-0000-0000-00000000000a', 'f0000000-0000-0000-0000-00000000000a')
+  = array['f1000000-0000-0000-0000-00000000000a/f3000000-0000-0000-0000-000000000001.webp'],
+  'UP14: el servidor la borra con delete_own_room y recibe la ruta de su foto anterior');
+reset role;
+select roomly_test.ok(
+  not exists (select 1 from public.rooms where id = 'f1000000-0000-0000-0000-00000000000a')
+  and not exists (select 1 from public.room_images where id = 'f3000000-0000-0000-0000-000000000001'),
+  'UP14: sin la habitación ni la fila de su foto');
 SQL
 
 echo "== instalación limpia: migraciones → seed (R1)"

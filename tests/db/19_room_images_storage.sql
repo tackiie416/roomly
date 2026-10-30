@@ -440,13 +440,13 @@ reset role;
 -- ------------------------------------------------------------
 -- 7. El borrado en cascada no se bloquea
 -- ------------------------------------------------------------
--- (deja el objeto de Storage huérfano, si lo hubiera: riesgo documentado en
--- docs/SECURITY.md hasta que el borrado de habitaciones pase por el servidor)
-set role authenticated;
-select roomly_test.login('19000000-0000-0000-0000-00000000000a');
-select roomly_test.expect_affected(
-  $$delete from public.rooms where id = '19100000-0000-0000-0000-000000000006'$$,
-  1, 'IM8: la propietaria borra su habitación pausada');
+-- Desde 20261030120000 se borra con delete_own_room (service_role), que
+-- devuelve las rutas para que el servidor borre los objetos (tests/db/21).
+set role service_role;
+select roomly_test.ok(
+  cardinality(public.delete_own_room('19100000-0000-0000-0000-000000000006',
+                                     '19000000-0000-0000-0000-00000000000a')) > 0,
+  'IM8: la propietaria borra su habitación pausada (por el servidor), con sus rutas');
 reset role;
 select roomly_test.ok(
   not exists (select 1 from public.room_images where room_id = '19100000-0000-0000-0000-000000000006'),

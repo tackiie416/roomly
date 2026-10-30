@@ -5,7 +5,7 @@
 #   - el esquema actual pasa P0–P6;
 #   - cada mutación (política que falta, sobra, cambia de comando o de nombre;
 #     tabla sin RLS; GRANT de más en housing_preferences; trigger que falta,
-#     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); escrituras de habitaciones sin la comprobación de cuenta activa (Fase 4.0); restricciones de habitaciones que faltan, sin validar o con otro catálogo, GRANT por columnas de rooms y barrios de Barcelona que faltan, sobran o cambian (Fase 4.1); R7, restricciones, GRANT y trigger de room_images, bucket room-images y políticas en storage.objects (Fase 4.2); función con otra seguridad o search_path;
+#     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); escrituras de habitaciones sin la comprobación de cuenta activa (Fase 4.0); restricciones de habitaciones que faltan, sin validar o con otro catálogo, GRANT por columnas de rooms y barrios de Barcelona que faltan, sobran o cambian (Fase 4.1); R7, restricciones, GRANT y trigger de room_images, bucket room-images y políticas en storage.objects (Fase 4.2); borrado directo de rooms y EXECUTE de delete_own_room (sesión 65); función con otra seguridad o search_path;
 #     función de más; EXECUTE concedido; marcas anteriores) hace fallar la
 #     comprobación que corresponde. Cada mutación va en su propia
 #     transacción y se deshace.
@@ -84,7 +84,7 @@ P1|catálogo de características con una clave de más|alter table public.rooms 
 P3|falta profiles_update_own|drop policy profiles_update_own on public.profiles;
 P3|falta housing_preferences_delete_own|drop policy housing_preferences_delete_own on public.housing_preferences;
 P3|sobra una política (aunque el total cambie)|create policy zz_extra on public.cities for select using (true);
-P3|misma cantidad, otra política (42 = 42)|drop policy cities_select_all on public.cities; create policy cities_select_everything on public.cities for select using (true);
+P3|misma cantidad, otra política (41 = 41)|drop policy cities_select_all on public.cities; create policy cities_select_everything on public.cities for select using (true);
 P3|mismo nombre, otro comando|drop policy housing_preferences_select_own on public.housing_preferences; create policy housing_preferences_select_own on public.housing_preferences for all to authenticated using (auth.uid() = profile_id);
 P3|vuelve la política antigua housing_preferences_own|create policy housing_preferences_own on public.housing_preferences for all to authenticated using (auth.uid() = profile_id);
 P3|tabla sin RLS|alter table public.housing_preferences disable row level security;
@@ -167,13 +167,27 @@ P6|falta trg_room_images_integrity (4.2)|drop trigger trg_room_images_integrity 
 P6|trg_room_images_integrity desactivado|alter table public.room_images disable trigger trg_room_images_integrity;
 P6|enforce_room_images_integrity pasa a SECURITY DEFINER|alter function public.enforce_room_images_integrity() security definer;
 P6|authenticated puede ejecutar enforce_room_images_integrity|grant execute on function public.enforce_room_images_integrity() to authenticated;
+P1|falta delete_own_room (20261030120000 no aplicada)|drop function public.delete_own_room(uuid, uuid);
+P3|vuelve rooms_delete_own (borrado directo de la propietaria)|create policy rooms_delete_own on public.rooms for delete to authenticated using (auth.uid() = owner_id and exists (select 1 from public.profiles p where p.id = rooms.owner_id and p.deleted_at is null));
+P4|authenticated vuelve a tener DELETE en rooms|grant delete on public.rooms to authenticated;
+P4|authenticated con TRUNCATE en rooms|grant truncate on public.rooms to authenticated;
+P4|anon con DELETE en rooms|grant delete on public.rooms to anon;
+P4|anon con TRUNCATE en rooms|grant truncate on public.rooms to anon;
+P4|PUBLIC con DELETE en rooms|grant delete on public.rooms to public;
+P4|service_role sin DELETE en rooms|revoke delete on public.rooms from service_role;
+P4|authenticated puede ejecutar delete_own_room|grant execute on function public.delete_own_room(uuid, uuid) to authenticated;
+P4|anon puede ejecutar delete_own_room|grant execute on function public.delete_own_room(uuid, uuid) to anon;
+P4|PUBLIC puede ejecutar delete_own_room|grant execute on function public.delete_own_room(uuid, uuid) to public;
+P4|service_role sin EXECUTE de delete_own_room|revoke execute on function public.delete_own_room(uuid, uuid) from service_role;
+P6|delete_own_room pasa a SECURITY DEFINER|alter function public.delete_own_room(uuid, uuid) security definer;
+P6|delete_own_room con otro search_path|alter function public.delete_own_room(uuid, uuid) set search_path = public;
 CASES
 
 echo "== el preflight no deja nada creado"
 if "${P[@]}" -At -c "select count(*) from pg_class where relpersistence = 't'" | grep -qx 0 \
   && run_with "select 1;" \
-  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "42" ]; then
-  echo "   ok - sin tablas temporales ni cambios; siguen 42 políticas"
+  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "41" ]; then
+  echo "   ok - sin tablas temporales ni cambios; siguen 41 políticas"
 else
   echo "   FALLO: el preflight dejó restos"
   failed=1

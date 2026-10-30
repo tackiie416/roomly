@@ -177,15 +177,15 @@ function preflightValues(block: RegExp) {
 describe("preflight.sql: lista exacta derivada de las migraciones", () => {
   const derived = fromMigrations();
 
-  it("42 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
+  it("41 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
     const expected = preflightValues(
       /-- P3[\s\S]*?with expected\(tablename, policyname, cmd\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.policies.size).toBe(42);
+    expect(derived.policies.size).toBe(41);
     expect([...expected].sort()).toEqual([...derived.policies].sort());
   });
 
-  it("rooms, room_addresses y room_images: las políticas por comando de 20261013120000, sin las antiguas FOR ALL, y room_images solo de lectura desde 20261024120000", () => {
+  it("rooms, room_addresses y room_images: las políticas por comando de 20261013120000, sin las antiguas FOR ALL, room_images solo de lectura desde 20261024120000 y rooms sin rooms_delete_own desde 20261030120000", () => {
     const rooms = [...derived.policies].filter((p) =>
       /^room(s|_addresses|_images)\./.test(p)
     );
@@ -197,12 +197,63 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
       "room_images.room_images_admin_select",
       "room_images.room_images_select",
       "rooms.rooms_admin_all",
-      "rooms.rooms_delete_own",
       "rooms.rooms_insert_own",
       "rooms.rooms_select_active_public",
       "rooms.rooms_select_own",
       "rooms.rooms_update_own",
     ]);
+  });
+
+  it("20261030120000: sin borrado directo de clientes y delete_own_room solo para service_role, SECURITY INVOKER", () => {
+    const migration = read(
+      "supabase/migrations/20261030120000_rooms_delete_server_only.sql"
+    );
+    const code = migration.replace(/--.*$/gm, "");
+    expect(code).toContain(
+      "revoke delete, truncate on public.rooms from public, anon, authenticated;"
+    );
+    expect(code).toContain('drop policy "rooms_delete_own" on public.rooms;');
+    expect(code).toMatch(
+      /create function public\.delete_own_room\(p_room_id uuid, p_user_id uuid\)\s+returns text\[\]\s+language plpgsql\s+set search_path = ''/
+    );
+    expect(code.toLowerCase()).not.toContain("security definer");
+    expect(code).toContain(
+      "revoke all on function public.delete_own_room(uuid, uuid)\n  from public, anon, authenticated;"
+    );
+    expect(code).toContain(
+      "grant execute on function public.delete_own_room(uuid, uuid) to service_role;"
+    );
+    // Cuenta activa, propietaria, bloqueo y rutas canónicas, en este orden.
+    const order = [
+      "room_delete_invalid:",
+      "room_delete_isolation:",
+      "p.deleted_at is null",
+      "for share;",
+      "r.owner_id = p_user_id",
+      "for update;",
+      "room_delete_path_invalid:",
+      "delete from public.rooms r",
+    ].map((needle) => code.indexOf(needle));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Ninguna migración posterior vuelve a dar DELETE de rooms a un cliente.
+    const later = readdirSync("supabase/migrations")
+      .filter((name) => name > "20261030120000_rooms_delete_server_only.sql")
+      .map((name) => read(`supabase/migrations/${name}`));
+    for (const sql of later) {
+      expect(sql).not.toMatch(
+        /grant[^;]*\b(delete|truncate|all)\b[^;]*on (table )?public\.rooms/i
+      );
+    }
+    // El preflight vigente lo comprueba (P1, P4 y P6).
+    const preflight = read("tests/supabase/preflight.sql");
+    expect(preflight).toContain("to_regprocedure('public.delete_own_room(uuid, uuid)')");
+    expect(preflight).toContain(
+      "authenticated puede borrar rooms directamente (DELETE o TRUNCATE)"
+    );
+    expect(preflight).toContain(
+      "('delete_own_room(uuid,uuid)', false, 'search_path=\"\"')"
+    );
   });
 
   it("P3 comprueba que las escrituras de habitaciones exigen cuenta activa", () => {

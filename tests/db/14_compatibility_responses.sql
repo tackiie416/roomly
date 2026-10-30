@@ -146,8 +146,8 @@ select roomly_test.ok(
    from pg_policies where schemaname = 'public' and tablename = 'compatibility_responses'),
   'CR9: una sola política, SELECT, solo para authenticated');
 select roomly_test.ok(
-  (select count(*) = 42 from pg_policies where schemaname = 'public'),
-  'CR9: 42 políticas en public (37 hasta la 4.0; 44 hasta la 4.2)');
+  (select count(*) = 41 from pg_policies where schemaname = 'public'),
+  'CR9: 41 políticas en public (37 hasta la 4.0; 44 hasta la 4.2; 42 hasta quitar rooms_delete_own)');
 
 -- ------------------------------------------------------------
 -- 5. S4 / D7.2: con la misma versión, completed_at no cambia una vez fijado.

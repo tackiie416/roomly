@@ -70,11 +70,13 @@ select roomly_test.ok(
                      'available_from', 'total_roommates', 'total_rooms']) as c)
   and (select bool_and(has_column_privilege('authenticated', 'public.rooms', c, 'UPDATE'))
        from unnest(array['title', 'price_month', 'status']) as c)
-  and has_table_privilege('authenticated', 'public.rooms', 'DELETE')
   and has_table_privilege('authenticated', 'public.room_addresses', 'INSERT')
   and has_table_privilege('authenticated', 'public.room_addresses', 'UPDATE')
   and has_table_privilege('authenticated', 'public.room_addresses', 'DELETE'),
-  'RI0: authenticated conserva INSERT, UPDATE y DELETE de lo que usa el test en rooms y room_addresses: un rechazo es de la RLS, no del GRANT');
+  'RI0: authenticated conserva INSERT y UPDATE de lo que usa el test en rooms, y los tres en room_addresses: un rechazo es de la RLS, no del GRANT');
+select roomly_test.ok(
+  not has_table_privilege('authenticated', 'public.rooms', 'DELETE'),
+  'RI0: desde 20261030120000, authenticated no borra rooms: lo hace el servidor (tests/db/21)');
 select roomly_test.ok(
   has_table_privilege('authenticated', 'public.room_images', 'SELECT')
   and not has_table_privilege('authenticated', 'public.room_images', 'INSERT')
@@ -84,9 +86,9 @@ select roomly_test.ok(
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'rooms')
-  = array['rooms_admin_all:ALL', 'rooms_delete_own:DELETE', 'rooms_insert_own:INSERT',
+  = array['rooms_admin_all:ALL', 'rooms_insert_own:INSERT',
           'rooms_select_active_public:SELECT', 'rooms_select_own:SELECT', 'rooms_update_own:UPDATE'],
-  'RI0: rooms tiene sus 6 políticas (sin rooms_owner_write)');
+  'RI0: rooms tiene sus 5 políticas (sin rooms_owner_write; sin rooms_delete_own desde 20261030120000)');
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'room_addresses')
@@ -197,9 +199,18 @@ select roomly_test.expect_affected(
 reset role;
 set role authenticated;
 select roomly_test.login('15000000-0000-0000-0000-00000000000a');
-select roomly_test.expect_affected(
+-- Desde 20261030120000 el borrado lo hace el servidor (tests/db/21).
+select roomly_test.expect_denied(
   $$delete from public.rooms where id = '15100000-0000-0000-0000-0000000000a2'$$,
-  1, 'RI1: borra su borrador');
+  'RI1: ya no borra su borrador desde el cliente (sin DELETE)');
+reset role;
+set role service_role;
+select roomly_test.ok(
+  public.delete_own_room('15100000-0000-0000-0000-0000000000a2', '15000000-0000-0000-0000-00000000000a') = '{}',
+  'RI1: el servidor borra su borrador (sin fotos)');
+reset role;
+set role authenticated;
+select roomly_test.login('15000000-0000-0000-0000-00000000000a');
 select roomly_test.expect_affected(
   $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
     select '15100000-0000-0000-0000-0000000000a3', '15000000-0000-0000-0000-00000000000a',
@@ -221,9 +232,9 @@ select roomly_test.expect_affected(
   $$update public.rooms set title = 'Suplantada', price_month = 1
     where id = '15100000-0000-0000-0000-00000000000a'$$,
   0, 'RI2: aun viéndola, B NO edita la habitación de A');
-select roomly_test.expect_affected(
+select roomly_test.expect_denied(
   $$delete from public.rooms where id = '15100000-0000-0000-0000-00000000000a'$$,
-  0, 'RI2: ni la borra');
+  'RI2: ni la borra (desde 20261030120000, ningún cliente tiene DELETE)');
 select roomly_test.expect_error(
   $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
     select '15100000-0000-0000-0000-0000000000b1', '15000000-0000-0000-0000-00000000000a',
@@ -404,9 +415,9 @@ select roomly_test.expect_error(
   $$update public.rooms set deleted_at = now()
     where id = '15100000-0000-0000-0000-00000000000d'$$,
   '42501', 'RD2: ni la retira con un borrado lógico (desde la 4.1, fuera del GRANT)');
-select roomly_test.expect_affected(
+select roomly_test.expect_denied(
   $$delete from public.rooms where id = '15100000-0000-0000-0000-00000000000d'$$,
-  0, 'RD2: ni la borra');
+  'RD2: ni la borra (sin DELETE; y el servidor tampoco, por account_deleted: tests/db/21)');
 select roomly_test.expect_error(
   $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
     select '15100000-0000-0000-0000-0000000000d3', '15000000-0000-0000-0000-00000000000d',
@@ -580,6 +591,6 @@ select roomly_test.ok(
               where room_id = '15100000-0000-0000-0000-0000000000d2'),
   'RI9: y lo que hicieron se deshizo');
 select roomly_test.ok(
-  (select count(*) = 12 from pg_policies
+  (select count(*) = 11 from pg_policies
    where schemaname = 'public' and tablename in ('rooms', 'room_addresses', 'room_images')),
-  'RI9: rooms, room_addresses y room_images siguen con sus 12 políticas (14 hasta la 4.2)');
+  'RI9: rooms, room_addresses y room_images siguen con sus 11 políticas (14 hasta la 4.2; 12 hasta quitar rooms_delete_own)');
