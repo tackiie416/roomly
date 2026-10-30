@@ -39,8 +39,11 @@ type Seen = {
 let proxy: Server;
 const seen: Seen[] = [];
 /**
- * Si tiene valor, el proxy imita el límite de la plataforma: un cuerpo de más
- * bytes no llega a la app y recibe un 413, como haría Vercel o Netlify.
+ * Si tiene valor, el proxy simula un límite de cuerpo delante de la app: un
+ * cuerpo de más bytes no llega a la app y recibe un 413 que genera este proxy
+ * local. No es una respuesta de Next.js ni de una plataforma desplegada: solo
+ * prueba cómo se comporta la interfaz si algo delante de la app corta la
+ * petición. El límite real de Vercel o Netlify no se ha comprobado.
  */
 let platformLimit: number | null = null;
 
@@ -272,7 +275,7 @@ test("más de 5 MB llega a Next.js: lo rechaza antes de la acción (16.4.3 respo
   expect((await roomState(roomId)).images).toHaveLength(0);
 });
 
-test("413 de la plataforma (el proxy imita un límite de 4,5 MB): la acción no se ejecuta, error genérico y nada guardado", async ({
+test("413 simulado por el proxy local (límite de 4,5 MB delante de la app, no de una plataforma): la acción no se ejecuta, error genérico y nada guardado", async ({
   page,
 }) => {
   const { roomId } = await ownerWithRoom(page, "limite-413");
