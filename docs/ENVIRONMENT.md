@@ -112,3 +112,17 @@ una función Node, no Edge Middleware; es una consecuencia conocida del
 cambio y no bloquea nada. Las variables `NEXT_PUBLIC_SUPABASE_*` se leen en
 tiempo de ejecución.
 
+## Tamaño del cuerpo de las peticiones (Fase 4.2, sesión 64)
+
+- `next.config.ts` fija `experimental.serverActions.bodySizeLimit = "5mb"`,
+  para que quepa una foto de habitación de 4 MiB con el multipart. Vale para
+  todas las Server Actions.
+- `proxy.ts` copia el cuerpo hasta `experimental.proxyClientMaxBodySize`, 10
+  MB por defecto, sin cambiar.
+- **Ajuste externo, sin comprobar:** el alojamiento (Vercel, o un Deploy
+  Preview de Netlify) aplica su propio límite al cuerpo de las peticiones de
+  sus funciones, que puede ser menor.
+  - En esta sesión no se ha podido consultar su documentación (sin acceso de
+    red a esos dominios) ni se ha tocado ningún panel.
+  - Antes del primer despliegue hay que comprobar que una subida de unos
+    4,2 MB llega a la función (`docs/SECURITY.md`, «Subida de archivos»).

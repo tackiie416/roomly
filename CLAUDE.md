@@ -288,12 +288,22 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       `tests/supabase/phase4-final-preflight.sql`: el preflight vigente ya es
       el de la 4.2 y **fallaría contra `roomly-validation-3`**, que sigue en
       la 4.1;
-    - en local: `test` 1186, `test:db` 767, `test:infra` 356 y E1 32/32
+    - **cierre local (sesión 64, autorizado por el propietario)**, también en
+      commits locales sin publicar:
+      - dependencias: sharp 0.35.5, next 16.4.3 y zod 4.6.7, entre otras;
+        `npm audit` sin alertas (`docs/SECURITY.md`, «Dependencias»);
+      - Server Actions `app/actions/room-images.ts` (subir y quitar fotos) y
+        `app/actions/rooms.ts` (borrar una habitación), y
+        `serverActions.bodySizeLimit` de 5 MB en `next.config.ts`;
+      - borrado seguro de habitaciones: `lib/services/rooms.ts` (sin
+        service_role) borra la fila con el cliente del usuario y después
+        `removeDeletedRoomObjects` limpia y verifica Storage. Si quedan
+        objetos, el resultado lo dice;
+      - interfaz mínima: `/habitaciones/[id]/fotos`, `/habitaciones/[id]/borrar`
+        y `/habitaciones/borrada`. Sin CRUD de habitaciones;
+    - en local: `test` 1289, `test:db` 767, `test:infra` 356 y E1 36/36
       (orientativo). **Sin validar en Supabase real, con la API de Storage
-      real ni en la CI.** Sin Server Action ni interfaz;
-    - dependencias (sesión 64, autorizada por el propietario): sharp 0.35.5
-      y next 16.4.3, entre otras; `npm audit` sin alertas
-      (`docs/SECURITY.md`, «Dependencias»);
+      real ni en la CI**, ni el límite del cuerpo del alojamiento;
     - publicar la rama y validarla (D2, en un proyecto aislado) necesitan la
       decisión o la autorización del propietario.
   - R8 (decisión del 2026-10-17: antes de decidir el merge del PR #26): la
@@ -526,6 +536,14 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   aplica la ruta, el límite de 8, las habitaciones retiradas o eliminadas y
   las cuentas desactivadas **también a service_role**. No abras la escritura
   de clientes ni hagas público el bucket sin una decisión explícita.
+  - Borrado de habitaciones (sesión 64): la app solo borra con
+    `deleteOwnRoom` (`lib/services/rooms.ts`, que no usa service_role). La
+    limpieza de Storage, `removeDeletedRoomObjects`, solo borra rutas
+    canónicas de la carpeta de una habitación que ya no existe (lo comprueba
+    con service_role) y nunca informa de una limpieza completa sin
+    verificarla. El DELETE directo por PostgREST sigue abierto: cerrarlo es un
+    cambio de contrato pendiente de decisión (`docs/SECURITY.md`, «Borrado de
+    habitaciones»).
 - Las políticas del chat usan `public.is_conversation_participant()`
   (`SECURITY DEFINER`, sin parámetro de usuario). Nunca escribas una
   subconsulta de RLS con columnas sin cualificar: Postgres resuelve el
@@ -556,7 +574,9 @@ se validaron en el run 19, sin el runtime completo de Next.js
 en ese mismo proyecto con R8 en el run 21 (`apply`), seguido del preflight,
 la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. La 4.2 (`tests/db/19`,
 `20` y `concurrency_room_images.sh`, el preflight de la 4.2 y la
-conciliación) solo se ha probado en local. E2E: E1
+conciliación) solo se ha probado en local; sus Server Actions, la interfaz y
+el borrado, con tests unitarios y E1 (`room-photos.spec.ts`, contra el
+Storage simulado del mock). E2E: E1
 (`npm run test:e2e`, Supabase simulado; desde el PR #19 incluye D1 sobre el
 build de E1) corre en local y
 en CI; el entorno cloud de Claude Code no puede descargar el navegador de
@@ -596,9 +616,10 @@ candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta
 api-suite (D6 = B), y desde el run 19 también los servicios
 `saveQuestionnaireAnswers` y `getCandidates` (SVC/GC). El runtime completo
 de Next.js con la clave real no está validado.
-Todavía no hay interfaz de habitaciones ni de fotos (la 4.2 son solo datos,
-servicios y tests, en local), intereses («Me interesa», Fase 5), «Ver
-perfil» de terceros, chat ni admin real.
+Todavía no hay CRUD de habitaciones (crearlas y editarlas), intereses («Me
+interesa», Fase 5), «Ver perfil» de terceros, chat ni admin real. De la 4.2,
+en local y sin publicar: la gestión de fotos de una habitación propia y su
+borrado seguro (sesión 64), sin validar en real.
 
 ## Funcionalidades pendientes
 
@@ -637,3 +658,10 @@ borrado de cuenta (H6).
   `feature/phase4-2-rebuild` y cómo se valida (D2, un proyecto aislado); y la
   documentación de los runs 23 y 24, que estaba en el stash perdido y no se
   ha recuperado (`PROGRESS.md`, sesión 63).
+- Desde la sesión 64:
+  - si se cierra el DELETE directo de `rooms` por PostgREST para que todo
+    borrado pase por el servidor (una migración y una ampliación de D17);
+  - el límite del cuerpo de las peticiones del alojamiento, que no se ha
+    podido consultar: si es menor que unos 4,2 MB, bajar `ROOM_IMAGE_MAX_BYTES`
+    (R5) o cambiar de modelo de subida (`docs/SECURITY.md`, «Subida de
+    archivos»).

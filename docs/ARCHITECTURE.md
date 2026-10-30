@@ -263,9 +263,21 @@ se sirven con URL firmadas que emite el servidor.
 - Antes (Fase 0) el diseño era subir desde el cliente a rutas con prefijo
   `auth.uid()`. Se cambió para que la limpieza de metadatos no dependa del
   cliente.
-- Pendiente (con su autorización): la Server Action con
-  `serverActions.bodySizeLimit`, la interfaz, y que el borrado de
-  habitaciones pase por el servidor para no dejar objetos huérfanos.
+- **Server Actions** (sesión 64): `app/actions/room-images.ts` (subir y
+  quitar fotos) y `app/actions/rooms.ts` (borrar una habitación), delgadas.
+  `next.config.ts` sube `serverActions.bodySizeLimit` a 5 MB, para todas las
+  acciones.
+- **Borrado de habitaciones:** `lib/services/rooms.ts` (`deleteOwnRoom`, sin
+  service_role) borra la fila con el cliente del usuario y después llama a
+  `removeDeletedRoomObjects` (`lib/services/room-images.ts`), que comprueba
+  con service_role que la habitación ya no existe, borra las rutas canónicas
+  de su carpeta y verifica que no queda nada (`docs/SECURITY.md`, «Borrado de
+  habitaciones»).
+- **Interfaz mínima:** `/habitaciones/[id]/fotos` (la propietaria gestiona;
+  un admin activo solo mira), `/habitaciones/[id]/borrar` y
+  `/habitaciones/borrada`, con `components/rooms/room-photo-forms.tsx`. Las
+  rutas, en `lib/rooms/paths.ts`. Sin CRUD de habitaciones: todavía no se
+  pueden crear ni editar desde la app.
 - Avatares (M3): fuera de alcance por ahora.
 
 ## SEO

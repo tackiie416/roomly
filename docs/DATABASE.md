@@ -815,8 +815,14 @@ casos, con `room_images_4_2_precheck:` y sin borrar ni transformar nada.
   tuviera la URL de una foto la seguía viendo. Con el bucket privado, solo
   sirven las URL firmadas, que caducan en 10 minutos.
 - `rooms_delete_own` borra en cascada las filas de `room_images`, pero no los
-  objetos del bucket, que quedan huérfanos. Falta una limpieza, o que el
-  borrado de habitaciones pase por el servidor cuando exista el CRUD.
+  objetos del bucket. Desde la sesión 64, el borrado de la app pasa por el
+  servidor (`deleteOwnRoom`, en `lib/services/rooms.ts`): borra la fila con el
+  cliente del usuario y después los objetos de su carpeta, y comprueba que no
+  queda ninguno. El DELETE directo por PostgREST (`rooms_delete_own`,
+  `rooms_admin_all`) y la cascada desde `profiles` siguen sin limpiar Storage.
+  Sus huérfanos los detecta la conciliación. Cerrar esas vías necesita una
+  migración y una decisión (`docs/SECURITY.md`, «Borrado de habitaciones»).
+  Esta sesión no cambia el esquema.
 
 **Validación.** `tests/db/19_room_images_storage.sql` (76),
 `tests/db/20_rooms_visibility_r7.sql` (32), `tests/db/concurrency_room_images.sh`

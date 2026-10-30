@@ -570,7 +570,7 @@ Subfases:
     (P1 con los 73 barrios y las restricciones de `rooms`, P4 con su GRANT),
     la suite SQL `16`–`18` y RO1–RO9 de la api-suite. El E2 no se ejecutó
     (ver R8). La revisión y el merge del PR #26 siguen pendientes.
-- **4.2 Fotos en Storage y visibilidad R7, sin interfaz**: decidida por el
+- **4.2 Fotos en Storage y visibilidad R7, con interfaz mínima de fotos**: decidida por el
   propietario el 2026-10-24 (Storage, limpieza de metadatos, R7, D17
   ampliada y R5) y el 2026-10-25 (D1–D4: bucket privado con URL firmadas,
   validación en un proyecto aislado, conciliación de solo lectura y N1, L3,
@@ -585,8 +585,8 @@ Subfases:
     `20261025120000_room_images_private_bucket.sql` (bucket privado, L6_N2).
     Quedan 42 políticas, 14 triggers y 13 funciones.
   - Código: `lib/validation/room-images.ts`, `lib/images/sanitize-room-image.ts`
-    (sharp 0.35.4, dependencia directa) y `lib/services/room-images.ts`, el
-    tercer servicio con service_role (D17).
+    (sharp 0.35.5 desde la sesión 64, dependencia directa) y
+    `lib/services/room-images.ts`, el tercer servicio con service_role (D17).
   - Tests: `tests/db/19`, `20` y `concurrency_room_images.sh`; los unitarios
     del sanitizador, del servicio y de la validación; el preflight de la 4.2
     (P1–P4 y P6) con sus mutaciones; `migration-upgrade-selftest`; y la
@@ -594,7 +594,21 @@ Subfases:
   - R8 conserva su referencia: el preflight de llegada es la copia congelada
     `tests/supabase/phase4-final-preflight.sql` (`docs/SUPABASE_VALIDATION.md`,
     «Copia congelada del preflight de la 4.1»).
-  - Sin Server Action, interfaz, CRUD ni `serverActions.bodySizeLimit`.
+  - **Cierre local (sesión 64, 2026-10-29), autorizado por el propietario:**
+    - dependencias sin alertas de `npm audit` (sharp 0.35.5, next 16.4.3,
+      zod 4.6.7 y transitivas; `docs/SECURITY.md`, «Dependencias»);
+    - Server Actions de subir y quitar fotos y de borrar una habitación, y
+      `serverActions.bodySizeLimit` de 5 MB;
+    - borrado seguro de habitaciones desde el servidor, con limpieza
+      verificada de Storage (`lib/services/rooms.ts`);
+    - interfaz mínima: `/habitaciones/[id]/fotos`, `/habitaciones/[id]/borrar`
+      y `/habitaciones/borrada`;
+    - tests unitarios, de páginas y E1 (`room-photos.spec.ts`), en commits
+      locales sin publicar.
+  - Sin CRUD de habitaciones: todavía no se crean ni editan desde la app, así
+    que la interfaz de fotos solo se alcanza con una habitación ya existente.
+    El DELETE directo de `rooms` por PostgREST sigue abierto (cerrarlo es un
+    cambio de contrato pendiente de decisión).
   - **Sin validar en Supabase real** ni con la API de Storage real.
     `roomly-validation-3` sigue en la 4.1, y el preflight vigente ya no pasa
     contra él. La validación (D2) necesita su autorización.
@@ -641,8 +655,11 @@ demás siguen sin tomar:
     80, a 2048 px como mucho y sin metadatos, a la salida.
   - Las tablas de Storage se prueban en local con el shim
     (`tests/db/19`); la API de Storage real, no.
-  - **Pendiente:** el límite del cuerpo de las peticiones del alojamiento y
-    `serverActions.bodySizeLimit`, con la Server Action.
+  - `serverActions.bodySizeLimit` de 5 MB, con la Server Action (sesión 64,
+    `tests/unit/next-config.test.ts`).
+  - **Pendiente:** comprobar el límite del cuerpo de las peticiones del
+    alojamiento, que no se ha podido consultar en esta sesión
+    (`docs/SECURITY.md`, «Subida de archivos»).
 - **R6.** Catálogo de `features`, cerrado o libre.
   - **Decidido e implementado (2026-10-15, 4.1):** catálogo cerrado de 12
     claves (`wifi`, `heating`, `air_conditioning`, `elevator`,

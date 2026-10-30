@@ -6,6 +6,126 @@ próximos pasos.**
 
 ---
 
+## 2026-10-29 — Sesión 64: cierre local de la Fase 4.2 — dependencias, Server Actions, interfaz y borrado seguro (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Autorización del propietario** (2026-10-29): continuar sobre los 8 commits
+de la sesión 63 en `feature/phase4-2-rebuild`, con commits locales pequeños
+y revisados:
+- corregir las dependencias vulnerables;
+- completar la Server Action de subida, la interfaz de fotos y el borrado
+  seguro de habitaciones, con sus pruebas y su documentación.
+
+Siguen las restricciones: sin push ni PR, sin cambios en los PR #26 y #27,
+sin workflows, sin Supabase remoto y sin tocar secretos, Environments ni
+servicios externos.
+
+**Línea de partida** (comprobada antes de empezar): HEAD `64b90c5`, árbol
+limpio y sin upstream. Los 8 commits anteriores se conservan, y `2056be1` no
+se reescribe (su mensaje dice «diez» mutaciones; fueron 9, y está documentado
+en `docs/TESTING.md`).
+
+**Qué se hizo** (commits locales `1526658`, `f1a836f`, `f1e0dff`, `9124fc0` y
+el de esta documentación)
+1. **Dependencias** (`1526658`).
+   - `npm audit --json` antes: 8 paquetes vulnerables (1 crítico, 4 altos y 3
+     moderados). Después: 0.
+   - Avisos oficiales consultados (GitHub Advisory Database) y versiones
+     consultadas en el registro de npm:
+     - `next` 16.3.6 → 16.4.3, la última 16.x estable. Las críticas
+       GHSA-2464-fhr4-w9xw y GHSA-673q-mjm6-r5xr y la alta
+       GHSA-p3m5-59mp-jv5r (≤ 16.4.0) se corrigen en 16.4.1, el 14 de
+       octubre;
+     - `sharp` 0.35.4 → 0.35.5, directa y exacta (GHSA-wq5f-xc86-pv6w, con
+       librsvg 2.63.2). Sin `sharp.block()`: L3 sigue igual;
+     - `zod` 4.6.5 → 4.6.7;
+     - transitivas: `source-map-js` 1.2.2 y `vite` 8.3.5. De desarrollo:
+       `vitest` y `@vitest/coverage-v8` 5.0.5.
+   - `react` y `react-dom` siguen en 19.2.8, sin `overrides` ni
+     `npm audit fix --force`.
+   - `npm ci` en un directorio temporal reproduce la instalación sin cambiar
+     el lockfile.
+   - Tabla por alerta, con su aplicabilidad, en `docs/SECURITY.md`,
+     «Dependencias». `sharp-dependency.test.ts` fija las versiones mínimas.
+2. **Server Actions de fotos** (`f1a836f`).
+   - `uploadRoomPhoto` y `deleteRoomPhoto`, delgadas. Del navegador solo
+     llegan ids y la foto.
+   - Más de 4 MiB se rechaza antes de cualquier consulta, sin leer los bytes.
+   - `requireActiveProfile` como guard. `/habitaciones` pasa a las rutas
+     protegidas del proxy.
+   - `experimental.serverActions.bodySizeLimit = "5mb"` (comprobado en la
+     documentación y el código de Next.js 16.4.3 instalados: es global y se
+     aplica mientras se lee el cuerpo).
+3. **Borrado seguro de habitaciones** (`f1e0dff`).
+   - `lib/services/rooms.ts`, sin service_role: comprueba antes de cambiar
+     nada, borra la fila con el cliente del usuario y después delega los
+     objetos.
+   - `removeDeletedRoomObjects`, en el servicio de fotos: comprueba con
+     service_role que la habitación ya no existe, borra solo rutas canónicas
+     de su carpeta y verifica con un listado final.
+   - Fallos parciales: nunca informa de una limpieza completa sin
+     verificarla, y ante un DELETE ambiguo no toca Storage.
+   - Inventario de las rutas de borrado en `docs/SECURITY.md`, «Borrado de
+     habitaciones».
+4. **Interfaz mínima y E1** (`9124fc0`).
+   - Páginas `/habitaciones/[id]/fotos`, `/habitaciones/[id]/borrar` y
+     `/habitaciones/borrada`, y `components/rooms/room-photo-forms.tsx`.
+     Funcionan sin JavaScript.
+   - El mock de E1 emula `rooms`, `room_images` y la API de Storage del
+     bucket privado.
+
+**Verificación** (en local; detalle en `docs/TESTING.md`)
+- `npm run test`: 1289/1289 en 50 archivos (antes 1186 en `64b90c5`; 1069 en
+  la base `9391015`).
+- `test:db`: 767 (sin cambios en SQL), con la concurrencia en una base nueva.
+- `test:infra`: 356 (28, 89, 107, 36, 79 y 17).
+- E1: 36/36, orientativo, con el Chromium preinstalado.
+- `lint`, `typecheck`, `format:check` y `build` (Next.js 16.4.3), en verde.
+- Controles negativos: 7 mutaciones del borrado, 3 de las acciones y el
+  lockfile anterior contra `sharp-dependency`. Todos fallan como deben.
+- Huellas de R8 (las tres migraciones, `phase3-baseline-preflight.sql`,
+  `phase4-upgrade-baseline.sql` y la copia congelada `38ef7a3b…`) sin
+  cambios. Nada cambia en `supabase/`, `tests/supabase/`, `tests/db/` ni
+  `.github/`.
+- Sin restos: al terminar solo queda la base `postgres`. Los roles del shim
+  se conservan, como antes.
+
+**Problemas encontrados**
+- No se pudo consultar la documentación de Vercel ni de Netlify: el entorno
+  no tiene acceso de red a esos dominios. El límite del cuerpo del
+  alojamiento queda sin comprobar (`docs/SECURITY.md`, «Subida de
+  archivos»).
+- Las rutas de borrado fuera de la app (el DELETE directo por PostgREST y la
+  cascada desde `profiles`) siguen sin limpiar Storage. No se ha cambiado el
+  esquema: cerrarlas es un cambio de contrato que necesita una decisión.
+
+**Decisiones técnicas**
+- Borrar la fila primero y los objetos después, porque un fallo deja como
+  mucho objetos huérfanos inaccesibles, nunca filas sin objeto.
+- La confirmación del borrado es una página aparte con redirección, porque
+  la de la habitación ya no existe tras borrarla. `?fotos=pendientes` solo
+  elige el mensaje.
+- `<img>` en vez de `next/image` para las URL firmadas.
+- La gestión de fotos es solo de la propietaria y del admin activo (solo
+  lectura): no es la ficha pública.
+
+**Sin validar:** la API de Storage real, el runtime de Next.js desplegado
+con la clave real, el límite del alojamiento, la CI de la rama y el E2 real
+con la Fase 4. No hubo push, workflows ni cambios en los PR #26 y #27, ni
+acceso a Supabase remoto.
+
+**Pendiente** (cada punto con su autorización o decisión)
+1. Revisar los commits locales y decidir si se publica la rama.
+2. Comprobar el límite del cuerpo de las peticiones del alojamiento.
+3. Decidir si se cierra el DELETE directo de `rooms`.
+4. La validación real de la 4.2 en un proyecto aislado (D2), con los casos de
+   Storage de la api-suite, también `removeDeletedRoomObjects`.
+5. El CRUD de habitaciones, que necesita su propia autorización.
+6. Sin cambios: la documentación de los runs 23 y 24, los PR #26 y #27, la
+   congelación de D3, el Environment, el E2 con la Fase 4 y el runtime de
+   Next.js con la clave real.
+
+---
+
 ## 2026-10-29 — Sesión 63: Fase 4.2 reconstruida en local tras perderse la original (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
 
 **Contexto: qué se perdió**

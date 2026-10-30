@@ -1364,7 +1364,19 @@ falta, cada paso con su autorización:
     desactivada) ni para otro usuario;
   - el listado del bucket como anon y como usuario, vacío;
   - una subida, un cambio y un borrado con el JWT de un usuario, denegados;
+  - `removeDeletedRoomObjects` (sesión 64): con la habitación borrada, borra
+    las rutas canónicas de su carpeta y el listado final queda vacío; con la
+    habitación viva, no borra nada. Además, si `list` de la API real devuelve
+    los nombres relativos a la carpeta, como supone el código;
+  - si el bucket tiene versiones de objetos activadas: un `remove` dejaría
+    versiones antiguas que el listado no muestra;
   - limpieza: borrar por la API de Storage los objetos de prueba.
+- **Sesión 64, sin validar en real:** las Server Actions de fotos y de
+  borrado y la interfaz se han probado con tests unitarios y con E1 contra el
+  Storage simulado del mock. No se han probado con la API de Storage real, el
+  runtime de Next.js desplegado ni el límite del cuerpo del alojamiento
+  (`docs/SECURITY.md`, «Subida de archivos»). El E2 real no se ha ejecutado
+  con la Fase 4.
 - **No cubre:** el runtime de Next.js con la clave real (staging) ni el paso
   de `roomly-validation-3` a la 4.2.
 
