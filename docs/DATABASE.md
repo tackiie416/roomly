@@ -624,6 +624,12 @@ tablas, **44 políticas, 13 triggers y 11 funciones**.
 - No se añadieron otros requisitos. Por ejemplo, un título solo con espacios
   cumple `NOT NULL`; ponerle una longitud mínima sería una decisión de
   producto.
+  - El CRUD de la 4.3 (sesión 68, en local) rechaza un título vacío o solo
+    con espacios y limita los textos (título 120, descripción 2000, normas y
+    preferencias 1000) en `lib/validation/rooms.ts`. **Solo en la
+    aplicación:** `rooms` no tiene CHECK de longitud, y una escritura directa
+    por PostgREST no los cumpliría. Sin migración: no era imprescindible para
+    el CRUD.
 - No cambia la visibilidad pública de las habitaciones de cuentas
   desactivadas: esa parte de R7 queda para antes de la búsqueda.
 

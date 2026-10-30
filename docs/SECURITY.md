@@ -1180,6 +1180,36 @@ residual aceptado por el propietario el 2026-10-30).
 Los avatares (M3) siguen fuera de alcance; cuando se hagan, se revisa si
 siguen este mismo modelo.
 
+## CRUD de habitaciones propias (Fase 4.3, sesión 68; solo en local)
+
+- **Sin service_role.** Crear, listar, leer para editar, editar y cambiar el
+  estado usan el cliente del usuario (`lib/services/rooms.ts`). D17 no
+  cambia: el cliente admin de ese archivo sigue siendo solo para
+  `delete_own_room`.
+- **Lo que llega del navegador.** Los campos del formulario y, al editar o
+  cambiar el estado, `roomId`. Los esquemas estrictos rechazan `id`,
+  `owner_id`, `status` en el alta y la edición, `deleted_at`, `approx_*`,
+  las fechas y cualquier otra clave. `owner_id` sale de la sesión.
+- **Dos capas.** Antes de escribir, el servicio comprueba la sesión, la
+  cuenta activa, la propiedad (`id`, `owner_id` y `deleted_at is null`) y lo
+  que exige la publicación. Después, la base de datos vuelve a exigirlo: el
+  GRANT por columnas, la RLS de la 4.0, los CHECK, la FK barrio ↔ ciudad y
+  H5. INSERT y UPDATE por separado, nunca `upsert`.
+- **Admins.** A un admin, una habitación ajena le da 404 en el CRUD (no es la
+  moderación). La base de datos le seguiría dejando escribirla por PostgREST
+  (`rooms_admin_all`, Fase 0): la moderación es de la Fase 7.
+- **R2.** No se pide ni se guarda la dirección exacta. Ningún archivo de la
+  aplicación nombra `room_addresses` (`rooms-crud-static.test.ts`).
+- **Errores.** Se traducen por SQLSTATE y nombre de restricción a mensajes
+  propios; nunca se devuelve el texto de PostgreSQL.
+- **Limitaciones conocidas:**
+  - los límites de longitud de los textos solo los aplica la aplicación: la
+    base de datos no tiene CHECK de longitud en `rooms`;
+  - la base de datos deja editar las demás columnas de una habitación
+    retirada; la aplicación lo bloquea (Fase 7);
+  - una edición manipulada que omite un campo conserva su valor (UPDATE
+    parcial de columnas permitidas y validadas).
+
 ## Privacidad de ubicación
 
 `room_addresses.address_exact` en tabla separada, RLS restringida al

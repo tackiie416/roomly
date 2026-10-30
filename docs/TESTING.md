@@ -199,6 +199,41 @@ Detalle, con los niveles de evidencia, en `docs/SUPABASE_VALIDATION.md`
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
 
+## Fase 4.3 — CRUD de habitaciones propias (2026-10-30, sesión 68; solo en local)
+
+Sobre `f074ecc`, en la rama local `feature/phase4-3-rooms-crud`. **Nada se ha
+ejecutado en Supabase real ni en la CI.**
+
+- `npm run test`: 1412/1412 en 54 archivos (1302 antes). Nuevos o ampliados:
+  - `services-rooms-crud.test.ts` (36): los servicios reales sobre el mundo
+    en memoria (`tests/unit/helpers/room-world.ts`), que emula el GRANT por
+    columnas leído de la migración, la RLS de la 4.0, los CHECK, la FK
+    ciudad-barrio, H5 y `order()`. Propietaria, otra persona, admin, cuenta
+    desactivada, publicación, retiradas, payload ⊆ GRANT y sin service_role;
+  - `rooms-crud-actions.test.ts` (26) y `rooms-crud-pages.test.tsx` (14):
+    redirecciones, 404, claves inyectadas, errores sin texto de PostgreSQL y
+    el formulario sin dirección exacta, con la atribución;
+  - `rooms-crud-static.test.ts` (10): ningún archivo de la app nombra
+    `room_addresses`; las columnas escritas (y las del mock de E1) están en el
+    GRANT de la migración; un INSERT y dos UPDATE exactos; nunca `.upsert(`;
+    solo `lib/services/rooms.ts` escribe en `rooms`;
+  - `validation-rooms.test.ts` (+13), `room-photos-pages.test.tsx` (+2) y
+    `shell.test.tsx` (el enlace «Habitaciones»).
+- `test:db`: 812/812; `test:infra`: 377/377 (sin cambios de SQL).
+- E1: 47/47, orientativo, con el Chromium preinstalado. `rooms-crud.spec.ts`
+  (6): el flujo del anunciante (crear borrador, subir una foto, publicar
+  incompleta y completa, editar, pausar, alquilar y borrar), el mismo flujo
+  sin JavaScript, otra persona y un admin (404 y `roomId` ajeno inyectado),
+  campos manipulados, cuenta desactivada y sin sesión. Comprueba en el
+  registro del mock que el CRUD nunca usa service_role.
+  - El mock emula ahora el INSERT y el UPDATE de `rooms` por
+    `authenticated` y tiene un gancho de prueba para crear un admin
+    (`/__test/make-admin`). No relaja ninguna comprobación anterior.
+  - La primera ejecución completa dio 46/47: `student-flow.spec.ts` fijaba
+    la lista del nav sin «Habitaciones». Actualizado; la repetición pasó
+    entera.
+- `lint`, `typecheck`, `format:check` y `build`, en verde.
+
 ## Fase 4.2 — auditoría final del borrado y del límite de subida (2026-10-30, sesión 66; solo en local)
 
 Repetición completa sobre `17f7e8d`, con la documentación de esta sesión

@@ -6,6 +6,147 @@ próximos pasos.**
 
 ---
 
+## 2026-10-30 — Sesión 68: CRUD de habitaciones propias, en local (Fase 4 EN CURSO; CRUD en commits locales sin publicar, apilado sobre la 4.2; PR #26, #27 y #28 sin fusionar)
+
+**Contexto.** Después de la sesión 67, y con la autorización expresa del
+propietario:
+- se publicó la 4.2: rama remota `feature/phase4-2-rebuild` en `181e57f`
+  (`git push origin HEAD:refs/heads/feature/phase4-2-rebuild`) y PR #28 en
+  borrador, apilado contra `claude/phase4-r8-upgrade-tool` (`9391015`). La CI
+  de ese head (run `41114709970`) terminó en verde: 1302 unitarios, E1 41 y
+  `db-security`. Las entradas anteriores dicen «sin publicar» porque se
+  escribieron antes; no se han tocado;
+- se hizo una auditoría y un plan de la Fase 4 (solo lectura);
+- el propietario autorizó el CRUD de habitaciones propias (este encargo).
+
+**Alcance autorizado:** crear una habitación en borrador, listar las propias,
+leer las propias para editarlas, editarlas, cambiar su estado según R7 e
+integrarlo con las fotos y el borrado de la 4.2, con formularios que
+funcionen sin JavaScript. **Fuera:** búsqueda, filtros, detalle público,
+moderación, Fase 5 en adelante, H6 y migraciones nuevas. No ha hecho falta
+ninguna migración.
+
+**Rama:** `feature/phase4-3-rooms-crud`, local, creada desde `181e57f` (la
+punta del PR #28). Commits locales, sin publicar: `a9d2db5` (validación y
+servicios), `a925221` (acciones, páginas y formularios), `cd16a12` (mock y
+E1), `f074ecc` (el nav del flujo del estudiante) y el de esta documentación.
+
+**Qué se hizo**
+- `lib/validation/rooms.ts`: esquemas estrictos de alta y edición
+  (`roomCreateSchema`, `roomUpdateSchema`), cambio de estado
+  (`roomStatusChangeSchema`, solo `draft`, `active`, `paused` y `rented`),
+  `missingPublicationFields`, `ROOM_WRITABLE_COLUMNS`, `ROOM_FORM_FIELDS` y
+  límites de texto (título 120, descripción 2000, normas y preferencias
+  1000). Precio entero > 0, fianza ≥ 0, estancias ≥ 1 y mínima ≤ máxima,
+  «solo estudiantes» obligatorio y explícito, catálogo cerrado y ocupación de
+  la 4.1. Rechazan `id`, `owner_id`, `status`, `deleted_at`, `approx_*`, las
+  fechas y cualquier clave de más.
+- `lib/services/rooms.ts`: `listOwnRooms`, `getOwnRoomForEdit`,
+  `createOwnRoom`, `updateOwnRoom` y `changeOwnRoomStatus`, siempre con el
+  cliente del usuario. `owner_id` sale de la sesión; INSERT y UPDATE por
+  separado; las lecturas y escrituras filtran por `id`, `owner_id` y
+  `deleted_at is null`. Una ciudad nueva tiene que estar activa (la guardada
+  se conserva). Publicar o editar una publicada comprueba antes lo que exige
+  `chk_rooms_publishable`; una retirada (`removed`) no se edita ni cambia de
+  estado. Los errores de la base de datos se traducen por SQLSTATE y nombre
+  de restricción, sin devolver su texto.
+- `app/actions/rooms.ts`: `createRoom`, `updateRoom` y `changeRoomStatus`,
+  delgadas, con el guard en cada una. El alta redirige a
+  `/habitaciones/[id]/fotos?creada=1`.
+- Páginas `/habitaciones`, `/habitaciones/nueva` y
+  `/habitaciones/[id]/editar`, cada una con su guard. Una habitación ajena da
+  404, también a un admin; una retirada se muestra sin formularios, con sus
+  fotos y el borrado.
+- Componentes `components/rooms/room-form.tsx`, `room-status-forms.tsx` y
+  `neighborhoods-attribution.tsx`. Barrios agrupados por ciudad en un único
+  `<select>`. La atribución del catálogo (© Ajuntament de Barcelona, Open
+  Data BCN, conjunto `BarcelonaCiutat_Barris`, CC BY 4.0, con los enlaces y
+  la aclaración de que no implica aval) aparece en el alta, la edición y el
+  listado con barrios.
+- Integración: enlace «Habitaciones» en la navegación; la página de fotos
+  enlaza a «Datos y estado» y al listado y muestra el aviso de creada; la
+  confirmación del borrado vuelve a `/habitaciones`.
+- `lib/services/reference-data.ts`: `listLocationOptions` (ciudades activas,
+  la guardada si ya no lo está, y sus barrios, sin N+1).
+- Mock de E1: INSERT y UPDATE de `rooms` con el GRANT por columnas, la RLS
+  de la 4.0 (también `rooms_admin_all`), NOT NULL, CHECK, FK y H5; admins
+  solo con el gancho de prueba `/__test/make-admin`; `seed-room` crea filas
+  completas; `order=` con `.desc`.
+- Tests: `services-rooms-crud` (36), `rooms-crud-actions` (26),
+  `rooms-crud-pages` (14), `rooms-crud-static` (10), 13 más en
+  `validation-rooms`, 2 en `room-photos-pages` y el del nav en `shell`. E1:
+  `rooms-crud.spec.ts` (6).
+
+**Decisiones técnicas**
+- La misma forma para crear y editar, con semántica de formulario completo:
+  un campo vacío se envía como `null` y borra el valor.
+- `students_only` con dos radios (sí o no), sin valor por defecto: el
+  esquema de la base de datos pide que el formulario lo pregunte.
+- El cambio de estado va en formularios pequeños, uno por estado de destino,
+  con `roomId` y `status` ocultos y la misma acción. No se exigen fotos para
+  publicar (R7).
+- Ningún cambio en D17: el CRUD no usa service_role. `lib/services/rooms.ts`
+  sigue usando el cliente admin solo para `delete_own_room`
+  (`admin-client-usage.test.ts`, sin cambios), y E1 comprueba en el registro
+  del mock que las peticiones del CRUD a `rooms` llevan el JWT del usuario.
+
+**Discrepancias encontradas** (regla 10; ninguna se ha «arreglado» en
+silencio)
+1. El formulario de preferencias filtra los barrios por ciudad en el
+   navegador: sin JavaScript solo muestra los de la ciudad inicial. No se
+   cambia (fuera del alcance). El de habitaciones usa grupos por ciudad, que
+   funcionan igual sin JavaScript; la FK compuesta sigue siendo la barrera.
+2. La atribución CC BY 4.0 no aparecía en ninguna pantalla. Ahora está en
+   las de habitaciones, pero **sigue faltando en el onboarding y en
+   `/preferencias`**, que también muestran barrios. Queda pendiente para el
+   propietario. El repositorio no guarda la URL exacta del conjunto: se
+   enlaza el portal de Open Data BCN y la licencia, y hay que confirmarlo
+   antes del lanzamiento (condición de D1).
+3. El mock de E1 no tenía admins. Se añade un gancho de prueba, sin cambiar
+   ninguna comprobación existente.
+4. La base de datos no limita la longitud de los textos de `rooms`: los
+   límites solo los aplica la aplicación. Una escritura directa por
+   PostgREST podría guardar textos más largos. Se documenta como limitación;
+   no se crea una migración, porque no es imprescindible para el CRUD.
+5. La base de datos deja a la propietaria editar las demás columnas de una
+   habitación retirada (límite de moderación de la Fase 7). La aplicación lo
+   bloquea; la base de datos no.
+6. Un admin activo puede escribir cualquier habitación por PostgREST
+   (`rooms_admin_all`, Fase 0). El CRUD no lo usa: a un admin, una
+   habitación ajena le da 404. La moderación es de la Fase 7.
+7. Una petición manipulada que omita un campo en la edición conserva su
+   valor guardado (UPDATE parcial de columnas permitidas y validadas). El
+   formulario HTML siempre los envía todos.
+8. Las habitaciones con `deleted_at` (que hoy nadie pone desde la app) no
+   aparecen en el CRUD.
+
+**Verificación** (en local, sobre `f074ecc`)
+- `npm run test`: 1412/1412 en 54 archivos (1302 antes).
+- `test:db`: 812/812; `test:infra`: 377/377. Sin cambios de SQL ni de
+  migraciones: mismas cifras que en la sesión 66.
+- E1: 47/47, orientativo, con el Chromium preinstalado (41 de antes y 6 de
+  `rooms-crud.spec.ts`). La primera ejecución completa dio 46/47: el flujo
+  del estudiante fijaba la lista del nav sin «Habitaciones». Se actualizó el
+  spec (`f074ecc`) y la repetición pasó entera.
+- `lint`, `typecheck`, `format:check` y `build` (Next.js 16.4.3, con las seis
+  rutas de `/habitaciones`), en verde.
+
+**Pendiente**
+- Publicar la rama y abrir su PR (apilado sobre el PR #28), con
+  autorización; su CI.
+- La atribución en el onboarding y en `/preferencias`, y confirmarla antes
+  del lanzamiento.
+- R3 y R4 (búsqueda y detalle público), el resto de R2 (mapa) y la
+  moderación (Fase 7), cada uno con su decisión.
+- Lo que sigue sin validar en real: la 4.2 (D2) y el CRUD, el E2 con la Fase
+  4 y el runtime de Next.js con la clave real.
+
+**Sin cambios:** migraciones, permisos, D17, la conciliación y lo validado en
+real. No hubo push, PR, workflows ni conexión a Supabase, y los PR #26, #27 y
+#28 no se han tocado.
+
+---
+
 ## 2026-10-30 — Sesión 67: riesgo residual de las cascadas aceptado y estrategia de publicación (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
 
 **Contexto.** La auditoría de publicación de la sesión 66 (sin cambios, solo
