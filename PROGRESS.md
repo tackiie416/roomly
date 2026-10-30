@@ -6,6 +6,135 @@ próximos pasos.**
 
 ---
 
+## 2026-10-30 — Sesión 65: endurecimiento del borrado de habitaciones y tamaño real de la subida (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Autorización del propietario** (2026-10-30), sobre HEAD `464ca06` y sin
+reescribir nada:
+- cerrar el DELETE directo de `rooms` por PostgREST con una operación del
+  servidor, ampliando D17 lo mínimo;
+- auditar las cascadas desde `profiles`;
+- medir el cuerpo HTTP real de una subida de 4 MiB;
+- documentar todo y hacer commits locales pequeños.
+
+Siguen las restricciones: sin push ni PR, sin workflows, sin Supabase remoto,
+sin cambiar servicios externos ni sus paneles, sin SECURITY DEFINER si no es
+imprescindible y sin alterar migraciones históricas.
+
+**Línea de partida** (comprobada): HEAD `464ca06`, árbol limpio, rama
+`feature/phase4-2-rebuild` sin upstream.
+
+**Qué se hizo** (commits locales `9516d15`, `7c0441d`, `ec688b6`, `1f136e9` y
+el de esta documentación)
+1. **Migración `20261030120000_rooms_delete_server_only.sql`** (`9516d15`).
+   - Inspección previa: GRANT y RLS de `rooms`, sus triggers, el criterio de
+     cuenta activa (decisión B de la 4.0), las acciones y servicios, las FK
+     (con y sin cascada) y las convenciones de las migraciones.
+   - REVOKE de DELETE y TRUNCATE a PUBLIC, anon y authenticated, sin tocar
+     service_role. Se elimina `rooms_delete_own` (41 políticas).
+   - `delete_own_room(p_room_id, p_user_id) returns text[]`: SECURITY
+     INVOKER, `search_path` vacío, EXECUTE solo para service_role. Comprueba
+     el aislamiento, la cuenta activa (FOR SHARE) y la propiedad (FOR
+     UPDATE), valida las rutas de las filas reales de `room_images`, borra
+     con una sola fila y devuelve las rutas. Ante cualquier fallo, no borra
+     nada.
+   - Tests: `tests/db/21` (36) y `tests/db/concurrency_room_delete.sh` (7);
+     los cambios de `10`, `13`–`16`, `19` y `20`; dos helpers que no dependen
+     del idioma del servidor (`expect_denied` y `expect_fk_violation`); el
+     preflight (P1, P3, P4 y P6) con 14 mutaciones nuevas; UP14; y
+     `validation-infra`. `types/database.ts` declara la función.
+2. **Servicio** (`7c0441d`).
+   - `deleteOwnRoom`: la sesión, la cuenta y la propiedad, con el cliente del
+     usuario, antes de crear el cliente admin. Después, solo
+     `rpc("delete_own_room")`. Los rechazos definitivos se traducen por
+     SQLSTATE y prefijo (también `conflict`, la FK sin cascada, con su
+     mensaje en la acción). Los ambiguos se comprueban mirando si la
+     habitación sigue.
+   - `removeDeletedRoomObjects` borra solo las rutas devueltas y canónicas,
+     ya no lo que lista. El listado final decide si la limpieza es completa.
+   - `rooms.ts` pasa a la lista de `admin-client-usage`, que fija que usa el
+     cliente admin solo para esa rpc. El mundo en memoria y el mock de E1
+     imitan la función y deniegan el DELETE al usuario.
+3. **Auditoría de las cascadas** (`ec688b6`).
+   - `auth.users` → `profiles` → `rooms` → `room_images` en cascada, sin
+     limpiar Storage. ROOMLY no tiene borrado de cuenta (H6), así que no hay
+     un flujo que adaptar.
+   - No se toca Auth ni se añaden triggers con llamadas HTTP. El selftest de
+     la conciliación prueba que detecta los objetos que deja (19).
+4. **Tamaño real de la subida** (`1f136e9`).
+   - `tests/e2e/local/upload-size.spec.ts` (5) y
+     `tests/support/exact-size-jpeg.mjs` (un JPEG válido del tamaño exacto).
+   - 4 195 232 bytes con JavaScript y 4 195 116 sin él, por una foto de
+     4 194 304. Margen de 304 768 bytes (6,77 %) frente a 4 500 000.
+   - Un byte de más se rechaza sin consultas de habitaciones ni privilegiadas.
+     Por encima de 5 MB, Next.js 16.4.3 responde 500, no 413. Un 413 de la
+     plataforma da el error genérico.
+   - Conclusión: se conserva la subida por Server Action, sin subida firmada
+     a un bucket temporal.
+5. **Documentación** (este commit): `docs/SECURITY.md`, `DATABASE.md`,
+   `TESTING.md`, `SUPABASE_VALIDATION.md`, `ARCHITECTURE.md`, `ROADMAP.md`,
+   `ENVIRONMENT.md` y `CLAUDE.md`.
+
+**Verificación** (en local; detalle en `docs/TESTING.md`)
+- `npm run test`: 1302/1302 en 50 archivos (1289 en `464ca06`).
+- `test:db`: 812 (767), en bases de datos nuevas, también la concurrencia.
+- `test:infra`: 377 (356): 28, 89, 121, 41, 79 y 19.
+- E1: 41/41 (36), orientativo, con el Chromium preinstalado.
+- `lint`, `typecheck`, `format:check` y `build`, en verde.
+- Controles negativos: 7 mutaciones de la migración y 12 del servicio,
+  detectadas. Quitar solo el filtro de propietaria del bloqueo sobrevive: el
+  DELETE vuelve a filtrar por `owner_id` y exige una fila (quitar los dos lo
+  detecta DS4).
+- Huellas de R8: las tres migraciones, `phase3-baseline-preflight.sql`,
+  `phase4-upgrade-baseline.sql` y la copia congelada (`38ef7a3b…`), sin
+  cambios. En `supabase/` solo se añade `20261030120000`.
+- Sin restos: al terminar solo queda la base `postgres`.
+
+**Problemas encontrados**
+- Los mensajes de «permission denied» dependen del idioma del servidor, y la
+  suite remota no admite `commit` ni cambiar el aislamiento. Por eso los
+  helpers comparan SQLSTATE y restricción, y la prueba de REPEATABLE READ
+  está en el script de concurrencia, que solo corre en local.
+- La sesión 64 decía que Next.js responde 413 por encima de
+  `bodySizeLimit`. La medición muestra 500 en las acciones con `fetch` (un
+  TODO de `action-handler.js` de 16.4.3). Corregido en `docs/SECURITY.md`.
+- Sigue sin poderse consultar la documentación de Vercel y Netlify (sin red
+  a esos dominios). El límite de 4,5 MB es la referencia del propietario, sin
+  comprobar.
+- Tras un reinicio del contenedor, PostgreSQL local estaba parado. Se
+  arrancó otra vez sin perder nada.
+
+**Decisiones técnicas**
+- SECURITY INVOKER: service_role ya tiene DELETE y BYPASSRLS, y otro rol
+  que la llamara fallaría por privilegios.
+- `rooms_delete_own` se elimina en lugar de dejarla sin efecto. Se conserva
+  `rooms_admin_all`, que el admin sigue usando para leer y moderar.
+- Se exige READ COMMITTED, para que la lista de rutas no use una instantánea
+  anterior al bloqueo.
+- No se revoca el DELETE de `profiles` (un admin activo puede borrar un
+  perfil, como documenta `docs/DATABASE.md`): es una decisión de la Fase 7 o
+  de H6, fuera del alcance pedido.
+
+**Sin validar:** `rpc("delete_own_room")` por PostgREST y los privilegios
+por defecto de Supabase, la API de Storage real, el tamaño de la subida en un
+despliegue, la CI de la rama y el E2 real con la Fase 4. No hubo push, PR,
+workflows ni acceso a Supabase remoto o a paneles externos.
+
+**Pendiente** (cada punto con su autorización o decisión)
+1. Revisar los commits locales y decidir si se publica la rama.
+2. Repetir la medición de la subida contra un despliegue (staging), con el
+   límite vigente de la plataforma.
+3. Decidir el borrado de cuenta (H6) y si se quita el DELETE de `profiles`:
+   hoy la cascada desde `profiles` deja objetos que solo detecta la
+   conciliación.
+4. La validación real de la 4.2 en un proyecto aislado (D2), con los casos
+   de Storage de la api-suite y los de `delete_own_room` (por `rpc` y con el
+   JWT de un usuario).
+5. Sin cambios: el CRUD de habitaciones, la documentación de los runs 23 y
+   24, los PR #26 y #27, la congelación de D3, el Environment, el E2 con la
+   Fase 4 y el runtime de Next.js con la clave real.
+
+---
+
 ## 2026-10-29 — Sesión 64: cierre local de la Fase 4.2 — dependencias, Server Actions, interfaz y borrado seguro (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
 
 **Autorización del propietario** (2026-10-29): continuar sobre los 8 commits

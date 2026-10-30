@@ -814,15 +814,12 @@ casos, con `room_images_4_2_precheck:` y sin borrar ni transformar nada.
 - Hasta `20261025120000`, R7 ocultaba las filas, no los objetos: quien ya
   tuviera la URL de una foto la seguía viendo. Con el bucket privado, solo
   sirven las URL firmadas, que caducan en 10 minutos.
-- `rooms_delete_own` borra en cascada las filas de `room_images`, pero no los
-  objetos del bucket. Desde la sesión 64, el borrado de la app pasa por el
-  servidor (`deleteOwnRoom`, en `lib/services/rooms.ts`): borra la fila con el
-  cliente del usuario y después los objetos de su carpeta, y comprueba que no
-  queda ninguno. El DELETE directo por PostgREST (`rooms_delete_own`,
-  `rooms_admin_all`) y la cascada desde `profiles` siguen sin limpiar Storage.
-  Sus huérfanos los detecta la conciliación. Cerrar esas vías necesita una
-  migración y una decisión (`docs/SECURITY.md`, «Borrado de habitaciones»).
-  Esta sesión no cambia el esquema.
+- `rooms_delete_own` borraba en cascada las filas de `room_images`, pero no
+  los objetos del bucket. **Actualización de la sesión 65:** desde
+  `20261030120000` (abajo) los clientes ya no pueden borrar habitaciones. La
+  app las borra con `delete_own_room`, que devuelve las rutas para limpiar
+  Storage. La cascada desde `profiles` sigue sin limpiar Storage, y sus
+  huérfanos los detecta la conciliación.
 
 **Validación.** `tests/db/19_room_images_storage.sql` (76),
 `tests/db/20_rooms_visibility_r7.sql` (32), `tests/db/concurrency_room_images.sh`
@@ -879,6 +876,101 @@ Supabase real.**
 
 Las dos migraciones van juntas: aplicar solo `20261024120000` dejaría el
 bucket público (y las fotos, servidas por su URL pública) hasta la segunda.
+
+### Fase 4.2: borrado de habitaciones solo desde el servidor (`20261030120000_rooms_delete_server_only.sql`)
+
+Decisión del propietario del 2026-10-30 (sesión 65): ningún cliente borra
+filas de `rooms` por PostgREST, y D17 se amplía lo mínimo para que el borrado
+pase por una operación del servidor. Migración aditiva: no cambia ninguna
+anterior. Quedan 18 tablas, **41 políticas** (42 − 1), **14 triggers y 14
+funciones** (13 + 1).
+
+**Qué cambia.**
+- `revoke delete, truncate on public.rooms from public, anon, authenticated`.
+  No toca `service_role` ni los demás privilegios de `rooms` (SELECT, el
+  GRANT por columnas de INSERT y UPDATE de la 4.1).
+- `drop policy rooms_delete_own`: sin el privilegio ya no servía, y dejarla
+  confundiría al leer las políticas. `rooms_admin_all` (FOR ALL) se queda:
+  sigue sirviendo al admin para leer y moderar con UPDATE, y sin el
+  privilegio tampoco borra.
+- La función `public.delete_own_room(p_room_id uuid, p_user_id uuid)
+  returns text[]`, con EXECUTE solo para `service_role` (revocado de PUBLIC,
+  anon y authenticated).
+
+**Por qué SECURITY INVOKER.** La llama el servidor con service_role, que
+tiene DELETE sobre `rooms` y BYPASSRLS. No necesita privilegios de su dueño.
+Si la llamara otro rol, el DELETE fallaría por falta de privilegio. No hay
+que confiar solo en que nadie más tiene EXECUTE.
+
+**Qué comprueba, en una transacción y en este orden.** Cualquier fallo
+aborta sin borrar nada:
+1. parámetros no nulos (`room_delete_invalid:`, 22004);
+2. READ COMMITTED (`room_delete_isolation:`, P0001): en REPEATABLE READ o
+   SERIALIZABLE, la lectura de las fotos usaría la instantánea del principio
+   y no vería una foto confirmada durante la espera del bloqueo;
+3. la cuenta activa, con el criterio de la 4.0: el perfil existe y
+   `deleted_at` es NULL, leído con FOR SHARE (`account_deleted:`, 42501);
+4. la habitación existe y es de `p_user_id`, bloqueada con FOR UPDATE
+   (`room_not_found:`, P0002; no distingue una ajena de una inexistente);
+5. las rutas, de las filas reales de `room_images` de esa habitación, todas
+   iguales a `room_id || '/' || id || '.webp'` y con dos UUID en minúsculas
+   (`room_delete_path_invalid:`, 23514, con el número de rutas);
+6. el DELETE, otra vez filtrado por `id` y `owner_id`, y exactamente una fila
+   borrada. Si algo no cuadra, el error es `room_not_found:`.
+
+Devuelve las rutas (vacío si no tenía fotos), ordenadas por `position`,
+`created_at` e `id`. La cascada borra `room_images`, `room_addresses` y
+`favorites`. `interests`, `matches` y `reports` la referencian sin cascada:
+con alguna de esas filas, el DELETE falla por FK (23503) y no se borra nada.
+La operación **no** toca Storage: eso lo hace el servidor con las rutas
+devueltas (`docs/SECURITY.md`, «Borrado de habitaciones»).
+
+**Bloqueos.** El FOR UPDATE sobre la habitación choca con el FOR NO KEY
+UPDATE de `trg_room_images_integrity` (cada subida bloquea su habitación) y
+con el FOR KEY SHARE de la FK de `room_images`. Una subida en curso hace
+esperar al borrado, y el borrado devuelve también su ruta. Un borrado en
+curso hace esperar a la subida, que después ya no encuentra la habitación.
+Sin el bloqueo, la cascada borraría la fila de la foto nueva sin que su ruta
+saliera en la lista.
+
+**Validación local.**
+- `tests/db/21_rooms_server_delete.sql` (36):
+  - DS0: estructura;
+  - DS1–DS3: authenticated, un admin y anon no pueden borrar ni truncar, ni
+    llamar a la función;
+  - DS4–DS6: ajena, inexistente, cuenta desactivada o sin perfil, y
+    parámetros nulos;
+  - DS8: rutas no canónicas, con un rollback completo;
+  - DS9: FK sin cascada;
+  - DS10 y DS11: rutas exactas, cascada y `storage.objects` intacto.
+- `tests/db/concurrency_room_delete.sh` (7, dos sesiones de verdad, solo
+  local):
+  - CD0: REPEATABLE READ;
+  - CD1 y CD2: subida y borrado concurrentes, en los dos órdenes;
+  - CD3: un control sin el FOR UPDATE que pierde la ruta.
+- `15`, `16` y `19` borran ahora con la función.
+- `10`, `13`, `14` y `20`, con 41 políticas.
+- P1, P3, P4 y P6 del preflight, con sus mutaciones (`preflight-selftest`);
+  UP14 de `migration-upgrade-selftest`; y `validation-infra`.
+- Las mutaciones de la migración, en copias temporales:
+  - sin el REVOKE, con EXECUTE para authenticated, sin la comprobación de
+    rutas, sin la de la cuenta, sin la del aislamiento, o devolviendo solo la
+    primera ruta: cada una hace fallar al menos un test;
+  - quitar solo el filtro de propietaria del bloqueo sobrevive, porque el
+    DELETE vuelve a filtrar por `owner_id` y exige una fila;
+  - quitar los dos filtros hace fallar DS4.
+- **Sin validar en Supabase real**: ni el REVOKE frente a los privilegios por
+  defecto de Supabase, ni la llamada por `rpc` de PostgREST.
+
+**Cascadas desde `profiles`.** No cambian. `rooms.owner_id` sigue con ON
+DELETE CASCADE desde `profiles`, y `profiles.id` desde `auth.users`. Borrar
+una cuenta en Auth, o un perfil (un admin activo con `profiles_admin_all`, o
+service_role), borra sus habitaciones y las filas de sus fotos sin limpiar
+Storage. ROOMLY no tiene borrado de cuenta (H6). La conciliación detecta los
+objetos que deja (`room-images-reconcile-selftest`, caso de la cascada). Si
+se quita el DELETE de `profiles` y cómo se diseña el borrado de cuenta, son
+decisiones pendientes (`docs/SECURITY.md`, «Cascadas desde profiles y
+Auth»).
 
 ## Diagrama de entidades (simplificado)
 

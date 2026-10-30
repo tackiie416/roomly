@@ -583,7 +583,8 @@ Subfases:
     subidas simultáneas, bloqueos para habitaciones retiradas o eliminadas y
     cuentas desactivadas, y el bucket) y
     `20261025120000_room_images_private_bucket.sql` (bucket privado, L6_N2).
-    Quedan 42 políticas, 14 triggers y 13 funciones.
+    Quedaban 42 políticas, 14 triggers y 13 funciones (41 y 14 funciones
+    desde la sesión 65, abajo).
   - Código: `lib/validation/room-images.ts`, `lib/images/sanitize-room-image.ts`
     (sharp 0.35.5 desde la sesión 64, dependencia directa) y
     `lib/services/room-images.ts`, el tercer servicio con service_role (D17).
@@ -605,10 +606,25 @@ Subfases:
       y `/habitaciones/borrada`;
     - tests unitarios, de páginas y E1 (`room-photos.spec.ts`), en commits
       locales sin publicar.
+  - **Endurecimiento del borrado (sesión 65, 2026-10-30), autorizado por el
+    propietario**, también en commits locales sin publicar:
+    - migración `20261030120000_rooms_delete_server_only.sql`: los clientes
+      ya no pueden borrar `rooms` (REVOKE de DELETE y TRUNCATE, sin
+      `rooms_delete_own`). La función `delete_own_room` (SECURITY INVOKER,
+      solo service_role) comprueba la cuenta y la propiedad, bloquea la
+      habitación, valida las rutas y borra. Quedan 41 políticas, 14 triggers
+      y 14 funciones;
+    - `lib/services/rooms.ts` pasa a ser el cuarto servicio con service_role
+      (D17 ampliada), solo para esa función. Storage se limpia solo con las
+      rutas que devuelve;
+    - la cascada desde `profiles` y `auth.users` sigue sin limpiar Storage
+      (no hay borrado de cuenta, H6). La conciliación la detecta;
+    - el cuerpo real de una subida de 4 MiB, medido en local: 4 195 232
+      bytes. Cabe con margen en la referencia de 4,5 MB, así que se conserva
+      la subida por Server Action. No está comprobado en Vercel ni en
+      Netlify.
   - Sin CRUD de habitaciones: todavía no se crean ni editan desde la app, así
     que la interfaz de fotos solo se alcanza con una habitación ya existente.
-    El DELETE directo de `rooms` por PostgREST sigue abierto (cerrarlo es un
-    cambio de contrato pendiente de decisión).
   - **Sin validar en Supabase real** ni con la API de Storage real.
     `roomly-validation-3` sigue en la 4.1, y el preflight vigente ya no pasa
     contra él. La validación (D2) necesita su autorización.

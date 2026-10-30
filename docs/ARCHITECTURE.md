@@ -97,8 +97,8 @@ function calculateCompatibility(
 
 **Acceso a datos del matching (Fase 3, D17/D18)**: la RLS solo deja leer la
 fila propia de `profiles`, `housing_preferences` y `compatibility_responses`.
-Por eso `createAdminClient()` (service_role) se usa en exactamente tres
-servicios `server-only` (dos desde la Fase 3 y uno desde la 4.2), y un test
+Por eso `createAdminClient()` (service_role) se usa en exactamente cuatro
+servicios `server-only` (dos desde la Fase 3 y dos desde la 4.2), y un test
 estático (`tests/unit/admin-client-usage.test.ts`) impide cualquier otro
 uso:
 
@@ -110,6 +110,10 @@ uso:
 - `lib/services/room-images.ts` (Fase 4.2, D17 ampliada): escritura de las
   fotos de habitaciones en Storage y en `room_images`, y firma de sus URL
   después de autorizar con el cliente del usuario (D1; ver «Imágenes»).
+- `lib/services/rooms.ts` (sesión 65, D17 ampliada otra vez): solo
+  `rpc("delete_own_room")`, el borrado de una habitación propia, después de
+  comprobar la sesión, la cuenta y la propiedad con el cliente del usuario.
+  Ni tablas ni Storage con el cliente admin.
 
 El estado propio se lee siempre con el cliente del usuario (RLS), nunca con
 service_role.
@@ -267,12 +271,21 @@ se sirven con URL firmadas que emite el servidor.
   quitar fotos) y `app/actions/rooms.ts` (borrar una habitación), delgadas.
   `next.config.ts` sube `serverActions.bodySizeLimit` a 5 MB, para todas las
   acciones.
-- **Borrado de habitaciones:** `lib/services/rooms.ts` (`deleteOwnRoom`, sin
-  service_role) borra la fila con el cliente del usuario y después llama a
-  `removeDeletedRoomObjects` (`lib/services/room-images.ts`), que comprueba
-  con service_role que la habitación ya no existe, borra las rutas canónicas
-  de su carpeta y verifica que no queda nada (`docs/SECURITY.md`, «Borrado de
-  habitaciones»).
+- **Borrado de habitaciones** (sesión 65): los clientes no pueden borrar
+  `rooms` (`20261030120000`). `lib/services/rooms.ts` (`deleteOwnRoom`):
+  1. comprueba la sesión, la cuenta y la propiedad con el cliente del
+     usuario;
+  2. borra con `delete_own_room` (service_role), que vuelve a comprobarlo
+     todo con la habitación bloqueada y devuelve las rutas de sus fotos;
+  3. `removeDeletedRoomObjects` (`lib/services/room-images.ts`) borra solo
+     esas rutas, y después lista la carpeta para verificar que no queda nada.
+
+  Si Storage falla, se informa de la limpieza como pendiente
+  (`docs/SECURITY.md`, «Borrado de habitaciones»).
+- **Tamaño de la subida** (sesión 65): una foto de 4 MiB da un cuerpo de
+  4 195 232 bytes, medido en local con la Server Action real. Se conserva la
+  subida por Server Action, sin una subida firmada a un bucket temporal
+  (`docs/SECURITY.md`, «Tamaño real de la subida»).
 - **Interfaz mínima:** `/habitaciones/[id]/fotos` (la propietaria gestiona;
   un admin activo solo mira), `/habitaciones/[id]/borrar` y
   `/habitaciones/borrada`, con `components/rooms/room-photo-forms.tsx`. Las
