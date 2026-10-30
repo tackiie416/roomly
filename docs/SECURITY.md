@@ -990,9 +990,10 @@ entre los dos, cuenta los bytes del cuerpo tal como llegan por la red.
     y campos de la Server Action);
   - sin JavaScript, 4 195 116 bytes;
   - en los dos casos, el `Content-Length` coincide con los bytes contados.
-- Frente a 4 500 000 bytes (4,5 MB decimales) quedan unos 304 800 bytes de
-  margen (6,77 %). Un nombre de archivo largo, de hasta 255 bytes, lo reduce
-  en ese tamaño como mucho.
+- Frente al umbral de comparación de 4 500 000 bytes (4,5 MB decimales), el
+  margen con JavaScript es de 304 768 bytes, un 6,77 % (sin JavaScript, 304
+  884). El nombre del archivo de la prueba tiene 12 bytes: uno largo, de
+  hasta 255, lo reduciría como mucho en unos 243 bytes más.
 - La referencia de 4,5 MB es la que indicó el propietario para Vercel
   Functions y para Netlify Functions (6 MB de cuerpo, que en binario van en
   base64: unos 4,5 MB efectivos). **No se ha comprobado aquí**: el entorno no
@@ -1013,13 +1014,17 @@ entre los dos, cuenta los bytes del cuerpo tal como llegan por la red.
     `bodySizeLimit` y no ejecuta la acción, pero en las acciones con `fetch`
     responde **500, no 413** (un TODO de su `action-handler.js`). La interfaz
     muestra el error genérico, sin detalles, y no se guarda nada;
-  - un 413 de la plataforma (el proxy lo imita a partir de 4 500 000 bytes):
-    la acción no se ejecuta, la interfaz muestra el error genérico y no se
-    guarda nada;
+  - un 413 **simulado**: lo genera el proxy local de la prueba a partir de
+    4 500 000 bytes, no Next.js ni una plataforma desplegada. Solo prueba la
+    interfaz si algo delante de la app corta la petición: la acción no se
+    ejecuta, se muestra el error genérico y no se guarda nada. Qué responde
+    de verdad Vercel o Netlify, y con qué límite, no se ha comprobado;
   - con JavaScript, el formulario avisa antes de enviar una foto de más de
     4 MB: el 413 y el 500 solo los ve un cliente manipulado o una subida sin
-    JavaScript. Sin JavaScript, el navegador muestra la respuesta de la
-    plataforma, que no controla la app.
+    JavaScript. Sin JavaScript, el navegador mostraría la respuesta de lo que
+    haya delante de la app, que la app no controla.
+- Los cinco casos de `upload-size.spec.ts` pasan en local (E1, con el
+  Chromium preinstalado: orientativo).
 
 ## Borrado de habitaciones (Fase 4.2, sesiones 64 y 65)
 

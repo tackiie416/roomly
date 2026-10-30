@@ -1384,8 +1384,14 @@ falta, cada paso con su autorización:
   runtime de Next.js desplegado ni el límite del cuerpo del alojamiento
   (`docs/SECURITY.md`, «Subida de archivos»). El E2 real no se ha ejecutado
   con la Fase 4.
-- **Sesión 65, sin validar en real** (`20261030120000` y
-  `deleteOwnRoom`):
+- **Sesión 65: lo probado en local** (PostgreSQL local con el shim de
+  Supabase, el mock de E1 y tests unitarios; detalle en `docs/TESTING.md`):
+  `tests/db/21` (36), `concurrency_room_delete.sh` (7), el preflight
+  vigente con sus mutaciones, UP14, el caso de la cascada de la conciliación,
+  los unitarios del servicio y E1. Nada de esto se ha ejecutado contra un
+  proyecto de Supabase.
+- **Sesión 65: lo pendiente en Supabase real** (`20261030120000` y
+  `deleteOwnRoom`), cada paso con su autorización:
   - que el REVOKE deja a `authenticated` y `anon` sin DELETE sobre `rooms`
     también con los privilegios por defecto de Supabase, y que EXECUTE de
     `delete_own_room` queda solo para service_role (P4 y P6 lo comprueban en
@@ -1395,10 +1401,16 @@ falta, cada paso con su autorización:
     devuelve las rutas como `text[]` (JSON); con el JWT de un usuario o como
     anon, denegado;
   - el flujo completo (`deleteOwnRoom`, la función y la limpieza de Storage)
-    con la API de Storage real;
-  - el tamaño real de una subida de 4 MiB en el despliegue: en local, el
-    cuerpo es de 4 195 232 bytes (`docs/SECURITY.md`, «Tamaño real de la
-    subida»). El límite de Vercel o Netlify no se ha comprobado.
+    con la API de Storage real.
+- **Fuera de Supabase, pendiente de un despliegue (staging):** el tamaño de
+  una subida de 4 MiB a través de la plataforma. En local, con la Server
+  Action real, el cuerpo es de 4 195 232 bytes. El límite de Vercel o
+  Netlify no se ha comprobado, y el 413 de la prueba lo genera el proxy
+  local (`docs/SECURITY.md`, «Tamaño real de la subida»).
+- **R8 no cubre la 4.2:** el run 21 aplicó en `roomly-validation-3` solo las
+  tres migraciones de la 4.0 y la 4.1. Ninguna migración de la 4.2
+  (`20261024120000`, `20261025120000` ni `20261030120000`) está aplicada en
+  un proyecto real.
 - **No cubre:** el runtime de Next.js con la clave real (staging) ni el paso
   de `roomly-validation-3` a la 4.2.
 

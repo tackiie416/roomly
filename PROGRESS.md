@@ -6,6 +6,78 @@ próximos pasos.**
 
 ---
 
+## 2026-10-30 — Sesión 66: auditoría final del borrado y del límite de subida (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Petición del propietario** (2026-10-30): continuar desde el último estado,
+auditar la migración del borrado y la prueba de tamaño, completar la
+documentación, repetir toda la verificación y hacer commits locales. Siguen
+las restricciones: sin push, PR, merge, workflows, Supabase remoto, cambios
+en secretos, Environments, Auth o servicios externos, ni despliegues.
+
+**Línea de partida** (comprobada): rama `feature/phase4-2-rebuild`, HEAD
+`49e5ce8`, árbol limpio, nada staged y ningún proceso de pruebas en marcha.
+La documentación de la sesión 65 ya estaba en `49e5ce8`. PostgreSQL local
+estaba parado por un reinicio del contenedor y se arrancó otra vez.
+
+**Qué se hizo** (commits locales `17f7e8d` y el de esta documentación)
+1. **Auditoría de `20261030120000`**, sin cambios de código: el diff
+   completo, los privilegios, la función y la relación de bloqueos.
+   - `trg_room_images_integrity` toma FOR NO KEY UPDATE sobre la habitación,
+     y la FK de una foto nueva, FOR KEY SHARE.
+   - `delete_own_room` toma FOR UPDATE antes de leer las rutas y lo mantiene
+     hasta el COMMIT. Choca con los dos, así que no cabe ninguna foto entre
+     la lectura de las rutas y el borrado.
+   - La función es VOLATILE: en READ COMMITTED, cada sentencia ve lo
+     confirmado mientras esperaba el bloqueo.
+   - Cada punto pedido tiene su test:
+     - DS0–DS3: anon y authenticated no borran ni llaman a la función;
+       EXECUTE es solo de service_role;
+     - el servicio toma la identidad de `auth.getUser()` y la pasa a la
+       función («el usuario de la llamada es el de la sesión, nunca otro»);
+       un `ownerId` del navegador se rechaza;
+     - DS4 y DS5: propiedad y cuenta activa;
+     - DS10 y DS8: rutas de las filas reales, y rollback con una ruta
+       incompatible;
+     - CD1–CD3: concurrencia;
+     - limpieza parcial: pendiente, nunca completa.
+2. **`upload-size.spec.ts`** (`17f7e8d`): el comentario del proxy decía que
+   su 413 era «como haría Vercel o Netlify», y el título del quinto caso,
+   «413 de la plataforma». Ahora dice que el 413 lo genera el proxy local. Las
+   aserciones no cambian; los cinco casos pasan.
+3. **Documentación** (este commit):
+   - el 413 simulado, sin atribuirlo a Next.js ni a una plataforma
+     (`SECURITY`, `TESTING` y esta entrada);
+   - el margen exacto, 304 768 bytes (6,77 %), en `SECURITY` y
+     `ENVIRONMENT`;
+   - en `SUPABASE_VALIDATION`, lo probado en local separado de lo pendiente
+     en real y de lo pendiente de despliegue. R8 no cubre la 4.2: ninguna de
+     sus migraciones está aplicada en un proyecto real.
+
+**Verificación** (en local, repetida entera; detalle en `docs/TESTING.md`)
+- `npm ci` en un directorio temporal: 426 paquetes y el lockfile idéntico.
+  `npm audit --json`: 0 vulnerabilidades en 516 dependencias.
+- `test` 1302/1302, `test:db` 812/812, `test:infra` 377/377 y E1 41/41
+  (orientativo), con `upload-size` 5/5 y la misma medición: 4 195 232
+  bytes.
+- `lint`, `typecheck`, `format:check` y `build`, en verde.
+- Las seis huellas de R8 coinciden, también `38ef7a3b…`. Desde `464ca06`
+  solo se añade `20261030120000`.
+- Sin restos: solo la base `postgres`, los roles del shim que ya existían y
+  `/tmp` como antes, después de quitar dos archivos vacíos de Chromium de
+  esta ejecución.
+
+**Problemas encontrados:** solo la redacción del 413 en el spec y en la
+documentación, corregida. Ningún fallo de pruebas.
+
+**Sin validar:** lo mismo que en la sesión 65. No hubo push, PR, merge,
+workflows, acceso a Supabase remoto ni despliegues, y los PR #26 y #27 no
+se han tocado.
+
+**Pendiente:** los puntos de la sesión 65, sin cambios. Publicar la rama y
+validarla en real necesitan otra autorización.
+
+---
+
 ## 2026-10-30 — Sesión 65: endurecimiento del borrado de habitaciones y tamaño real de la subida (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
 
 **Autorización del propietario** (2026-10-30), sobre HEAD `464ca06` y sin
@@ -66,8 +138,9 @@ el de esta documentación)
    - 4 195 232 bytes con JavaScript y 4 195 116 sin él, por una foto de
      4 194 304. Margen de 304 768 bytes (6,77 %) frente a 4 500 000.
    - Un byte de más se rechaza sin consultas de habitaciones ni privilegiadas.
-     Por encima de 5 MB, Next.js 16.4.3 responde 500, no 413. Un 413 de la
-     plataforma da el error genérico.
+     Por encima de 5 MB, Next.js 16.4.3 responde 500, no 413. Un 413
+     simulado por el proxy local (no por Next.js ni por una plataforma) da el
+     error genérico. Los cinco casos del spec pasan.
    - Conclusión: se conserva la subida por Server Action, sin subida firmada
      a un bucket temporal.
 5. **Documentación** (este commit): `docs/SECURITY.md`, `DATABASE.md`,

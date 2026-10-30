@@ -123,7 +123,9 @@ tiempo de ejecución.
 - **Medido en local (sesión 65):** una foto de 4 194 304 bytes da un cuerpo
   de 4 195 232 bytes con JavaScript y de 4 195 116 sin él
   (`tests/e2e/local/upload-size.spec.ts`, con el build de producción). Frente
-  a 4 500 000 bytes, quedan unos 304 800 de margen.
+  al umbral de comparación de 4 500 000 bytes, el margen con JavaScript es de
+  304 768 bytes (6,77 %). Es una medición local: no se ha comprobado en
+  Vercel ni en Netlify.
 - **Ajuste externo, sin comprobar en un despliegue:** el alojamiento (Vercel,
   o un Deploy Preview de Netlify) aplica su propio límite al cuerpo de las
   peticiones de sus funciones.
