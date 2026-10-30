@@ -22,10 +22,16 @@
 //           API de Storage del bucket privado room-images, solo con
 //           service_role: subir, firmar (URL de 10 minutos), borrar y listar.
 //           Las URL firmadas se sirven sin apikey, como en Supabase.
+//           Sesión 68 (CRUD): INSERT y UPDATE de rooms por authenticated, con
+//           el GRANT por columnas de 20261015120000, la RLS de la 4.0
+//           (propietaria con la cuenta activa, o rooms_admin_all), los CHECK,
+//           las FK (también la compuesta barrio ↔ ciudad) y el trigger de
+//           moderación H5. Un admin solo existe si un test lo crea con
+//           /__test/make-admin.
 //   Test  — /__test/*: el "buzón" (último enlace enviado a un email), reset,
 //           desactivar una cuenta (operación de servidor), leer el estado y,
 //           desde la Fase 4.2, sembrar una habitación y leer sus fotos y
-//           objetos.
+//           objetos; desde la sesión 68, convertir una cuenta en admin.
 //
 // Uso: node tests/e2e/support/mock-supabase.mjs   (puerto y origen en mock-config.mjs)
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
@@ -117,6 +123,66 @@ const PREFS_UPDATE = [
   "roommates_wanted_max",
 ];
 const PREFS_INSERT = ["profile_id", ...PREFS_UPDATE];
+// GRANT de columnas de authenticated sobre rooms (20261015120000):
+// tests/unit/rooms-crud-static.test.ts comprueba que coinciden con la migración.
+const ROOM_DATA_COLUMNS = [
+  "title",
+  "description",
+  "city_id",
+  "neighborhood_id",
+  "price_month",
+  "expenses_included",
+  "deposit_amount",
+  "available_from",
+  "min_stay_months",
+  "max_stay_months",
+  "total_roommates",
+  "total_rooms",
+  "features",
+  "pets_allowed",
+  "smoking_allowed",
+  "students_only",
+  "house_rules",
+  "roommate_preferences",
+];
+const ROOMS_INSERT = ["id", "owner_id", ...ROOM_DATA_COLUMNS];
+const ROOMS_UPDATE = [...ROOM_DATA_COLUMNS, "status"];
+// Catálogo cerrado de características (R6, chk_rooms_features_catalog).
+const ROOM_FEATURE_KEYS = [
+  "wifi",
+  "heating",
+  "air_conditioning",
+  "elevator",
+  "washing_machine",
+  "dishwasher",
+  "balcony",
+  "furnished",
+  "private_bathroom",
+  "double_bed",
+  "desk",
+  "exterior",
+];
+// Valores por defecto de las columnas de rooms (20260925120000).
+const ROOM_DEFAULTS = {
+  description: null,
+  neighborhood_id: null,
+  approx_lat: null,
+  approx_lng: null,
+  expenses_included: false,
+  deposit_amount: null,
+  min_stay_months: null,
+  max_stay_months: null,
+  total_roommates: null,
+  total_rooms: null,
+  features: [],
+  pets_allowed: false,
+  smoking_allowed: false,
+  students_only: false,
+  house_rules: null,
+  roommate_preferences: null,
+  status: "draft",
+  deleted_at: null,
+};
 
 let state;
 function reset() {
@@ -357,10 +423,20 @@ function applyFilters(rows, url) {
     if (column.includes(".")) continue;
     out = out.filter((row) => matches(row[column], raw, column));
   }
+  // order=col[.asc|.desc][,col2...]: cada columna, en orden, como texto.
   const order = url.searchParams.get("order");
   if (order) {
-    const [column] = order.split(".");
-    out = [...out].sort((a, b) => String(a[column]).localeCompare(String(b[column])));
+    const keys = order.split(",").map((entry) => {
+      const [column, direction] = entry.split(".");
+      return { column, sign: direction === "desc" ? -1 : 1 };
+    });
+    out = [...out].sort((a, b) => {
+      for (const { column, sign } of keys) {
+        const cmp = String(a[column]).localeCompare(String(b[column]));
+        if (cmp !== 0) return sign * cmp;
+      }
+      return 0;
+    });
   }
   return out;
 }
@@ -671,9 +747,15 @@ function handleService(req, res, url, body, table) {
 
 // ---------------------------------------------------------------- Fase 4.2
 const ownerActive = (ownerId) => state.profiles.get(ownerId)?.deleted_at === null;
-/** rooms_select_own y rooms_select_active_public con R7 (sin admins en el mock). */
+/** public.is_admin(): rol admin y cuenta activa (solo si un test lo crea). */
+const isActiveAdmin = (uid) => {
+  const profile = state.profiles.get(uid);
+  return profile?.role === "admin" && profile.deleted_at === null;
+};
+/** rooms_select_own, rooms_select_active_public con R7 y rooms_admin_all. */
 const roomVisibleTo = (room, uid) =>
   room.owner_id === uid ||
+  isActiveAdmin(uid) ||
   (room.status === "active" && room.deleted_at === null && ownerActive(room.owner_id));
 const sortImages = (rows) =>
   [...rows].sort(
@@ -683,13 +765,132 @@ const sortImages = (rows) =>
       a.id.localeCompare(b.id)
   );
 
-function handleUserRooms(req, res, url, uid, columns) {
+/**
+ * Restricciones de una fila de rooms, en el orden de PostgreSQL: NOT NULL y
+ * CHECK al escribir la fila, y las FK al final de la sentencia. El mensaje
+ * lleva el nombre de la restricción, como el de PostgreSQL.
+ */
+function roomConstraints(row) {
+  for (const column of ["title", "city_id", "price_month", "available_from"])
+    if (row[column] === null || row[column] === undefined)
+      throw new DbError(
+        400,
+        "23502",
+        `null value in column "${column}" of relation "rooms" violates not-null constraint`
+      );
+  const check = (name) =>
+    new DbError(
+      400,
+      "23514",
+      `new row for relation "rooms" violates check constraint "${name}"`
+    );
+  if (!(row.price_month > 0)) throw check("chk_price_positive");
+  if (row.deposit_amount !== null && row.deposit_amount < 0)
+    throw check("chk_deposit_nonneg");
+  if (
+    row.min_stay_months !== null &&
+    row.max_stay_months !== null &&
+    row.min_stay_months > row.max_stay_months
+  )
+    throw check("chk_stay_range");
+  if (row.total_roommates !== null && row.total_roommates < 0)
+    throw check("chk_rooms_total_roommates");
+  if (row.total_rooms !== null && row.total_rooms < 1)
+    throw check("chk_rooms_total_rooms");
+  if (!row.features.every((key) => ROOM_FEATURE_KEYS.includes(key)))
+    throw check("chk_rooms_features_catalog");
+  if (new Set(row.features).size !== row.features.length)
+    throw check("chk_rooms_features_unique");
+  if (
+    row.status === "active" &&
+    (row.neighborhood_id === null ||
+      row.total_roommates === null ||
+      row.total_rooms === null)
+  )
+    throw check("chk_rooms_publishable");
+  const fk = (name) =>
+    new DbError(
+      409,
+      "23503",
+      `insert or update on table "rooms" violates foreign key constraint "${name}"`
+    );
+  if (!REFERENCE.cities.some((city) => city.id === row.city_id))
+    throw fk("rooms_city_id_fkey");
+  if (row.neighborhood_id !== null) {
+    const neighborhood = REFERENCE.neighborhoods.find(
+      (n) => n.id === row.neighborhood_id
+    );
+    if (!neighborhood) throw fk("rooms_neighborhood_id_fkey");
+    if (neighborhood.city_id !== row.city_id) throw fk("fk_rooms_neighborhood_city");
+  }
+}
+
+// trg_rooms_moderation (H5, 20260926120000): solo un admin activo pone o
+// quita `removed`.
+function roomModeration(old, next, uid) {
+  if (
+    next.status !== old.status &&
+    (old.status === "removed" || next.status === "removed") &&
+    !isActiveAdmin(uid)
+  )
+    throw new DbError(
+      403,
+      "42501",
+      "room_moderation: solo un admin puede cambiar el estado desde o hacia removed"
+    );
+}
+
+/** La propietaria con la cuenta activa (rooms_*_own, 4.0) o un admin activo (rooms_admin_all). */
+const canWriteRoom = (room, uid) =>
+  (room.owner_id === uid && ownerActive(uid)) || isActiveAdmin(uid);
+
+function handleUserRooms(req, res, url, body, uid, columns) {
   if (req.method === "GET") {
     const visible = [...state.rooms.values()].filter((room) => roomVisibleTo(room, uid));
     return respondRows(req, res, applyFilters(visible, url), columns);
   }
-  // Desde 20261030120000 ningún cliente tiene DELETE (ni INSERT/UPDATE en el
-  // mock): el borrado es delete_own_room, solo con service_role.
+  if (req.method === "POST") {
+    // GRANT por columnas: sin status (nace draft), deleted_at, approx_* ni fechas.
+    checkColumns("rooms", body, ROOMS_INSERT);
+    if (!canWriteRoom({ owner_id: body.owner_id }, uid)) throw rlsDenied("rooms");
+    const now = new Date().toISOString();
+    const row = {
+      ...ROOM_DEFAULTS,
+      ...body,
+      id: body.id ?? randomUUID(),
+      created_at: now,
+      updated_at: now,
+    };
+    if (state.rooms.has(row.id))
+      throw new DbError(
+        409,
+        "23505",
+        'duplicate key value violates unique constraint "rooms_pkey"'
+      );
+    roomConstraints(row);
+    state.rooms.set(row.id, row);
+    return respondRows(req, res, [row], columns);
+  }
+  if (req.method === "PATCH") {
+    // GRANT por columnas: sin id, owner_id, deleted_at, approx_* ni fechas.
+    checkColumns("rooms", body, ROOMS_UPDATE);
+    // USING de la RLS: las filas que no puede escribir no se tocan (0 filas).
+    const targets = applyFilters(
+      [...state.rooms.values()].filter((room) => canWriteRoom(room, uid)),
+      url
+    );
+    const now = new Date().toISOString();
+    const updated = targets.map((room) => {
+      const next = { ...room, ...body, updated_at: now };
+      roomModeration(room, next, uid);
+      roomConstraints(next);
+      return next;
+    });
+    updated.forEach((room) => state.rooms.set(room.id, room));
+    return respondRows(req, res, updated, columns);
+  }
+  // Desde 20261030120000 ningún cliente tiene DELETE: el borrado es
+  // delete_own_room, solo con service_role.
   throw denied("rooms");
 }
 
@@ -895,7 +1096,7 @@ function handleRest(req, res, url, body, uid, isService) {
     return respondRows(req, res, applyFilters(own, url), columns);
   }
 
-  if (table === "rooms") return handleUserRooms(req, res, url, uid, columns);
+  if (table === "rooms") return handleUserRooms(req, res, url, body, uid, columns);
   if (table === "room_images") {
     // room_images_select (R7): las fotos de las habitaciones que puede ver.
     // Sin INSERT, UPDATE ni DELETE para authenticated (20261024120000).
@@ -910,7 +1111,8 @@ function handleRest(req, res, url, body, uid, isService) {
   if (table === "profiles") {
     // profiles_select_own_even_if_deleted: solo la fila propia, también
     // eliminada (Fase 2.9, H4: ya no existe profiles_select_authenticated).
-    // profiles_admin_all no se emula: el mock nunca crea admins (role "user").
+    // profiles_admin_all no se emula: un admin creado con /__test/make-admin
+    // solo lee su propia fila (lo único que usa la app para saber su rol).
     const visible = () => [...state.profiles.values()].filter((p) => p.id === uid);
     if (req.method === "GET")
       return respondRows(req, res, applyFilters(visible(), url), columns);
@@ -1089,22 +1291,45 @@ function handleTest(req, res, url) {
     }
     case "/__test/log":
       return send(res, 200, state.log);
+    case "/__test/make-admin": {
+      // Solo para E1: en Supabase el rol lo cambia el servidor con
+      // service_role (nunca un cliente). Convierte la cuenta en admin activo.
+      const user = findUser(email);
+      const profile = user && state.profiles.get(user.id);
+      if (!profile) return send(res, 404, { error: "sin perfil" });
+      profile.role = "admin";
+      return send(res, 200, { id: user.id });
+    }
     case "/__test/seed-room": {
       // Habitación de una usuaria con perfil (datos de servidor). Parámetros:
       // email, title, status (draft por defecto), photos (número de fotos ya
-      // subidas, con su objeto).
+      // subidas, con su objeto) y complete=1 (barrio, compañeros y
+      // dormitorios: lo que exige la publicación).
       const user = findUser(email);
       if (!user || !state.profiles.get(user.id))
         return send(res, 404, { error: "sin perfil" });
       const q = url.searchParams;
       const id = randomUUID();
+      const complete = q.get("complete") === "1";
+      const now = new Date().toISOString();
       state.rooms.set(id, {
+        ...ROOM_DEFAULTS,
         id,
         owner_id: user.id,
         title: q.get("title") ?? "Habitación E1",
         status: q.get("status") ?? "draft",
-        deleted_at: null,
         city_id: BCN,
+        price_month: 450,
+        available_from: "2026-11-01",
+        ...(complete
+          ? {
+              neighborhood_id: REFERENCE.neighborhoods[0].id,
+              total_roommates: 2,
+              total_rooms: 3,
+            }
+          : {}),
+        created_at: now,
+        updated_at: now,
       });
       const photos = Number(q.get("photos") ?? "0");
       for (let n = 0; n < photos; n += 1) {

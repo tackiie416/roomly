@@ -258,7 +258,7 @@ export function RoomForm({
         <div className="flex gap-3">
           {numberField("total_roommates", "Personas con las que convivirá", {
             min: 0,
-            hint: "Sin contar a quien alquile la habitación. Necesario para publicar.",
+            hint: "Sin contar a quien entre en la habitación. Necesario para publicar.",
           })}
           {numberField("total_rooms", "Dormitorios de la vivienda", {
             min: 1,

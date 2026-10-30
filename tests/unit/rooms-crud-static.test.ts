@@ -88,6 +88,21 @@ describe("las columnas que escribe el CRUD están en el GRANT de authenticated",
     expect(update).not.toContain("id");
   });
 
+  it("el mock de E1 emula el mismo GRANT (no uno más permisivo)", () => {
+    const mock = readFileSync("tests/e2e/support/mock-supabase.mjs", "utf8");
+    const data = [
+      ...(mock.match(/const ROOM_DATA_COLUMNS = \[([\s\S]*?)\];/)?.[1] ?? "").matchAll(
+        /"([a-z_]+)"/g
+      ),
+    ].map(([, column]) => column);
+    expect(mock).toMatch(
+      /const ROOMS_INSERT = \["id", "owner_id", \.\.\.ROOM_DATA_COLUMNS\];/
+    );
+    expect(mock).toMatch(/const ROOMS_UPDATE = \[\.\.\.ROOM_DATA_COLUMNS, "status"\];/);
+    expect(["id", "owner_id", ...data].sort()).toEqual([...insert].sort());
+    expect([...data, "status"].sort()).toEqual([...update].sort());
+  });
+
   it("el servicio escribe exactamente esos payloads: un INSERT y dos UPDATE", () => {
     const service = code(SERVICE);
     const inserts = [...service.matchAll(/\.insert\(([^)]*)\)/g)].map(([, arg]) =>
