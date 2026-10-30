@@ -6,6 +6,77 @@ próximos pasos.**
 
 ---
 
+## 2026-10-30 — Sesión 67: riesgo residual de las cascadas aceptado y estrategia de publicación (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Contexto.** La auditoría de publicación de la sesión 66 (sin cambios, solo
+lectura) no encontró defectos de seguridad en el código. Solo encontró un
+bloqueo documental: la decisión del propietario sobre las cascadas no estaba
+registrada, y la documentación la presentaba como pendiente.
+
+**Decisión del propietario (2026-10-30), cerrada.** Riesgo residual
+aceptado:
+- una eliminación externa en `auth.users` o en `profiles` puede borrar en
+  cascada habitaciones y filas de `room_images` sin borrar sus objetos de
+  Storage;
+- la conciliación detecta esos objetos, pero es estrictamente de solo
+  lectura y no los borra;
+- no se añaden triggers que llamen a Storage desde PostgreSQL;
+- no se implementa ahora el borrado de cuenta ni se amplía `service_role`
+  para este caso;
+- el futuro H6 tendrá que limpiar y verificar Storage antes de eliminar el
+  perfil o de dejar que se produzca la cascada;
+- mientras H6 no exista, es una limitación conocida y visible, no una
+  protección implementada.
+
+Con esta decisión queda cerrado el punto 3 de los pendientes de la sesión
+65 (el borrado de cuenta y el DELETE de `profiles`). El DELETE de `profiles`
+de un admin activo queda dentro del riesgo aceptado y no se cambia. H6 sigue
+fuera del alcance actual.
+
+**Estrategia de publicación** (definida por el propietario, **sin
+ejecutar**):
+- rama remota nueva `feature/phase4-2-rebuild`;
+- PR apilado sobre el PR #27, contra `claude/phase4-r8-upgrade-tool`
+  (`9391015`), no contra `master`. Su base tiene que seguir siendo esa rama,
+  para que el diff contenga solo los 21 commits de la 4.2 (desde `9391015`)
+  y no los 16 heredados de los PR #26 y #27;
+- el push, la rama remota y el PR necesitan una autorización separada.
+
+**Qué se hizo** (un commit local, solo de documentación)
+- `docs/SECURITY.md`: la cascada aparece como riesgo residual aceptado, en
+  los riesgos de la 4.2 y en «Cascadas desde profiles y Auth», con el
+  requisito para H6. Deja de presentarse como «Pendiente de decisión».
+- `docs/DATABASE.md`: el comportamiento actual de las claves foráneas,
+  separando el borrado ordinario de una habitación por el servidor de la
+  eliminación externa de una cuenta, y el riesgo aceptado.
+- `CLAUDE.md`:
+  - en «Seguridad», el riesgo aceptado y el requisito de diseño para H6,
+    que no autoriza a implementarlo;
+  - en «Pendiente de decisión humana», se quita el punto de las cascadas y
+    se añade la estrategia de publicación;
+  - en «Estado actual», la línea de la cascada.
+- Esta entrada. Las sesiones anteriores no se han tocado.
+
+No cambia código, migraciones, permisos, tests ni la conciliación.
+
+**Verificación** (en local, después de editar)
+- `npm run test`: 1302/1302 en 50 archivos.
+- `npm run test:infra`: 377/377 (28, 89, 121, 41, 79 y 19).
+- `lint`, `typecheck`, `format:check` y `git diff --check`: en verde, sin
+  salida de `git diff --check`.
+- `test:db` y E1 no se repiten: no cambia ningún archivo SQL, de tests ni
+  de código (812/812 y 41/41 en la sesión 66, sobre el mismo código).
+- Sin restos: solo la base `postgres`, los roles del shim y `/tmp` igual que
+  antes.
+- Ninguna mención de la cascada o de H6 como decisión pendiente, ni de una
+  limpieza de Storage implementada para las cascadas externas.
+
+**Sin cambios:** lo que sigue sin validar en real (sesiones 65 y 66). No hubo
+push, PR, workflows ni acceso a Supabase remoto, y los PR #26 y #27 no se han
+tocado.
+
+---
+
 ## 2026-10-30 — Sesión 66: auditoría final del borrado y del límite de subida (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
 
 **Petición del propietario** (2026-10-30): continuar desde el último estado,

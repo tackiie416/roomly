@@ -620,12 +620,14 @@ local). Detalle en «Borrado de habitaciones», abajo.
   libvips elige su cargador por el contenido (por eso se exige que coincida
   con la firma).
 - Desde la sesión 65 una habitación solo se borra por el servidor, que limpia
-  Storage. Sigue abierta la cascada desde `profiles` (borrar la cuenta en
-  Auth, o un perfil como admin): las filas de `room_images` se van en cascada
-  y los objetos quedan huérfanos, inaccesibles porque el bucket es privado y
-  no hay filas que firmar. La conciliación los detecta, comprobado con la
-  cascada real (`room-images-reconcile-selftest.sh`), pero no los borra. Ver
-  «Borrado de habitaciones».
+  Storage. **Riesgo residual aceptado por el propietario (2026-10-30):** la
+  cascada desde `profiles` (borrar la cuenta en Auth, o un perfil como admin)
+  se lleva las filas de `room_images`, y los objetos quedan huérfanos,
+  inaccesibles porque el bucket es privado y no hay filas que firmar. La
+  conciliación los detecta, comprobado con la cascada real
+  (`room-images-reconcile-selftest.sh`), pero no los borra. Es una
+  limitación conocida, no una protección implementada. Ver «Cascadas desde
+  profiles y Auth», abajo.
 - Tras un resultado ambiguo del INSERT puede quedar un objeto sin fila: lo
   detecta la conciliación, y borrarlo es otra decisión.
 - `sharp` es una dependencia directa y exacta (decisión del propietario).
@@ -1130,7 +1132,8 @@ devueltas, que eran de las fotos de la habitación borrada. Un objeto nuevo
 con otro nombre no se toca: queda en la carpeta, y la limpieza, que lista la
 carpeta al final, no es completa (se avisa).
 
-**Cascadas desde profiles y Auth** (auditoría de la sesión 65).
+**Cascadas desde profiles y Auth** (auditoría de la sesión 65; riesgo
+residual aceptado por el propietario el 2026-10-30).
 - `profiles.id` → `auth.users(id)` ON DELETE CASCADE, y `rooms.owner_id` →
   `profiles(id)` ON DELETE CASCADE. Borrar una cuenta borra en cascada sus
   habitaciones y las filas de sus fotos, sin pasar por la aplicación ni
@@ -1151,13 +1154,25 @@ carpeta al final, no es completa (se avisa).
 - La conciliación detecta lo que deja. `room-images-reconcile-selftest.sh`
   borra un usuario de `auth.users`, comprueba que la cascada se ha llevado su
   perfil, su habitación y la fila de su foto y que el objeto sigue, y el
-  informe lo clasifica como `objeto_sin_fila`. Borrar esos objetos sigue
-  siendo una decisión aparte: la conciliación no borra.
-- Pendiente de decisión (Fase 7 o H6):
-  - si se quita el DELETE de `profiles` a `authenticated` (el de un admin
-    desde el cliente);
-  - y cómo será el borrado de cuenta: primero las habitaciones con
-    `delete_own_room` y sus objetos, y después la cuenta.
+  informe lo clasifica como `objeto_sin_fila`. La conciliación es
+  estrictamente de solo lectura: detecta esos objetos, pero no los borra.
+- **Decisión del propietario (2026-10-30), cerrada: riesgo residual
+  aceptado.**
+  - Se acepta que una eliminación externa en `auth.users` o en `profiles`
+    borre en cascada habitaciones y filas de `room_images` sin borrar sus
+    objetos de Storage. El DELETE de `profiles` de un admin activo
+    (`profiles_admin_all`) es una de esas vías y queda dentro del riesgo
+    aceptado: no se cambia.
+  - No se añaden triggers que llamen a Storage desde PostgreSQL. Tampoco se
+    implementa ahora el borrado de cuenta ni se amplía `service_role` para
+    este caso.
+  - **Requisito para H6:** el futuro borrado de cuenta tendrá que limpiar y
+    verificar los objetos de Storage de las habitaciones de la cuenta (por
+    ejemplo, con `delete_own_room` y la limpieza verificada de
+    `removeDeletedRoomObjects`) **antes** de eliminar el perfil o de dejar
+    que se produzca la cascada.
+  - Mientras H6 no exista, es una limitación conocida y visible, no una
+    protección implementada.
 - Las referencias sin cascada (`messages`, `reports`, `admin_action_logs` a
   `profiles`, y `interests`, `matches` y `reports` a `rooms`) hacen que el
   borrado de una cuenta con esas filas falle por FK.

@@ -310,7 +310,8 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
         rutas y las devuelve. `lib/services/rooms.ts` es el cuarto servicio
         con service_role, solo para esa función;
       - la cascada desde `profiles` y `auth.users` sigue sin limpiar Storage
-        (no hay borrado de cuenta, H6). La conciliación la detecta;
+        (no hay borrado de cuenta, H6): riesgo residual aceptado por el
+        propietario el 2026-10-30. La conciliación la detecta, pero no borra;
       - el cuerpo real de una subida de 4 MiB, medido en local con la Server
         Action: 4 195 232 bytes. Se conserva la subida por Server Action.
         **No está comprobado en Vercel ni en Netlify**;
@@ -564,8 +565,17 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
     (`docs/SECURITY.md`, «Borrado de habitaciones»).
   - La cascada desde `profiles` (borrar una cuenta en Auth, o un perfil como
     admin o service_role) borra habitaciones y filas de fotos sin limpiar
-    Storage. Lo detecta la conciliación; cerrarla depende del borrado de
-    cuenta (H6), sin decidir.
+    Storage. Es un **riesgo residual aceptado** por el propietario
+    (2026-10-30), una limitación conocida y no una protección: la
+    conciliación detecta los objetos huérfanos, pero es de solo lectura y no
+    los borra. No añadas triggers que llamen a Storage desde PostgreSQL ni
+    amplíes `service_role` para este caso.
+  - Si algún día se implementa el borrado de cuenta (H6), tendrá que limpiar
+    y verificar los objetos de Storage de las habitaciones de la cuenta
+    **antes** de eliminar el perfil o de dejar que se produzca la cascada
+    (`docs/SECURITY.md`, «Cascadas desde profiles y Auth»). Esto es un
+    requisito de diseño, no una autorización: H6 sigue fuera del alcance
+    actual y necesita su propia decisión.
 - Las políticas del chat usan `public.is_conversation_participant()`
   (`SECURITY DEFINER`, sin parámetro de usuario). Nunca escribas una
   subconsulta de RLS con columnas sin cualificar: Postgres resuelve el
@@ -678,17 +688,21 @@ borrado de cuenta (H6).
   antes del primer despliegue.
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.
-- Fase 4.2 (reconstruida en local, sin publicar): si se publica la rama
-  `feature/phase4-2-rebuild` y cómo se valida (D2, un proyecto aislado); y la
-  documentación de los runs 23 y 24, que estaba en el stash perdido y no se
-  ha recuperado (`PROGRESS.md`, sesión 63).
+- Fase 4.2 (reconstruida en local, sin publicar): cuándo se publica la rama
+  y cómo se valida (D2, un proyecto aislado); y la documentación de los runs
+  23 y 24, que estaba en el stash perdido y no se ha recuperado
+  (`PROGRESS.md`, sesión 63).
+  - Estrategia de publicación definida por el propietario (2026-10-30),
+    **sin ejecutar** (`PROGRESS.md`, sesión 67):
+    - rama remota nueva `feature/phase4-2-rebuild`;
+    - PR apilado contra `claude/phase4-r8-upgrade-tool` (el PR #27), no
+      contra `master`, para que su diff tenga solo los commits de la 4.2 y
+      no los 16 heredados de los PR #26 y #27.
+  - El push, la rama remota y el PR necesitan una autorización separada.
 - Desde la sesión 65 (el DELETE directo de `rooms` ya está cerrado, con
   `20261030120000`):
   - repetir en un despliegue (staging) la medición del cuerpo de una subida
     de 4 MiB: en local son 4 195 232 bytes. El límite de Vercel o Netlify no
     se ha podido consultar ni comprobar. Si fuera menor, bajar
     `ROOM_IMAGE_MAX_BYTES` (R5) o cambiar de modelo de subida
-    (`docs/SECURITY.md`, «Tamaño real de la subida»);
-  - el borrado de cuenta (H6) y si se quita el DELETE de `profiles`: hoy la
-    cascada desde `profiles` deja objetos en Storage, que solo detecta la
-    conciliación.
+    (`docs/SECURITY.md`, «Tamaño real de la subida»).

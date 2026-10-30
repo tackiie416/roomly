@@ -819,7 +819,8 @@ casos, con `room_images_4_2_precheck:` y sin borrar ni transformar nada.
   `20261030120000` (abajo) los clientes ya no pueden borrar habitaciones. La
   app las borra con `delete_own_room`, que devuelve las rutas para limpiar
   Storage. La cascada desde `profiles` sigue sin limpiar Storage, y sus
-  huérfanos los detecta la conciliación.
+  huérfanos los detecta la conciliación: es un riesgo residual aceptado por
+  el propietario el 2026-10-30 (ver «Cascadas desde `profiles`», abajo).
 
 **Validación.** `tests/db/19_room_images_storage.sql` (76),
 `tests/db/20_rooms_visibility_r7.sql` (32), `tests/db/concurrency_room_images.sh`
@@ -962,15 +963,39 @@ saliera en la lista.
 - **Sin validar en Supabase real**: ni el REVOKE frente a los privilegios por
   defecto de Supabase, ni la llamada por `rpc` de PostgREST.
 
-**Cascadas desde `profiles`.** No cambian. `rooms.owner_id` sigue con ON
-DELETE CASCADE desde `profiles`, y `profiles.id` desde `auth.users`. Borrar
-una cuenta en Auth, o un perfil (un admin activo con `profiles_admin_all`, o
-service_role), borra sus habitaciones y las filas de sus fotos sin limpiar
-Storage. ROOMLY no tiene borrado de cuenta (H6). La conciliación detecta los
-objetos que deja (`room-images-reconcile-selftest`, caso de la cascada). Si
-se quita el DELETE de `profiles` y cómo se diseña el borrado de cuenta, son
-decisiones pendientes (`docs/SECURITY.md`, «Cascadas desde profiles y
-Auth»).
+**Cascadas desde `profiles`.** Esta migración no cambia ninguna clave
+foránea. Comportamiento actual, en dos casos distintos:
+- **Borrado ordinario de una habitación** (la app, por el servidor):
+  `delete_own_room` borra la fila de `rooms`, y la cascada se lleva
+  `room_images`, `room_addresses` y `favorites` (`room_id` con ON DELETE
+  CASCADE). `interests.room_id`, `matches.room_id` y
+  `reports.reported_room_id` no tienen cascada: si alguna fila la
+  referencia, falla con 23503 y no se borra nada. Después, el servidor
+  borra en Storage las rutas que devuelve la función y verifica la carpeta
+  (`docs/SECURITY.md`, «Borrado de habitaciones»).
+- **Eliminación externa de una cuenta** (el panel o la API de Auth, SQL de
+  un operador, un admin activo que borra un perfil con
+  `profiles_admin_all`, o service_role):
+  - `profiles.id` → `auth.users(id)` y `rooms.owner_id` → `profiles(id)`
+    tienen ON DELETE CASCADE, así que se borran el perfil, sus habitaciones
+    y, en la misma cascada, las filas de `room_images`, `room_addresses` y
+    `favorites`;
+  - también caen en cascada desde `profiles` `housing_preferences`,
+    `compatibility_responses`, `favorites`, `interests`, `matches`,
+    `conversation_participants` y `notifications`;
+  - `messages.sender_id`, `reports` (`reporter_id`, `reported_user_id` y
+    `resolved_by`) y `admin_action_logs.admin_id` no tienen cascada. Si
+    alguna fila que no se borra en esa misma cascada referencia la cuenta o
+    sus habitaciones, la eliminación falla por FK y no se borra nada;
+  - **no pasa por el servidor ni limpia Storage:** los objetos de las fotos
+    quedan huérfanos.
+
+La conciliación (`room-images-reconcile-selftest`, caso de la cascada) los
+detecta, pero es de solo lectura y no los borra. **Riesgo residual aceptado
+por el propietario el 2026-10-30**: no hay triggers que llamen a Storage ni
+borrado de cuenta (H6, fuera del alcance actual). El futuro H6 tendrá que
+limpiar y verificar Storage antes de eliminar el perfil (`docs/SECURITY.md`,
+«Cascadas desde profiles y Auth»).
 
 ## Diagrama de entidades (simplificado)
 
