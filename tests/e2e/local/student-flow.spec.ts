@@ -40,12 +40,14 @@ test("estudiante nuevo: alta por magic link, onboarding, app y logout", async ({
   expect(state.profile?.onboarding_completed_at).not.toBeNull();
   expect(state.preferences?.city_id).toBe("11111111-1111-4111-8111-111111111111");
 
-  // Shell (2.7, Fase 3.5): los enlaces de la cuenta y el logout.
+  // Shell (2.7, Fase 3.5; Habitaciones desde la sesión 68): los enlaces de la
+  // cuenta y el logout.
   await page.goto("/perfil");
   const nav = appNav(page);
   await expect(nav.getByRole("link")).toHaveText([
     "Explorar",
     "Test",
+    "Habitaciones",
     "Perfil",
     "Preferencias",
     "Ajustes",
