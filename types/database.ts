@@ -498,6 +498,15 @@ export interface Database {
         Args: Record<string, never>;
         Returns: boolean;
       };
+      /**
+       * 20261030120000 (sesión 65): borra una habitación propia de una cuenta
+       * activa y devuelve las rutas de sus fotos. Solo service_role tiene
+       * EXECUTE; la llama `deleteOwnRoom` (lib/services/rooms.ts).
+       */
+      delete_own_room: {
+        Args: { p_room_id: string; p_user_id: string };
+        Returns: string[];
+      };
     };
     Enums: {
       user_role: UserRole;

@@ -7,13 +7,14 @@ import { TEST_USER } from "./profile-rows";
  * Actions, el borrado de habitaciones y las páginas de la Fase 4.2 con los
  * servicios reales. Emula lo justo de la base de datos y de Storage:
  *   - cliente del usuario (RLS): ve sus habitaciones, las públicas (activas,
- *     sin borrar y de una cuenta activa) y, si es admin activo, todas; borra
- *     solo las suyas con la cuenta activa (`rooms_delete_own`), y el borrado
- *     arrastra las filas de `room_images` (ON DELETE CASCADE), no los objetos;
+ *     sin borrar y de una cuenta activa) y, si es admin activo, todas. Desde
+ *     20261030120000 no tiene DELETE sobre `rooms` (42501);
  *   - cliente admin (service_role): INSERT y DELETE de `room_images` con las
  *     reglas del trigger (8 fotos, habitación escribible, cuenta activa y ruta
- *     canónica), lectura de `rooms` sin RLS y Storage (subir, borrar, firmar y
- *     listar).
+ *     canónica), lectura de `rooms` sin RLS, `rpc("delete_own_room")` con las
+ *     reglas de la función (cuenta activa, propietaria, rutas canónicas, FK
+ *     sin cascada) y el borrado en cascada de las filas de `room_images` (no
+ *     de los objetos), y Storage (subir, borrar, firmar y listar).
  * No es PostgreSQL ni Storage: tests/db cubre la base de datos real.
  */
 
@@ -38,6 +39,7 @@ export type WorldImage = {
 };
 
 type Failure = { code?: string; message?: string } | null | undefined;
+export type RpcArgs = { p_room_id: string; p_user_id: string };
 type StorageOp = "upload" | "remove" | "sign" | "list";
 
 export type WorldOptions = {
@@ -103,14 +105,24 @@ export function createRoomWorld(options: WorldOptions = {}) {
     undeletable: new Set<string>(),
     /** Rutas pedidas en cada `remove`. */
     removes: [] as string[][],
+    /** Habitaciones referenciadas sin cascada (interests, matches, reports): 23503. */
+    referenced: new Set<string>(),
     /** Orden de todas las operaciones de los dos clientes y de Storage. */
     log: [] as string[],
+    /** Llamadas a `rpc` del cliente admin, con sus argumentos. */
+    rpcCalls: [] as Array<{ name: string; args: RpcArgs }>,
     adminCreated: 0,
   };
   const failures = {
     user: undefined as ((call: Call) => Failure) | undefined,
     admin: undefined as ((call: Call) => Failure) | undefined,
     storage: {} as Partial<Record<StorageOp, (n: number) => Failure>>,
+    /** Antes de ejecutar delete_own_room: un error aquí no cambia nada. */
+    rpcBefore: undefined as ((args: RpcArgs) => Failure) | undefined,
+    /** Después de ejecutarla (y confirmarla): una respuesta perdida. */
+    rpcAfter: undefined as ((args: RpcArgs) => Failure) | undefined,
+    /** Sustituye los datos de una respuesta correcta (respuesta mal formada). */
+    rpcData: undefined as ((paths: string[]) => unknown) | undefined,
   };
   const storageCount: Record<StorageOp, number> = {
     upload: 0,
@@ -167,17 +179,12 @@ export function createRoomWorld(options: WorldOptions = {}) {
     if (call.table === "rooms") {
       if (call.operation === "select")
         return finish(call, applyFilters(state.rooms.filter(visibleRoom), call));
-      if (call.operation === "delete") {
-        // rooms_delete_own: propietaria con la cuenta activa (RLS, 4.0).
-        const targets = applyFilters(state.rooms, call).filter(
-          (r) => r.owner_id === userId && profile !== null && profile.deleted_at === null
-        );
-        cascadeDelete(targets.map((r) => r.id));
-        return finish(
-          call,
-          targets.map((r) => ({ id: r.id }))
-        );
-      }
+      if (call.operation === "delete")
+        // 20261030120000: ningún cliente tiene DELETE sobre rooms.
+        return {
+          data: null,
+          error: { code: "42501", message: "permission denied for table rooms" },
+        };
     }
     if (call.table === "room_images" && call.operation === "select") {
       const visible = state.images.filter((i) => {
@@ -292,11 +299,60 @@ export function createRoomWorld(options: WorldOptions = {}) {
     },
   };
 
+  const CANONICAL =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp$/;
+  const rpcError = (code: string, message: string) => ({
+    data: null,
+    error: { code, message: `${message} <detalle interno>` },
+  });
+  /** delete_own_room (20261030120000), con sus reglas y en su orden. */
+  const deleteOwnRoomRpc = (args: RpcArgs) => {
+    if (!args.p_room_id || !args.p_user_id)
+      return rpcError("22004", "room_delete_invalid:");
+    if (owners[args.p_user_id] !== null) return rpcError("42501", "account_deleted:");
+    const target = state.rooms.find(
+      (r) => r.id === args.p_room_id && r.owner_id === args.p_user_id
+    );
+    if (!target) return rpcError("P0002", "room_not_found:");
+    const own = sortImages(state.images.filter((i) => i.room_id === target.id));
+    if (
+      own.some(
+        (i) =>
+          i.storage_path !== `${i.room_id}/${i.id}.webp` ||
+          !CANONICAL.test(i.storage_path)
+      )
+    )
+      return rpcError("23514", "room_delete_path_invalid:");
+    if (state.referenced.has(target.id))
+      return rpcError(
+        "23503",
+        'update or delete on table "rooms" violates foreign key constraint'
+      );
+    cascadeDelete([target.id]);
+    return { data: own.map((i) => i.storage_path), error: null };
+  };
+  const rpc = async (name: string, args: RpcArgs) => {
+    state.log.push(`admin:rpc.${name}`);
+    state.rpcCalls.push({ name, args });
+    if (name !== "delete_own_room") throw new Error(`rpc no emulada: ${name}`);
+    const before = failures.rpcBefore?.(args);
+    if (before) return { data: null, error: before };
+    const result = deleteOwnRoomRpc(args);
+    if (result.error) return result;
+    const after = failures.rpcAfter?.(args);
+    if (after) return { data: null, error: after };
+    return {
+      data: failures.rpcData ? failures.rpcData(result.data) : result.data,
+      error: null,
+    };
+  };
+
   const user = createFakeSupabase({ userId, respond: userRespond });
   const admin = createFakeSupabase({ userId: null, respond: adminRespond });
   const adminClient = {
     ...(admin.client as unknown as object),
     storage,
+    rpc,
   } as unknown as DbClient;
 
   return {

@@ -65,6 +65,7 @@ const untouched = (world: RoomWorld) => {
   expect(world.state.rooms).toHaveLength(2);
   expect(world.state.objects.size).toBe(2);
   expect(world.state.adminCreated).toBe(0);
+  expect(world.state.rpcCalls).toEqual([]);
 };
 
 describe("deleteRoom", () => {
@@ -138,12 +139,20 @@ describe("deleteRoom", () => {
     warn.mockRestore();
   });
 
+  it("con actividad asociada (FK sin cascada) → mensaje propio, sin borrar", async () => {
+    const world = setup();
+    world.state.referenced.add(ROOM_ID);
+    expect(await deleteRoom({}, form(ROOM_ID))).toEqual({
+      formError:
+        "Esta habitación no se puede borrar ahora: tiene actividad asociada, como un reporte.",
+    });
+    expect(world.state.rooms).toHaveLength(2);
+    expect(world.state.objects.size).toBe(2);
+  });
+
   it("fallo de la base de datos → mensaje genérico, sin detalles y sin borrar", async () => {
     const world = setup();
-    world.failures.user = (call) =>
-      call.operation === "delete"
-        ? { code: "XX000", message: "<detalle interno>" }
-        : undefined;
+    world.failures.rpcBefore = () => ({ code: "XX000", message: "<detalle interno>" });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const state = await deleteRoom({}, form(ROOM_ID));
     warn.mockRestore();
@@ -151,6 +160,8 @@ describe("deleteRoom", () => {
       formError:
         "No hemos podido borrar la habitación. Vuelve a intentarlo en un momento.",
     });
-    untouched(world);
+    expect(JSON.stringify(state)).not.toContain("interno");
+    expect(world.state.rooms).toHaveLength(2);
+    expect(world.state.objects.size).toBe(2);
   });
 });

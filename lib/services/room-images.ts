@@ -133,6 +133,8 @@ const SANITIZE_MESSAGES: Record<SanitizeRejection, string> = {
  * carpeta (`room_id/`) o la de cada objeto:
  *   - room_objects_cleanup_skipped: no se ha podido confirmar que la
  *     habitación ya no existe; no se ha borrado ningún objeto;
+ *   - room_objects_invalid_path: alguna ruta recibida no es canónica de su
+ *     carpeta; esa no se borra;
  *   - room_image_orphan_after_room_delete: el objeto sigue en el bucket
  *     después de la limpieza;
  *   - room_objects_unverified: no se ha podido comprobar si quedan objetos.
@@ -144,6 +146,7 @@ export type RecoveryEvent =
   | "room_image_insert_unverified"
   | "room_image_orphan_after_delete"
   | "room_objects_cleanup_skipped"
+  | "room_objects_invalid_path"
   | "room_image_orphan_after_room_delete"
   | "room_objects_unverified";
 
@@ -653,37 +656,35 @@ async function listRoomObjects(bucket: Bucket, roomId: string): Promise<string[]
 }
 
 /**
- * Borra del bucket los objetos de una habitación **ya borrada** (borrado de
- * habitaciones, lib/services/rooms.ts). Es la única operación de Storage que
- * no parte de una fila de `room_images`: cuando se llama, la fila de la
- * habitación ya no existe y la cascada se ha llevado las de sus fotos.
+ * Borra del bucket los objetos de una habitación **ya borrada**, con las rutas
+ * que devolvió su borrado (`delete_own_room`, 20261030120000; lo orquesta
+ * `deleteOwnRoom` en lib/services/rooms.ts). Es la única operación de Storage
+ * que no parte de una fila de `room_images` leída aquí: cuando se llama, la
+ * fila de la habitación ya no existe y la cascada se ha llevado las de sus
+ * fotos.
  *
  *   1. Con service_role se comprueba que la habitación no existe (solo su id).
  *      Si existe, o no se puede comprobar, no se borra nada: sus objetos
- *      siguen siendo de una habitación viva. Esta comprobación es la que
- *      impide usar la función para borrar las fotos de otra persona.
- *   2. Se borran las rutas canónicas `roomId/<id>.webp` de las fotos que el
- *      servidor leyó antes de borrar la habitación (`imageIds`) y las que
- *      aparecen al listar la carpeta `roomId/` (huérfanos de subidas
- *      ambiguas o fotos añadidas mientras tanto). Las rutas las construye el
- *      servidor con `roomImageStoragePath`, nunca llegan del navegador, y
- *      un nombre que no es canónico no se borra.
- *   3. Se vuelve a listar la carpeta: solo si está vacía la limpieza es
- *      completa. Lo que quede se avisa (`room_image_orphan_after_room_delete`)
- *      y lo detecta la conciliación (tests/supabase/room-images-reconcile.sql).
+ *      siguen siendo de una habitación viva. Esta comprobación impide usar la
+ *      función para borrar las fotos de otra habitación.
+ *   2. Se borran **solo** las rutas recibidas que son canónicas de su carpeta
+ *      (`roomId/<uuid>.webp`, en minúsculas). La transacción ya las validó;
+ *      aquí se repite, y una ruta que no lo sea no se borra y se avisa
+ *      (`room_objects_invalid_path`). Nunca llegan del navegador.
+ *   3. Se lista la carpeta `roomId/`: solo si está vacía la limpieza es
+ *      completa. Lo que quede (una ruta que no se pudo borrar, o un objeto que
+ *      no estaba en la lista, como el de una subida ambigua anterior) no se
+ *      borra aquí: se avisa (`room_image_orphan_after_room_delete`) y lo
+ *      detecta la conciliación (tests/supabase/room-images-reconcile.sql).
  *
- * Una subida en curso para la habitación borrada falla en el INSERT (sin
- * habitación, la FK lo rechaza de forma definitiva) y borra su objeto (M2).
- * Carrera residual, documentada: `id` está en el GRANT de INSERT de `rooms`,
- * así que alguien podría crear una habitación nueva con el mismo id justo
- * entre la comprobación del paso 1 y el borrado del paso 2, y subirle una
- * foto en ese instante. Solo se perdería el objeto de esa foto nueva, de
- * quien reutiliza el id; nunca el de otra habitación, porque la carpeta es la
- * del id.
+ * Una subida en curso para la habitación borrada espera al bloqueo del
+ * borrado y después falla en su INSERT (`room_not_writable`, definitivo), así
+ * que M2 borra su objeto; si ese borrado también fallara, se avisa allí
+ * (`room_image_orphan_after_insert`).
  */
 export async function removeDeletedRoomObjects(
   roomId: unknown,
-  imageIds: readonly unknown[],
+  storagePaths: readonly unknown[],
   deps: RoomImagesDeps = DEFAULT_DEPS
 ): Promise<RoomObjectsCleanup> {
   const parsed = uuidSchema.safeParse(roomId);
@@ -702,23 +703,18 @@ export async function removeDeletedRoomObjects(
     return { complete: false };
   }
 
+  const canonical = (path: unknown): path is string =>
+    typeof path === "string" &&
+    path.startsWith(folder) &&
+    CANONICAL_OBJECT_NAME.test(path.slice(folder.length));
+  const paths = [...new Set(storagePaths.filter(canonical))];
+  const invalid = storagePaths.filter((path) => !canonical(path)).length;
+  if (invalid > 0) deps.reportRecovery("room_objects_invalid_path", folder);
+
   const bucket = admin.storage.from(ROOM_IMAGES_BUCKET);
-  const known = imageIds
-    .map((imageId) => uuidSchema.safeParse(imageId))
-    .filter((result) => result.success)
-    .map((result) => roomImageStoragePath(id, result.data));
-  const listed = (await listRoomObjects(bucket, id)) ?? [];
-  const paths = [
-    ...new Set([
-      ...known,
-      ...listed
-        .filter((name) => CANONICAL_OBJECT_NAME.test(name))
-        .map((name) => `${folder}${name}`),
-    ]),
-  ];
   if (paths.length > 0) {
     try {
-      // Si falla, la comprobación de abajo lo dirá: no hace falta su resultado.
+      // Si falla, el listado de abajo lo dirá: no hace falta su resultado.
       await bucket.remove(paths);
     } catch {
       // Igual: se comprueba listando.
@@ -733,5 +729,5 @@ export async function removeDeletedRoomObjects(
   for (const name of remaining) {
     deps.reportRecovery("room_image_orphan_after_room_delete", `${folder}${name}`);
   }
-  return { complete: remaining.length === 0 };
+  return { complete: remaining.length === 0 && invalid === 0 };
 }

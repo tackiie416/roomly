@@ -15,9 +15,10 @@ import { uuidSchema } from "@/lib/validation/common";
 /**
  * Server Action del borrado de una habitación (Fase 4.2). Orquestación fina
  * sobre `deleteOwnRoom` (lib/services/rooms.ts), que comprueba la sesión, la
- * cuenta y la propiedad antes de cambiar nada, borra la fila con el cliente
- * del usuario y después los objetos de sus fotos (con el servicio de fotos).
- * Del navegador solo llega `roomId`: nunca rutas ni ids de fotos.
+ * cuenta y la propiedad antes de cambiar nada, borra la habitación con
+ * `delete_own_room` (la única vía desde 20261030120000) y después los objetos
+ * de sus fotos con las rutas que devuelve. Del navegador solo llega `roomId`:
+ * nunca rutas, ids de fotos ni el usuario.
  *
  * Tras el borrado se redirige a una página de confirmación, porque la de la
  * habitación ya no existe. Si quedan objetos pendientes de limpieza, la
@@ -55,6 +56,11 @@ export async function deleteRoom(
         return { formError: "No encontramos esa habitación entre las tuyas." };
       case "forbidden":
         return { formError: "No puedes borrar esta habitación." };
+      case "conflict":
+        return {
+          formError:
+            "Esta habitación no se puede borrar ahora: tiene actividad asociada, como un reporte.",
+        };
       default:
         return {
           formError:

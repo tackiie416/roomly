@@ -31,11 +31,13 @@ import {
   type RoomImagesDeps,
 } from "@/lib/services/room-images";
 
-// Fase 4.2 — borrado seguro de una habitación propia. El servicio de
-// habitaciones no usa service_role: comprueba y borra la fila con el cliente
-// del usuario (RLS) y deja los objetos al servicio de fotos, que comprueba con
-// service_role que la habitación ya no existe y, al final, que no queda nada
-// en su carpeta. Nunca informa de una limpieza completa que no lo ha sido.
+// Fase 4.2 (sesión 65) — borrado seguro de una habitación propia. El servicio
+// comprueba la sesión, la cuenta y la propiedad con el cliente del usuario y
+// solo entonces crea el cliente admin, que únicamente llama a
+// delete_own_room (20261030120000). Esa función borra en una transacción y
+// devuelve las rutas de las fotos; el servicio de fotos borra solo esas y
+// comprueba que la carpeta queda vacía. Nunca informa de una limpieza
+// completa que no lo ha sido.
 
 const photo1 = worldImage(1);
 const photo2 = worldImage(2);
@@ -51,28 +53,32 @@ function setup(options: Parameters<typeof createRoomWorld>[0] = {}) {
     rooms: [room(), room({ id: OTHER_ROOM_ID, owner_id: OTHER_USER, status: "active" })],
     owners: { [OTHER_USER]: null },
     images: [photo1, photo2, theirs],
-    objects: [photo1.storage_path, photo2.storage_path, ORPHAN, theirs.storage_path],
+    objects: [photo1.storage_path, photo2.storage_path, theirs.storage_path],
     ...options,
   });
   adminMock.world = world;
   return world;
 }
 
-/** Dependencias con la limpieza real (y el admin del mundo), y avisos registrados. */
-function deps(world: RoomWorld): RoomsDeps {
-  const imageDeps: RoomImagesDeps = {
+function imageDeps(world: RoomWorld): RoomImagesDeps {
+  return {
     adminClient: world.createAdminClient,
     sanitize: async () => {
       throw new Error("el borrado no limpia imágenes");
     },
     newId: () => "no-se-usa",
-    now: () => new Date("2026-10-29T10:00:00Z"),
+    now: () => new Date("2026-10-30T10:00:00Z"),
     signedUrlTtlSeconds: 600,
     reportRecovery: (event, path) => recoveries.push({ event, path }),
   };
+}
+
+/** Dependencias con la limpieza real (y el admin del mundo), y avisos registrados. */
+function deps(world: RoomWorld): RoomsDeps {
   return {
-    removeRoomObjects: (roomId, imageIds) =>
-      removeDeletedRoomObjects(roomId, imageIds, imageDeps),
+    adminClient: world.createAdminClient,
+    removeRoomObjects: (roomId, paths) =>
+      removeDeletedRoomObjects(roomId, paths, imageDeps(world)),
     reportRecovery: (event, roomId) => roomRecoveries.push({ event, roomId }),
   };
 }
@@ -90,8 +96,15 @@ const theirsIntact = (world: RoomWorld) => {
   expect(world.state.images).toContainEqual(theirs);
   expect(world.state.objects.has(theirs.storage_path)).toBe(true);
 };
+/** Nada cambió y no se creó el cliente admin. */
+const untouched = (world: RoomWorld) => {
+  expect(ownRoomGone(world)).toBe(false);
+  expect(world.state.objects.size).toBe(3);
+  expect(world.state.adminCreated).toBe(0);
+  expect(world.state.rpcCalls).toEqual([]);
+};
 
-describe("deleteOwnRoom: autorización antes de cambiar nada", () => {
+describe("deleteOwnRoom: autorización antes del cliente privilegiado", () => {
   it.each([
     ["sin sesión", { userId: null }, "unauthenticated"],
     [
@@ -101,25 +114,21 @@ describe("deleteOwnRoom: autorización antes de cambiar nada", () => {
     ],
     ["sin perfil", { profile: null }, "no_profile"],
   ] as const)(
-    "%s → %s, sin borrar nada ni crear el cliente admin",
+    "%s → %s, sin crear el cliente admin ni borrar nada",
     async (_n, o, error) => {
       const world = setup(o);
       const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
       expect(result).toEqual({ ok: false, error });
-      expect(ownRoomGone(world)).toBe(false);
-      expect(world.state.objects.size).toBe(4);
-      expect(world.state.adminCreated).toBe(0);
-      expect(world.userCalls.some((c) => c.operation === "delete")).toBe(false);
+      untouched(world);
     }
   );
 
-  it("habitación ajena (pública) → not_found, sin borrarla ni tocar sus fotos", async () => {
+  it("habitación ajena (pública) → not_found, sin llamar a la función", async () => {
     const world = setup();
     const result = await deleteOwnRoom(world.userClient, OTHER_ROOM_ID, deps(world));
     expect(result).toEqual({ ok: false, error: "not_found" });
     theirsIntact(world);
-    expect(world.state.adminCreated).toBe(0);
-    expect(world.userCalls.some((c) => c.operation === "delete")).toBe(false);
+    untouched(world);
   });
 
   it.each(["../otra", `${ROOM_ID}/x.webp`, 42, null])(
@@ -129,48 +138,51 @@ describe("deleteOwnRoom: autorización antes de cambiar nada", () => {
       const result = await deleteOwnRoom(world.userClient, input, deps(world));
       expect(result).toEqual({ ok: false, error: "not_found" });
       expect(world.userCalls.some((c) => c.table === "rooms")).toBe(false);
-      expect(world.state.adminCreated).toBe(0);
+      untouched(world);
     }
   );
+
+  it("el usuario de la llamada es el de la sesión, nunca otro", async () => {
+    const world = setup();
+    await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
+    expect(world.state.rpcCalls).toEqual([
+      { name: "delete_own_room", args: { p_room_id: ROOM_ID, p_user_id: TEST_USER } },
+    ]);
+  });
+
+  it("el cliente del usuario ya no borra habitaciones: el servicio no lo intenta", async () => {
+    const world = setup();
+    await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
+    expect(world.userCalls.some((c) => c.operation === "delete")).toBe(false);
+  });
 });
 
 describe("deleteOwnRoom: borrado y limpieza", () => {
-  it("borra la fila (cliente del usuario) y después todos sus objetos, también el huérfano", async () => {
+  it("borra con delete_own_room y después solo las rutas que devuelve; carpeta vacía → completa", async () => {
     const world = setup();
     const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
     expect(result).toEqual({ ok: true, data: { photosRemoved: true } });
     expect(ownRoomGone(world)).toBe(true);
-    // La cascada se lleva las filas de sus fotos, no las de otras habitaciones.
     expect(world.state.images).toEqual([theirs]);
     expect([...world.state.objects]).toEqual([theirs.storage_path]);
     theirsIntact(world);
 
-    // Orden: comprobaciones y DELETE del usuario; después, la comprobación
-    // con service_role de que no existe; después, Storage.
-    const order = world.state.log.filter(
-      (e) => e === "user:rooms.delete" || !e.startsWith("user:")
-    );
-    expect(order).toEqual([
-      "user:rooms.delete",
+    // Orden: comprobaciones del usuario; la función; la comprobación de que
+    // ya no existe; Storage.
+    const privileged = world.state.log.filter((e) => !e.startsWith("user:"));
+    expect(privileged).toEqual([
+      "admin:rpc.delete_own_room",
       "admin:rooms.select",
-      "storage.list",
       "storage.remove",
       "storage.list",
     ]);
-    const deleteCall = world.userCalls.find((c) => c.operation === "delete")!;
-    expect(deleteCall.filters).toEqual([
-      { kind: "eq", column: "id", value: ROOM_ID },
-      { kind: "eq", column: "owner_id", value: TEST_USER },
-    ]);
-    // Solo rutas canónicas de su carpeta, construidas en el servidor.
-    expect(world.state.removes).toHaveLength(1);
-    expect([...world.state.removes[0]].sort()).toEqual(
-      [photo1.storage_path, photo2.storage_path, ORPHAN].sort()
-    );
+    const lastUser = world.state.log.lastIndexOf("user:rooms.select");
+    expect(lastUser).toBeLessThan(world.state.log.indexOf("admin:rpc.delete_own_room"));
+    expect(world.state.removes).toEqual([[photo1.storage_path, photo2.storage_path]]);
     expect(recoveries).toEqual([]);
   });
 
-  it("sin fotos → borrada y limpieza completa, sin llamar a remove", async () => {
+  it("sin fotos → array vacío, sin remove, y completa", async () => {
     const world = setup({ images: [theirs], objects: [theirs.storage_path] });
     const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
     expect(result).toEqual({ ok: true, data: { photosRemoved: true } });
@@ -178,106 +190,177 @@ describe("deleteOwnRoom: borrado y limpieza", () => {
     theirsIntact(world);
   });
 
-  it("habitación retirada por moderación → la propietaria puede borrarla (RLS sin cambios)", async () => {
+  it("retirada por moderación → la propietaria puede borrarla", async () => {
     const world = setup({
       rooms: [room({ status: "removed" })],
       images: [photo1],
       objects: [photo1.storage_path],
     });
-    const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
-    expect(result).toEqual({ ok: true, data: { photosRemoved: true } });
+    expect(await deleteOwnRoom(world.userClient, ROOM_ID, deps(world))).toEqual({
+      ok: true,
+      data: { photosRemoved: true },
+    });
     expect(world.state.objects.size).toBe(0);
   });
 
-  it("fallo de la base de datos al leer las fotos → error, sin borrar nada", async () => {
-    const world = setup();
-    world.failures.user = (call) =>
-      call.table === "room_images" ? { code: "XX000", message: "<interno>" } : undefined;
+  it("un objeto que no estaba en la lista (huérfano anterior) no se borra: queda pendiente y se avisa", async () => {
+    const world = setup({
+      objects: [photo1.storage_path, photo2.storage_path, ORPHAN, theirs.storage_path],
+    });
     const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
-    expect(result).toEqual({ ok: false, error: "unknown" });
-    expect(ownRoomGone(world)).toBe(false);
-    expect(world.state.adminCreated).toBe(0);
+    expect(result).toEqual({ ok: true, data: { photosRemoved: false } });
+    expect(world.state.removes.flat()).not.toContain(ORPHAN);
+    expect(world.state.objects.has(ORPHAN)).toBe(true);
+    expect(recoveries).toEqual([
+      { event: "room_image_orphan_after_room_delete", path: ORPHAN },
+    ]);
   });
+});
 
-  it("DELETE rechazado de forma definitiva (42501) → forbidden, sin tocar Storage", async () => {
+describe("deleteOwnRoom: rechazos de la función (no se borra nada)", () => {
+  it("la cuenta se desactivó entre la comprobación y la función → deleted", async () => {
     const world = setup();
-    world.failures.user = (call) =>
-      call.operation === "delete" ? { code: "42501", message: "<rls>" } : undefined;
-    const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
-    expect(result).toEqual({ ok: false, error: "forbidden" });
-    expect(ownRoomGone(world)).toBe(false);
-    expect(world.state.objects.size).toBe(4);
-    expect(world.state.adminCreated).toBe(0);
-  });
-
-  it("DELETE ambiguo y la habitación sigue → error, sin borrar ningún objeto", async () => {
-    const world = setup();
-    world.failures.user = (call) =>
-      call.operation === "delete" ? { code: "", message: "fetch failed" } : undefined;
-    const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
-    expect(result).toEqual({ ok: false, error: "unknown" });
-    expect(ownRoomGone(world)).toBe(false);
-    expect(world.state.objects.size).toBe(4);
-    expect(world.state.adminCreated).toBe(0);
-  });
-
-  it("DELETE ambiguo pero confirmado (la habitación ya no está) → se limpian sus objetos", async () => {
-    const world = setup();
-    world.failures.user = (call) => {
-      if (call.operation !== "delete") return undefined;
-      // La transacción se confirmó, pero se perdió la respuesta.
-      world.state.rooms = world.state.rooms.filter((r) => r.id !== ROOM_ID);
-      world.state.images = world.state.images.filter((i) => i.room_id !== ROOM_ID);
-      return { code: "57014", message: "canceling statement due to statement timeout" };
+    world.failures.rpcBefore = () => {
+      // La función ve la cuenta desactivada (lo comprueba bajo bloqueo).
+      return {
+        code: "42501",
+        message: "account_deleted: la cuenta no existe o está desactivada",
+      };
     };
-    const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
-    expect(result).toEqual({ ok: true, data: { photosRemoved: true } });
-    expect([...world.state.objects]).toEqual([theirs.storage_path]);
+    expect(await deleteOwnRoom(world.userClient, ROOM_ID, deps(world))).toEqual({
+      ok: false,
+      error: "deleted",
+    });
+    expect(ownRoomGone(world)).toBe(false);
+    expect(world.state.removes).toEqual([]);
   });
 
-  it("DELETE ambiguo y no se puede comprobar → error y aviso, sin tocar Storage", async () => {
+  it.each([
+    ["P0002", "room_not_found: <interno>", "not_found"],
+    [
+      "23503",
+      'update or delete on table "rooms" violates foreign key constraint',
+      "conflict",
+    ],
+    ["42501", "permission denied for function delete_own_room", "unknown"],
+    ["P0001", "room_delete_isolation: <interno>", "unknown"],
+    ["22004", "room_delete_invalid: <interno>", "unknown"],
+  ])("%s (%s) → %s, sin tocar Storage", async (code, message, error) => {
     const world = setup();
-    let deletes = 0;
-    world.failures.user = (call) => {
-      if (call.operation === "delete") deletes += 1;
-      return deletes > 0 && call.table === "rooms"
+    world.failures.rpcBefore = () => ({ code, message });
+    expect(await deleteOwnRoom(world.userClient, ROOM_ID, deps(world))).toEqual({
+      ok: false,
+      error,
+    });
+    expect(ownRoomGone(world)).toBe(false);
+    expect(world.state.removes).toEqual([]);
+    expect(world.state.objects.size).toBe(3);
+  });
+
+  it("referencias sin cascada (FK) → conflict, emulado por la función", async () => {
+    const world = setup();
+    world.state.referenced.add(ROOM_ID);
+    expect(await deleteOwnRoom(world.userClient, ROOM_ID, deps(world))).toEqual({
+      ok: false,
+      error: "conflict",
+    });
+    expect(ownRoomGone(world)).toBe(false);
+  });
+
+  it("una ruta no canónica en la base de datos → la función no borra nada, error y aviso", async () => {
+    const odd = { ...photo2, storage_path: `${OTHER_ROOM_ID}/${photo2.id}.webp` };
+    const world = setup({ images: [photo1, odd, theirs] });
+    expect(await deleteOwnRoom(world.userClient, ROOM_ID, deps(world))).toEqual({
+      ok: false,
+      error: "unknown",
+    });
+    expect(ownRoomGone(world)).toBe(false);
+    expect(world.state.images).toHaveLength(3);
+    expect(world.state.objects.size).toBe(3);
+    expect(world.state.removes).toEqual([]);
+    expect(roomRecoveries).toEqual([
+      { event: "room_delete_path_invalid", roomId: ROOM_ID },
+    ]);
+  });
+});
+
+describe("deleteOwnRoom: resultados ambiguos", () => {
+  it("ambiguo y la habitación sigue → error, sin borrar ningún objeto", async () => {
+    const world = setup();
+    world.failures.rpcBefore = () => ({ code: "", message: "fetch failed" });
+    expect(await deleteOwnRoom(world.userClient, ROOM_ID, deps(world))).toEqual({
+      ok: false,
+      error: "unknown",
+    });
+    expect(ownRoomGone(world)).toBe(false);
+    expect(world.state.removes).toEqual([]);
+  });
+
+  it("ambiguo pero confirmado (respuesta perdida) → borrada, limpieza pendiente y aviso; nada se borra de Storage", async () => {
+    const world = setup();
+    world.failures.rpcAfter = () => ({ code: "57014", message: "statement timeout" });
+    expect(await deleteOwnRoom(world.userClient, ROOM_ID, deps(world))).toEqual({
+      ok: true,
+      data: { photosRemoved: false },
+    });
+    expect(ownRoomGone(world)).toBe(true);
+    expect(world.state.removes).toEqual([]);
+    expect(world.state.objects.size).toBe(3);
+    expect(roomRecoveries).toEqual([
+      { event: "room_delete_paths_unknown", roomId: ROOM_ID },
+    ]);
+  });
+
+  it("ambiguo y no se puede comprobar → error y aviso, sin tocar Storage", async () => {
+    const world = setup();
+    world.failures.rpcBefore = () => ({ code: "08006", message: "connection failure" });
+    world.failures.user = (call) =>
+      world.state.rpcCalls.length > 0 && call.table === "rooms"
         ? { code: "08006", message: "connection failure" }
         : undefined;
-    };
-    const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
-    expect(result).toEqual({ ok: false, error: "unknown" });
+    expect(await deleteOwnRoom(world.userClient, ROOM_ID, deps(world))).toEqual({
+      ok: false,
+      error: "unknown",
+    });
     expect(roomRecoveries).toEqual([
       { event: "room_delete_unconfirmed", roomId: ROOM_ID },
     ]);
-    expect(world.state.objects.size).toBe(4);
-    expect(world.state.adminCreated).toBe(0);
+    expect(world.state.removes).toEqual([]);
   });
 
-  it("la RLS no borra ninguna fila (otra petición la borró antes) → not_found, sin limpieza", async () => {
-    const world = setup();
-    world.failures.user = (call) => {
-      if (call.operation === "delete")
-        world.state.rooms = world.state.rooms.filter((r) => r.id !== ROOM_ID);
-      return undefined;
-    };
-    const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
-    expect(result).toEqual({ ok: false, error: "not_found" });
-    expect(world.state.adminCreated).toBe(0);
-  });
+  it.each([
+    ["no es una lista", () => "ruta"],
+    ["con algo que no es texto", (paths: string[]) => [...paths, 7]],
+    ["nula", () => null],
+  ])(
+    "respuesta mal formada (%s) → borrada, limpieza pendiente, sin tocar Storage",
+    async (_n, data) => {
+      const world = setup();
+      world.failures.rpcData = data;
+      expect(await deleteOwnRoom(world.userClient, ROOM_ID, deps(world))).toEqual({
+        ok: true,
+        data: { photosRemoved: false },
+      });
+      expect(world.state.removes).toEqual([]);
+      expect(roomRecoveries).toEqual([
+        { event: "room_delete_paths_unknown", roomId: ROOM_ID },
+      ]);
+    }
+  );
+});
 
-  it("fallo de Storage al borrar → habitación borrada, pero photosRemoved false y avisos por ruta", async () => {
+describe("deleteOwnRoom: fallos de Storage después de confirmar el borrado", () => {
+  it("remove falla → habitación borrada, photosRemoved false y un aviso por ruta", async () => {
     const world = setup();
     world.failures.storage.remove = () => ({ message: "storage 503 <interno>" });
     const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
     expect(result).toEqual({ ok: true, data: { photosRemoved: false } });
     expect(ownRoomGone(world)).toBe(true);
-    expect(recoveries.map((r) => r.event)).toEqual([
-      "room_image_orphan_after_room_delete",
-      "room_image_orphan_after_room_delete",
-      "room_image_orphan_after_room_delete",
-    ]);
     expect(recoveries.map((r) => r.path).sort()).toEqual(
-      [photo1.storage_path, photo2.storage_path, ORPHAN].sort()
+      [photo1.storage_path, photo2.storage_path].sort()
+    );
+    expect(new Set(recoveries.map((r) => r.event))).toEqual(
+      new Set(["room_image_orphan_after_room_delete"])
     );
     theirsIntact(world);
   });
@@ -287,9 +370,6 @@ describe("deleteOwnRoom: borrado y limpieza", () => {
     world.state.undeletable.add(photo2.storage_path);
     const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
     expect(result).toEqual({ ok: true, data: { photosRemoved: false } });
-    expect([...world.state.objects].sort()).toEqual(
-      [photo2.storage_path, theirs.storage_path].sort()
-    );
     expect(recoveries).toEqual([
       { event: "room_image_orphan_after_room_delete", path: photo2.storage_path },
     ]);
@@ -297,7 +377,7 @@ describe("deleteOwnRoom: borrado y limpieza", () => {
 
   it("no se puede listar al final → photosRemoved false (sin verificar no es completo)", async () => {
     const world = setup();
-    world.failures.storage.list = (n) => (n === 2 ? { message: "list 500" } : undefined);
+    world.failures.storage.list = () => ({ message: "list 500" });
     const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
     expect(result).toEqual({ ok: true, data: { photosRemoved: false } });
     expect(world.state.objects.has(photo1.storage_path)).toBe(false);
@@ -305,51 +385,14 @@ describe("deleteOwnRoom: borrado y limpieza", () => {
       { event: "room_objects_unverified", path: `${ROOM_ID}/` },
     ]);
   });
-
-  it("no se puede listar al principio → borra las conocidas y la verificación decide", async () => {
-    const world = setup();
-    world.failures.storage.list = (n) => (n === 1 ? { message: "list 500" } : undefined);
-    const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
-    // El huérfano no se conocía: queda, y se avisa.
-    expect(result).toEqual({ ok: true, data: { photosRemoved: false } });
-    expect(world.state.removes).toEqual([[photo1.storage_path, photo2.storage_path]]);
-    expect(recoveries).toEqual([
-      { event: "room_image_orphan_after_room_delete", path: ORPHAN },
-    ]);
-  });
-
-  it("un nombre no canónico en su carpeta no se borra: queda y se avisa", async () => {
-    const odd = `${ROOM_ID}/notas.txt`;
-    const world = setup({ objects: [photo1.storage_path, odd, theirs.storage_path] });
-    const result = await deleteOwnRoom(world.userClient, ROOM_ID, deps(world));
-    expect(result).toEqual({ ok: true, data: { photosRemoved: false } });
-    expect(world.state.objects.has(odd)).toBe(true);
-    expect(world.state.removes.flat()).not.toContain(odd);
-    expect(recoveries).toEqual([
-      { event: "room_image_orphan_after_room_delete", path: odd },
-    ]);
-  });
 });
 
-describe("removeDeletedRoomObjects: nunca borra objetos de una habitación que existe", () => {
-  function imageDeps(world: RoomWorld): RoomImagesDeps {
-    return {
-      adminClient: world.createAdminClient,
-      sanitize: async () => {
-        throw new Error("no");
-      },
-      newId: () => "x",
-      now: () => new Date(),
-      signedUrlTtlSeconds: 600,
-      reportRecovery: (event, path) => recoveries.push({ event, path }),
-    };
-  }
-
+describe("removeDeletedRoomObjects: solo rutas canónicas de una habitación que ya no existe", () => {
   it("habitación de otra persona que existe → no borra nada y avisa", async () => {
     const world = setup();
     const result = await removeDeletedRoomObjects(
       OTHER_ROOM_ID,
-      [theirs.id],
+      [theirs.storage_path],
       imageDeps(world)
     );
     expect(result).toEqual({ complete: false });
@@ -363,10 +406,13 @@ describe("removeDeletedRoomObjects: nunca borra objetos de una habitación que e
   it("no se puede comprobar que no existe → no borra nada", async () => {
     const world = setup({ rooms: [] });
     world.failures.admin = () => ({ code: "08006", message: "connection" });
-    const result = await removeDeletedRoomObjects(ROOM_ID, [photo1.id], imageDeps(world));
+    const result = await removeDeletedRoomObjects(
+      ROOM_ID,
+      [photo1.storage_path],
+      imageDeps(world)
+    );
     expect(result).toEqual({ complete: false });
     expect(world.state.removes).toEqual([]);
-    expect(world.state.objects.size).toBe(4);
   });
 
   it("id no válido → no crea el cliente admin", async () => {
@@ -377,16 +423,25 @@ describe("removeDeletedRoomObjects: nunca borra objetos de una habitación que e
     expect(world.state.adminCreated).toBe(0);
   });
 
-  it("ids de fotos no válidos (rutas) se ignoran: solo rutas canónicas de su carpeta", async () => {
+  it("rutas de otra carpeta, con «..», en mayúsculas o que no son texto: no se borran, se avisa y no es completa", async () => {
     const world = setup({ rooms: [], images: [], objects: [theirs.storage_path] });
     const result = await removeDeletedRoomObjects(
       ROOM_ID,
-      [`../${OTHER_ROOM_ID}/${theirs.id}`, theirs.storage_path, 7],
+      [
+        theirs.storage_path,
+        `${ROOM_ID}/../${theirs.storage_path}`,
+        // Con letras: en mayúsculas no es la ruta canónica.
+        ORPHAN.toUpperCase().replace(ROOM_ID.toUpperCase(), ROOM_ID),
+        7,
+      ],
       imageDeps(world)
     );
-    expect(result).toEqual({ complete: true });
+    expect(result).toEqual({ complete: false });
     expect(world.state.removes).toEqual([]);
     expect(world.state.objects.has(theirs.storage_path)).toBe(true);
+    expect(recoveries).toEqual([
+      { event: "room_objects_invalid_path", path: `${ROOM_ID}/` },
+    ]);
   });
 });
 

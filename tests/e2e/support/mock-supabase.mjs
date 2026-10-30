@@ -15,8 +15,9 @@
 //           con la clave service_role ficticia, la lectura cruzada de
 //           candidatos: GET /profiles con housing_preferences!inner y
 //           compatibility_responses!inner embebidos.
-//           Fase 4.2: rooms (la propietaria lee y borra las suyas, con la
-//           cuenta activa; las públicas se leen) y room_images (lectura por
+//           Fase 4.2: rooms (la propietaria lee las suyas y las públicas se
+//           leen; desde 20261030120000 ningún cliente borra: solo
+//           service_role con rpc/delete_own_room) y room_images (lectura por
 //           RLS; solo service_role escribe, con las reglas del trigger), y la
 //           API de Storage del bucket privado room-images, solo con
 //           service_role: subir, firmar (URL de 10 minutos), borrar y listar.
@@ -605,6 +606,9 @@ const EMPTY_PREFS = {
 
 function handleService(req, res, url, body, table) {
   // service_role (BYPASSRLS): solo lo que usa la app en el servidor.
+  if (table === "rpc/delete_own_room" && req.method === "POST") {
+    return send(res, 200, deleteOwnRoom(body));
+  }
   if (table === "profiles" && req.method === "GET") {
     return respondRows(req, res, candidateRows(url), null);
   }
@@ -684,20 +688,52 @@ function handleUserRooms(req, res, url, uid, columns) {
     const visible = [...state.rooms.values()].filter((room) => roomVisibleTo(room, uid));
     return respondRows(req, res, applyFilters(visible, url), columns);
   }
-  if (req.method === "DELETE") {
-    // rooms_delete_own (20261013120000): propietaria con la cuenta activa.
-    // ON DELETE CASCADE: se van las filas de room_images, no los objetos.
-    const targets = applyFilters([...state.rooms.values()], url).filter(
-      (room) => room.owner_id === uid && ownerActive(uid)
-    );
-    for (const room of targets) {
-      state.rooms.delete(room.id);
-      for (const image of [...state.images.values()])
-        if (image.room_id === room.id) state.images.delete(image.id);
-    }
-    return respondRows(req, res, targets, columns);
-  }
+  // Desde 20261030120000 ningún cliente tiene DELETE (ni INSERT/UPDATE en el
+  // mock): el borrado es delete_own_room, solo con service_role.
   throw denied("rooms");
+}
+
+// delete_own_room (20261030120000), solo service_role: cuenta activa,
+// propietaria, rutas canónicas; borra la habitación y la cascada se lleva
+// sus filas de room_images (no los objetos). Devuelve las rutas.
+const CANONICAL_PATH =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp$/;
+function deleteOwnRoom(body) {
+  const roomId = body.p_room_id;
+  const userId = body.p_user_id;
+  if (!roomId || !userId)
+    throw new DbError(
+      400,
+      "22004",
+      "room_delete_invalid: faltan la habitación o el usuario"
+    );
+  if (!ownerActive(userId))
+    throw new DbError(
+      403,
+      "42501",
+      "account_deleted: la cuenta no existe o está desactivada"
+    );
+  const room = state.rooms.get(roomId);
+  if (!room || room.owner_id !== userId)
+    throw new DbError(
+      404,
+      "P0002",
+      "room_not_found: la habitación no existe o no es de esta cuenta"
+    );
+  const images = sortImages(
+    [...state.images.values()].filter((i) => i.room_id === roomId)
+  );
+  if (
+    images.some(
+      (i) =>
+        i.storage_path !== `${i.room_id}/${i.id}.webp` ||
+        !CANONICAL_PATH.test(i.storage_path)
+    )
+  )
+    throw new DbError(400, "23514", "room_delete_path_invalid: rutas no canónicas");
+  state.rooms.delete(roomId);
+  for (const image of images) state.images.delete(image.id);
+  return images.map((i) => i.storage_path);
 }
 
 // trg_room_images_integrity (20261024120000), también para service_role.
@@ -846,6 +882,9 @@ function handleRest(req, res, url, body, uid, isService) {
     if (req.method !== "GET") throw denied(table);
     return respondRows(req, res, applyFilters(REFERENCE[table], url), columns);
   }
+  if (table.startsWith("rpc/"))
+    // Solo service_role tiene EXECUTE de las funciones que usa la app.
+    throw new DbError(403, "42501", `permission denied for function ${table.slice(4)}`);
   if (!uid) throw denied(table); // anon: sin privilegios útiles en estas tablas
 
   if (table === "compatibility_responses") {

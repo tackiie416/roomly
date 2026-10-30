@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isActiveAdmin } from "@/lib/services/profile";
 import {
   isDefinitiveInsertRejection,
@@ -22,53 +23,73 @@ import { ROOM_IMAGE_MAX_COUNT } from "@/lib/validation/room-images";
 
 /**
  * Habitaciones (Fase 4.2): la gestión de las fotos y el borrado seguro de una
- * habitación propia. Todo con el cliente del usuario (RLS): este servicio no
- * usa service_role. Lo que necesita service_role (borrar objetos de Storage y
- * firmar URL) lo hace lib/services/room-images.ts, el tercer servicio de D17.
+ * habitación propia. Las lecturas y comprobaciones, siempre con el cliente del
+ * usuario (RLS).
+ *
+ * service_role (D17, ampliada por el propietario el 2026-10-30, sesión 65):
+ * este es el cuarto servicio que lo usa, y solo para una cosa, llamar a
+ * `delete_own_room` (20261030120000) desde `deleteOwnRoom`, después de
+ * comprobar la sesión, la cuenta activa y la propiedad con el cliente del
+ * usuario. Ningún cliente tiene DELETE sobre `rooms` ni EXECUTE de la
+ * función; la función vuelve a exigir propietaria y cuenta activa en la misma
+ * transacción. Storage (borrar objetos, firmar URL) sigue en
+ * lib/services/room-images.ts. tests/unit/admin-client-usage.test.ts fija que
+ * aquí el cliente admin solo hace esa llamada.
  *
  * Borrado de una habitación (`deleteOwnRoom`). No puede ser atómico: la fila
- * está en PostgreSQL y los objetos en Storage. Orden elegido, el más seguro:
- *   1. comprobar sesión, cuenta activa y propiedad, antes de cambiar nada;
- *   2. leer sus fotos con el cliente del usuario (las rutas no llegan del
- *      navegador);
- *   3. borrar la fila con el cliente del usuario (`rooms_delete_own`: solo la
- *      propietaria con la cuenta activa). La cascada se lleva las filas de
- *      `room_images` y `room_addresses`. Desde aquí nadie puede ver ni firmar
- *      esas fotos: no hay filas que leer;
- *   4. borrar sus objetos (`removeDeletedRoomObjects`), que comprueba con
- *      service_role que la habitación ya no existe y, al final, que no queda
- *      nada en su carpeta.
- * Al revés (objetos primero), un fallo de la base de datos dejaría una
- * habitación visible con filas que apuntan a objetos borrados. Así, un fallo
- * en el paso 4 solo deja objetos huérfanos e inaccesibles (bucket privado, sin
- * filas): el resultado lo dice (`photosRemoved: false`), se avisa por ruta y
- * los detecta la conciliación. Ante un resultado ambiguo del DELETE no se
- * borra ningún objeto hasta saber si la fila sigue ahí.
+ * está en PostgreSQL y los objetos en Storage. Orden:
+ *   1. el id del usuario, de la sesión (`auth.getUser()`), nunca del
+ *      navegador; la cuenta activa y la propiedad, con el cliente del usuario,
+ *      antes de crear el cliente privilegiado;
+ *   2. `delete_own_room(p_room_id, p_user_id)` con service_role: bloquea la
+ *      habitación, comprueba otra vez propietaria y cuenta, lee las rutas de
+ *      sus fotos de las filas reales, comprueba que son canónicas y la borra
+ *      (la cascada se lleva sus fotos, su dirección y sus favoritos). Devuelve
+ *      esas rutas. Desde aquí nadie puede ver ni firmar esas fotos;
+ *   3. `removeDeletedRoomObjects` borra solo esas rutas y comprueba que la
+ *      carpeta queda vacía.
+ * Un fallo en el paso 3 solo deja objetos huérfanos e inaccesibles (bucket
+ * privado, sin filas): el resultado lo dice (`photosRemoved: false`), se avisa
+ * por ruta y los detecta la conciliación. Ante un resultado ambiguo del
+ * paso 2 no se borra ningún objeto: si la habitación sigue, es un error; si ya
+ * no está, quedó borrada pero sus rutas se perdieron con la respuesta, y la
+ * limpieza queda pendiente (`room_delete_paths_unknown`, conciliación).
  *
- * Fuera del alcance de este servicio, y documentado: el DELETE directo de
- * `rooms` por PostgREST (la propietaria con su sesión, por `rooms_delete_own`,
- * o un admin, por `rooms_admin_all`) y la cascada desde `profiles` siguen
- * existiendo y no limpian Storage. Cerrarlos exige una migración y una
- * decisión del propietario (docs/SECURITY.md, «Borrado de habitaciones»).
+ * Fuera de este servicio, y documentado (docs/SECURITY.md, «Borrado de
+ * habitaciones»): la cascada desde `profiles` (borrar la cuenta en Auth o un
+ * perfil) borra habitaciones sin limpiar Storage. ROOMLY no tiene flujo de
+ * borrado de cuenta (H6).
  */
 
 /**
- * Aviso de recuperación del borrado de una habitación (solo el evento y el
- * id): room_delete_unconfirmed, el DELETE dio un resultado ambiguo y no se
- * pudo comprobar si la habitación sigue; no se ha borrado ningún objeto.
+ * Avisos de recuperación del borrado de una habitación (solo el evento y el
+ * id de la habitación):
+ *   - room_delete_unconfirmed: la llamada dio un resultado ambiguo y no se
+ *     pudo comprobar si la habitación sigue; no se ha borrado ningún objeto;
+ *   - room_delete_paths_unknown: la habitación se borró, pero no se conocen
+ *     las rutas de sus fotos (respuesta perdida o mal formada); no se ha
+ *     borrado ningún objeto;
+ *   - room_delete_path_invalid: la base de datos se negó a borrar porque una
+ *     foto tiene una ruta no canónica (no debería pasar: lo impide un CHECK);
+ *     no se ha borrado nada.
  */
-export type RoomRecoveryEvent = "room_delete_unconfirmed";
+export type RoomRecoveryEvent =
+  "room_delete_unconfirmed" | "room_delete_paths_unknown" | "room_delete_path_invalid";
 
 export type RoomsDeps = {
+  /** Cliente con service_role, solo para `delete_own_room`. Se inyecta en los tests. */
+  adminClient: () => DbClient;
   removeRoomObjects: (
     roomId: string,
-    imageIds: readonly string[]
+    storagePaths: readonly string[]
   ) => Promise<RoomObjectsCleanup>;
   reportRecovery: (event: RoomRecoveryEvent, roomId: string) => void;
 };
 
 const DEFAULT_DEPS: RoomsDeps = {
-  removeRoomObjects: (roomId, imageIds) => removeDeletedRoomObjects(roomId, imageIds),
+  adminClient: () => createAdminClient(),
+  removeRoomObjects: (roomId, storagePaths) =>
+    removeDeletedRoomObjects(roomId, storagePaths),
   reportRecovery: (event, roomId) => {
     console.warn(`[rooms] ${event}: ${roomId}`);
   },
@@ -237,7 +258,7 @@ export type RoomDeletion = {
   photosRemoved: boolean;
 };
 
-/** ¿Sigue la habitación? Tras un DELETE ambiguo; `null` si no se puede saber. */
+/** ¿Sigue la habitación? Tras un borrado ambiguo; `null` si no se puede saber. */
 async function roomStillExists(
   supabase: DbClient,
   userId: string,
@@ -253,6 +274,30 @@ async function roomStillExists(
   return data !== null;
 }
 
+/**
+ * Rechazos definitivos de `delete_own_room` (la transacción se ha deshecho:
+ * no se ha borrado nada), por su SQLSTATE y su prefijo, nunca por el resto
+ * del mensaje, que no se devuelve.
+ */
+function mapDeleteRejection(
+  error: { code?: string; message?: string },
+  roomId: string,
+  deps: RoomsDeps
+): ServiceResult<never> {
+  const raw: unknown = error.message;
+  const message = typeof raw === "string" ? raw : "";
+  if (error.code === "P0002" && message.startsWith("room_not_found:"))
+    return fail("not_found");
+  if (error.code === "42501" && message.startsWith("account_deleted:"))
+    return fail("deleted");
+  // interests, matches o reports la referencian sin cascada.
+  if (error.code === "23503") return fail("conflict");
+  if (error.code === "23514" && message.startsWith("room_delete_path_invalid:")) {
+    deps.reportRecovery("room_delete_path_invalid", roomId);
+  }
+  return fail("unknown");
+}
+
 /** Borra una habitación propia y después los objetos de sus fotos (ver arriba). */
 export async function deleteOwnRoom(
   supabase: DbClient,
@@ -266,37 +311,29 @@ export async function deleteOwnRoom(
   if (!room.ok) return room;
   const id = room.data.id;
 
-  const { data: images, error: imagesError } = await supabase
-    .from("room_images")
-    .select("id")
-    .eq("room_id", id);
-  if (imagesError) return mapDbError(imagesError);
-  const imageIds = ((images ?? []) as Array<{ id: string }>).map((image) => image.id);
-
-  const { data: deleted, error } = await supabase
-    .from("rooms")
-    .delete()
-    .eq("id", id)
-    .eq("owner_id", userId)
-    .select("id")
-    .maybeSingle();
+  const { data, error } = await deps
+    .adminClient()
+    .rpc("delete_own_room", { p_room_id: id, p_user_id: userId });
   if (error) {
-    // Rechazo definitivo (la transacción se ha deshecho): nada ha cambiado.
-    // Las mismas clases SQLSTATE que para el INSERT de una foto (M2).
-    if (isDefinitiveInsertRejection(error)) return mapDbError(error);
-    // Ambiguo: solo se sigue si se comprueba que la habitación ya no está.
+    if (isDefinitiveInsertRejection(error)) return mapDeleteRejection(error, id, deps);
+    // Ambiguo: la transacción pudo confirmarse. Solo se sabe mirando.
     const exists = await roomStillExists(supabase, userId, id);
     if (exists === null) {
       deps.reportRecovery("room_delete_unconfirmed", id);
       return fail("unknown");
     }
     if (exists) return fail("unknown");
-  } else if (!deleted) {
-    // La RLS no ha dejado borrar ninguna fila (por ejemplo, la cuenta se
-    // desactivó entre la comprobación y el DELETE) o ya no estaba.
-    return fail("not_found");
+    // Borrada, pero sin las rutas: la limpieza queda para la conciliación.
+    deps.reportRecovery("room_delete_paths_unknown", id);
+    return ok({ photosRemoved: false });
   }
 
-  const cleanup = await deps.removeRoomObjects(id, imageIds);
+  // La transacción se confirmó: la habitación ya no existe.
+  const paths: unknown = data;
+  if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) {
+    deps.reportRecovery("room_delete_paths_unknown", id);
+    return ok({ photosRemoved: false });
+  }
+  const cleanup = await deps.removeRoomObjects(id, paths);
   return ok({ photosRemoved: cleanup.complete });
 }
