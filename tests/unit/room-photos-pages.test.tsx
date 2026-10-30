@@ -103,7 +103,34 @@ describe("/habitaciones/[id]/fotos", () => {
     expect(html).not.toContain('type="file"');
     expect(html).not.toContain('name="imageId"');
     expect(html).not.toContain("/borrar");
+    expect(html).not.toContain("/editar");
     expect(html).not.toContain("<form");
+  });
+
+  it("propietaria: enlaces a los datos y al listado; tras crearla (?creada=1), el aviso", async () => {
+    setup();
+    const plain = await photosPage(ROOM_ID);
+    expect(plain).toContain(`href="/habitaciones/${ROOM_ID}/editar"`);
+    expect(plain).toContain('href="/habitaciones"');
+    expect(plain).not.toContain("Habitación creada como borrador");
+    const created = renderToStaticMarkup(
+      await RoomPhotosPage({
+        params: Promise.resolve({ id: ROOM_ID }),
+        searchParams: Promise.resolve({ creada: "1" }),
+      })
+    );
+    expect(created).toContain("Habitación creada como borrador");
+    expect(created).toContain("no son obligatorias para publicarla");
+  });
+
+  it("?creada=1 en una habitación ajena no cambia nada: 404", async () => {
+    setup();
+    await expect(
+      RoomPhotosPage({
+        params: Promise.resolve({ id: OTHER_ROOM_ID }),
+        searchParams: Promise.resolve({ creada: "1" }),
+      })
+    ).rejects.toEqual(notFoundError);
   });
 
   it("otra persona (habitación pública ajena) → 404, sin firmar nada", async () => {
@@ -198,5 +225,7 @@ describe("/habitaciones/[id]/borrar y /habitaciones/borrada", () => {
     );
     expect(pending).toContain("quedan pendientes de limpieza");
     expect(pending).not.toContain("La habitación y sus fotos se han borrado.");
+    // Vuelta al listado de habitaciones (sesión 68), no al perfil.
+    expect(done).toContain('href="/habitaciones"');
   });
 });

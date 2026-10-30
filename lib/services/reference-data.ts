@@ -74,3 +74,34 @@ export async function listNeighborhoods(
   if (error) return mapDbError(error);
   return ok(data ?? []);
 }
+
+export type LocationOptions = {
+  cities: CityOption[];
+  neighborhoods: NeighborhoodOption[];
+};
+
+/**
+ * Ciudades y barrios de un formulario de ubicación (habitaciones, sesión 68):
+ * las ciudades activas y, si hay una guardada que ya no lo está, también
+ * esa (se puede conservar, no elegir de nuevo), con sus barrios. Tres
+ * consultas como máximo, sin N+1.
+ */
+export async function listLocationOptions(
+  supabase: DbClient,
+  savedCityId: string | null
+): Promise<ServiceResult<LocationOptions>> {
+  const active = await listActiveCities(supabase);
+  if (!active.ok) return active;
+  let cities = active.data;
+  if (savedCityId && !cities.some((city) => city.id === savedCityId)) {
+    const saved = await listCitiesByIds(supabase, [savedCityId]);
+    if (!saved.ok) return saved;
+    cities = [...cities, ...saved.data];
+  }
+  const neighborhoods = await listNeighborhoods(
+    supabase,
+    cities.map((city) => city.id)
+  );
+  if (!neighborhoods.ok) return neighborhoods;
+  return ok({ cities, neighborhoods: neighborhoods.data });
+}

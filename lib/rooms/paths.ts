@@ -1,9 +1,16 @@
 /**
- * Rutas de la gestión de habitaciones (Fase 4.2: fotos y borrado). El id va
+ * Rutas de la gestión de habitaciones (Fase 4.2: fotos y borrado; sesión 68:
+ * listado, alta y edición). El id va
  * siempre validado como UUID antes de construir una ruta: así una ruta de
  * `revalidatePath` o de vuelta tras el login nunca sale de un texto del
  * navegador.
  */
+
+/** Listado de las habitaciones propias. */
+export const ROOMS_PATH = "/habitaciones";
+
+/** Alta de una habitación (nace en borrador). */
+export const NEW_ROOM_PATH = "/habitaciones/nueva";
 
 /** Tras borrar una habitación, la página de confirmación (sin id: ya no existe). */
 export const ROOM_DELETED_PATH = "/habitaciones/borrada";
@@ -16,4 +23,9 @@ export function roomPhotosPath(roomId: string): string {
 /** Confirmación del borrado de una habitación (`roomId`, un UUID ya validado). */
 export function roomDeletePath(roomId: string): string {
   return `/habitaciones/${roomId}/borrar`;
+}
+
+/** Edición de una habitación propia (`roomId`, un UUID ya validado). */
+export function roomEditPath(roomId: string): string {
+  return `/habitaciones/${roomId}/editar`;
 }
