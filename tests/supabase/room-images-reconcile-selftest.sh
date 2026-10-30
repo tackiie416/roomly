@@ -14,7 +14,10 @@
 #     inspeccionar» (2): sin Storage, con una RLS que podría ocultar filas al
 #     rol, sin conexión, o con una entrada no válida (sin llegar a conectar);
 #   - no muestra la URL de la base de datos (ni su contraseña, tampoco cuando
-#     la conexión falla).
+#     la conexión falla);
+#   - (sesión 65) detecta los objetos que deja el borrado de una cuenta en
+#     Auth: la cascada auth.users → profiles → rooms → room_images borra las
+#     filas, no los objetos, y la aplicación no la intercepta.
 #
 # Conexión: variables estándar de libpq, como tests/db/run.sh.
 set -euo pipefail
@@ -28,7 +31,7 @@ AS_OF="2026-10-25T12:00:00Z"
 failed=0
 
 cleanup() {
-  for suffix in "" _limpia _sin_storage; do
+  for suffix in "" _limpia _sin_storage _cascada; do
     "${ADMIN[@]}" -c "drop database if exists ${DB}${suffix}" >/dev/null 2>&1 || true
   done
   "${ADMIN[@]}" -c "drop role if exists zz_reconcile_reader_$$" >/dev/null 2>&1 || true
@@ -153,6 +156,19 @@ for change in \
     "[ $rc -eq 2 ] && grep -q 'read-only transaction' '$WORK/rw.out' && grep -q 'NO VERIFICABLE' '$WORK/rw.out' \
      && [ \"\$(fingerprint '$DB')\" = '$before' ]"
 done
+
+echo "== cascada desde auth.users (sesión 65): las filas se van, los objetos quedan"
+prepare "${DB}_cascada"
+psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc -d "${DB}_cascada" \
+  -c "delete from auth.users where id = 'e0000000-0000-4000-8000-00000000000a'" >/dev/null
+check "borrar la cuenta en Auth borra en cascada su perfil, su habitación y la fila de su foto" \
+  "[ \"\$(psql -X -q -At --no-psqlrc -d '${DB}_cascada' -c \"select (select count(*) from public.profiles) + (select count(*) from public.rooms) + (select count(*) from public.room_images)\")\" = 0 ] \
+   && [ \"\$(psql -X -q -At --no-psqlrc -d '${DB}_cascada' -c \"select count(*) from storage.objects where bucket_id = 'room-images'\")\" = 1 ]"
+rc=0
+reconcile "${DB}_cascada" "$WORK/cascade.out" --as-of "$AS_OF" --min-age-hours 24 || rc=$?
+check "la conciliación lo detecta: su objeto es un candidato a huérfano (1, inconsistencias)" \
+  "[ $rc -eq 1 ] && grep -q '^objeto_sin_fila (candidato a huérfano): 1$' '$WORK/cascade.out' \
+   && grep -qP '^objeto_sin_fila\te1000000-0000-4000-8000-000000000001/e2000000-0000-4000-8000-000000000001\.webp\t72$' '$WORK/cascade.out'"
 
 echo "== sin inconsistencias y sin poder inspeccionar"
 prepare "${DB}_limpia"
