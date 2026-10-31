@@ -334,7 +334,8 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       cambios). A un admin, una habitación ajena le da 404;
     - ubicación solo con ciudad y barrio (R2), con la atribución de los
       barrios (R1) en esas pantallas y, desde la sesión 69, también en el
-      onboarding y en `/preferencias`: un único componente
+      onboarding y en `/preferencias` (y en `/explorar` desde la sesión 70,
+      cuando alguna tarjeta muestra zonas): un único componente
       (`components/rooms/neighborhoods-attribution.tsx`) con la procedencia
       verificada en datos.gob.es (conjunto «Unidades administrativas de la
       ciudad de Barcelona», recurso `BarcelonaCiutat_Barris.json`, CC BY
@@ -737,9 +738,8 @@ borrado de cuenta (H6).
     (`PROGRESS.md`, sesión 68). Su merge sigue sin decidir.
 - Fase 4.3 (CRUD, en local, sin publicar): cuándo se publica su rama y su PR
   (apilado sobre el PR #28). La atribución de los barrios en el onboarding y
-  en `/preferencias` ya está hecha en local (sesión 69); queda decidir si
-  `/explorar`, que muestra nombres de barrios de los candidatos, también la
-  lleva.
+  en `/preferencias` (sesión 69) y en `/explorar` (sesión 70) ya está hecha
+  en local.
 - Desde la sesión 65 (el DELETE directo de `rooms` ya está cerrado, con
   `20261030120000`):
   - repetir en un despliegue (staging) la medición del cuerpo de una subida

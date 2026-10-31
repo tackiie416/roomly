@@ -24,7 +24,8 @@ export const NEIGHBORHOODS_SOURCE = {
 /**
  * Atribución del catálogo de barrios (CC BY 4.0), la única de la aplicación:
  * va junto a cada lugar donde se ofrece o se muestra el catálogo (alta,
- * edición y listado de habitaciones, onboarding y `/preferencias`). Cumple
+ * edición y listado de habitaciones, onboarding, `/preferencias` y, cuando
+ * alguna tarjeta muestra zonas, `/explorar`). Cumple
  * las condiciones de D1 (`PROGRESS.md`, 2026-10-19): identifica el conjunto,
  * el publicador y el recurso, enlaza a su ficha, al recurso original y a la
  * licencia, dice qué se ha adaptado (lo que hace la migración: solo los

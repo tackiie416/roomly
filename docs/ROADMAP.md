@@ -687,6 +687,9 @@ demás siguen sin tomar:
       JavaScript. `/explorar` muestra nombres de barrios de los candidatos
       sin atribución: queda para decidir. La confirmación antes del
       lanzamiento (condición de D1) sigue siendo del propietario.
+    - **Sesión 70:** también en `/explorar`, debajo de la lista, cuando
+      alguna tarjeta muestra zonas (nombres de `neighborhoods`), con el
+      mismo componente.
 - **R2.** Ubicación aproximada: solo el barrio, o coordenadas difuminadas con
   mapa; el proveedor (Mapbox está recomendado, sin confirmar) y la
   distancia a la universidad, que no tiene coordenadas.

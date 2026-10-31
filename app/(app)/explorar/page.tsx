@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireCompletedQuestionnaire } from "@/lib/auth/session";
 import { EXPLORE_PATH, TEST_PATH } from "@/lib/auth/destination";
 import { getCandidates, type CandidateDTO } from "@/lib/services/matching";
+import { NeighborhoodsAttribution } from "@/components/rooms/neighborhoods-attribution";
 import { Card } from "@/components/ui/card";
 
 /**
@@ -13,6 +14,8 @@ import { Card } from "@/components/ui/card";
  * mostrar respuestas, fechas de nacimiento, presupuestos exactos ni
  * puntuaciones por categoría. Sin «Ver perfil» ni «Me interesa» (D14; Fase 5).
  * Si falta la clave de servicio o falla la consulta, error genérico (2.7).
+ * Los nombres de las zonas salen del catálogo de barrios (R1): si alguna
+ * tarjeta los muestra, debajo de la lista va su atribución (sesión 70).
  */
 
 class CandidatesUnavailableError extends Error {
@@ -169,6 +172,9 @@ export default async function ExplorePage({
               <CandidateCard key={candidate.id} candidate={candidate} />
             ))}
           </ul>
+          {candidates.some((candidate) => candidate.neighborhoods.length > 0) ? (
+            <NeighborhoodsAttribution />
+          ) : null}
         </>
       )}
 

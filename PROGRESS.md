@@ -6,6 +6,56 @@ próximos pasos.**
 
 ---
 
+## 2026-10-31 — Sesión 70: atribución de los barrios en /explorar (Fase 4 EN CURSO; en commits locales sin publicar, en la rama del CRUD; PR #26, #27 y #28 sin fusionar)
+
+**Contexto.** La sesión 69 dejó como pendiente que `/explorar` muestra
+nombres de barrios de los candidatos sin atribución. El propietario autorizó
+completarla, reutilizando el componente compartido.
+
+**Procedencia de esos nombres** (comprobado en el código):
+1. `getCandidates` (`lib/services/matching.ts`) toma los
+   `preferred_neighborhood_ids` de cada candidato de la página.
+2. Lee sus nombres con el cliente del usuario:
+   `from("neighborhoods").select("id, name").in("id", …)`.
+3. `pickNeighborhoods` elige hasta 3.
+
+Los triggers de `housing_preferences` exigen que esos barrios existan y
+sean de la ciudad elegida. Hoy la única ciudad con barrios es Barcelona, y
+sus barrios son exactamente los 73 de R1 (`20261016120000`; P1 lo
+comprueba). Así que son nombres del catálogo y corresponde atribuirlos.
+
+**Qué se hizo**
+- `app/(app)/explorar/page.tsx`: `NeighborhoodsAttribution` debajo de la
+  lista, solo si alguna tarjeta muestra zonas. Una sola vez por página, no en
+  cada tarjeta. No cambian la búsqueda, los filtros, el orden, la
+  paginación, la compatibilidad ni la visibilidad de candidatos.
+- `components/rooms/neighborhoods-attribution.tsx`: solo el comentario con
+  la lista de pantallas. El texto, los metadatos y la descripción de la
+  transformación no cambian.
+- Tests: `explore-page.test.tsx` (8) y dos comprobaciones en
+  `compatibility-flow.spec.ts`: sin zonas no hay atribución, y un test nuevo
+  con zonas, con y sin JavaScript.
+- Documentación: `docs/DATABASE.md`, `docs/ROADMAP.md`, `docs/SECURITY.md`,
+  `docs/TESTING.md`, `CLAUDE.md` y esta entrada.
+
+**Verificación** (en local)
+- `npm run test`: 1432/1432 en 56 archivos.
+- E1: 49/49, orientativo.
+- `lint`, `typecheck` y `format:check`: en verde.
+
+**Pendiente** (sin cambios)
+- La limitación de los barrios sin JavaScript en el onboarding y en
+  `/preferencias`.
+- Comparar el archivo facilitado con el recurso publicado.
+- La confirmación antes del lanzamiento (D1).
+- Publicar la rama, con su autorización.
+
+**Sin cambios:** el CRUD, las migraciones, R8, las políticas y la
+configuración de Supabase. No hubo push, PR, merge, workflows ni conexión a
+Supabase.
+
+---
+
 ## 2026-10-31 — Sesión 69: atribución del catálogo de barrios, verificada y unificada (Fase 4 EN CURSO; en commits locales sin publicar, en la rama del CRUD; PR #26, #27 y #28 sin fusionar)
 
 **Contexto.**

@@ -199,6 +199,26 @@ Detalle, con los niveles de evidencia, en `docs/SUPABASE_VALIDATION.md`
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
 
+## R1 — atribución en `/explorar` (2026-10-31, sesión 70; solo en local)
+
+- `npm run test`: 1432/1432 en 56 archivos (1424 antes). Nuevo
+  `explore-page.test.tsx` (8), con el guard y el servicio simulados:
+  - con zonas en alguna tarjeta, una sola atribución, debajo de la lista,
+    con los tres enlaces;
+  - sin zonas, sin candidatos, sin compañeros o con la página fuera de
+    rango, ninguna;
+  - la página importa el componente compartido y no copia el texto;
+  - el resto (tarjetas, puntuación, presupuesto, explicación, paginación y
+    error genérico) sigue igual.
+
+  Una mutación que quita la atribución hace fallar el primero.
+- E1: 49/49, orientativo. En `compatibility-flow.spec.ts`:
+  - el flujo existente comprueba que, sin zonas, no hay atribución;
+  - un test nuevo siembra un candidato con Gràcia y Sants y ve la
+    atribución, con sus tres enlaces, con y sin JavaScript.
+- `lint`, `typecheck` y `format:check`, en verde. Sin cambios de SQL: no se
+  repiten `test:db` ni `test:infra`.
+
 ## R1 — atribución del catálogo de barrios (2026-10-31, sesión 69; solo en local)
 
 En la rama local `feature/phase4-3-rooms-crud`. **Nada se ha ejecutado en la

@@ -545,7 +545,8 @@ tablas, **44 políticas, 13 triggers y 11 funciones**.
   a su ficha, el recurso a su descarga original y «CC BY 4.0» a la licencia,
   la adaptación (abajo) y la aclaración de que no implica aval. Aparece en
   el alta, la edición y el listado de habitaciones, en el onboarding y en
-  `/preferencias`, junto al selector de barrios.
+  `/preferencias`, junto al selector de barrios, y desde la sesión 70 en
+  `/explorar`, debajo de la lista cuando alguna tarjeta muestra zonas.
 - **Adaptación al importar** (lo que dice la atribución): ROOMLY usa los
   nombres de los 73 barrios y genera identificadores internos (el `id` por
   `gen_random_uuid()` y el `slug`, derivado del nombre). No reutiliza los
