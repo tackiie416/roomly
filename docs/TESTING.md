@@ -154,6 +154,154 @@ con los runs 16–19 es de la Fase 3 y el resto, de las Fases 1 y 2.
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
 
+## Guardas de vistas, privilegios por defecto y runbook del incidente (sesión 73, 2026-10-31; solo en local)
+
+Misma rama local `hotfix/public-profile-previews-write-lockdown`, sobre
+`700bb60`. PostgreSQL 16.15 local con el shim de `tests/db`. Nada remoto.
+
+**Suites** (con el código final de la sesión):
+
+| Comando | Antes (`700bb60`) | Sesión 73 |
+|---|---|---|
+| `npm run test:db` | 409 | **428** (`25_views_security`: 19) |
+| `npm run test:infra` | 177 | **238**: preflight 57 → 64 (6 mutaciones P5 y 1 variante aceptada), `default-privileges-selftest` 18, `incident-runbook-selftest` 36 |
+| `npm run test` | 38 archivos, 1040 | 39 archivos, **1052/1052** (`views-security-static`, 12) |
+| `lint`, `typecheck`, `format:check` | en verde | en verde |
+
+**El hotfix sigue bloqueando los 12 intentos sobre la vista** (el mismo
+script de explotación de la sesión 72, sobre el código final):
+- sin `20261014120000`: 6 escrituras permitidas (A se pone admin; A y anon
+  cambian nombres o roles ajenos; anon y A borran perfiles), 2 lecturas
+  permitidas, 2 inserciones con el privilegio pero rechazadas por el NOT
+  NULL de `date_of_birth`, y el rol solo con PUBLIC rechazado;
+- con el hotfix: **12/12 con 42501**, y el control por la tabla `profiles`
+  también 42501. Lo mismo comprueban LK1–LK5 de `tests/db/24`.
+
+**Guardas generales de vistas** (reglas en `docs/SECURITY.md`, «Guardas
+generales de vistas»):
+- `tests/db/25_views_security.sql` (VW0–VW8): una función de prueba recorre
+  todas las vistas y vistas materializadas de `public` con privilegios
+  efectivos (`has_table_privilege`, `has_any_column_privilege`) y la ACL
+  (PUBLIC incluido). Controles, cada uno deshecho al terminar:
+  - vista definer nueva con ALL: se detecta por tres motivos, y A de verdad
+    se pone admin por ella;
+  - vista definer con solo SELECT: se detecta, y A ve por ella el perfil de B
+    que la RLS de la tabla le oculta (un SELECT «inocuo» no está protegido
+    por la RLS);
+  - vista invoker con escritura de clientes: se detecta aunque los GRANT y la
+    RLS de `profiles` frenen el intento (42501, 0 filas, solo su propio
+    nombre);
+  - el patrón aprobado (invoker, REVOKE y SELECT explícito): no se señala y
+    lee con la RLS;
+  - INSERT para PUBLIC, UPDATE por columna para anon y una vista
+    materializada legible por anon: se detectan.
+- P5 del preflight: la misma regla, con seis mutaciones nuevas en
+  `preflight-selftest.sh` y una variante aceptada que debe pasar el
+  preflight completo.
+- Test estático `tests/unit/views-security-static.test.ts` (12 tests, con
+  autotests del detector). Demostración con migraciones temporales, una por
+  caso, borradas después:
+
+  | Migración temporal | Reglas que fallan |
+  |---|---|
+  | vista definer nueva sin REVOKE | 1 (security_invoker) y 2 (REVOKE) |
+  | vista invoker sin REVOKE | 2 |
+  | vista invoker con `grant select, update on public.rooms, public.<vista> to anon` | 3 (escritura en un GRANT con varias relaciones) |
+  | `grant update ("full_name") on table "public"."public_profile_previews" to "authenticated"` | 3 y las dos del test del hotfix |
+  | `grant service_role to authenticated` | 4c (pertenencia) |
+  | `alter default privileges … grant all on tables to anon` | 4b y la del test del hotfix |
+  | `grant select on all tables in schema public to authenticated` | 4a y la del test del hotfix |
+  | vista materializada sin REVOKE | 1 y 2 |
+  | control: vista invoker correcta | ninguna regla (solo cambia el recuento de vistas, que obliga a revisar cualquier vista nueva) |
+
+  Es heurístico: no ve SQL dinámico ni concesiones hechas fuera de las
+  migraciones. La garantía son los privilegios efectivos de `tests/db/25` y
+  P5.
+
+**Propuesta de privilegios por defecto** (`tests/supabase/default-privileges-proposal.sql`,
+sin aplicar; `default-privileges-selftest.sh`, 18 comprobaciones en bases
+efímeras):
+- A. aplicada después de las migraciones: ningún objeto existente cambia (93
+  entradas), ni los privilegios por defecto de otro rol creador; los objetos
+  nuevos de `postgres` (tabla, vista, secuencia, función) no dan nada a
+  PUBLIC, anon ni authenticated; service_role conserva lo suyo; un GRANT
+  explícito funciona; lo que crea otro rol sigue con sus privilegios por
+  defecto; repetirla no cambia nada; los helpers de `roomly_test` ya tienen
+  EXECUTE explícito y la suite `tests/db` completa (17 archivos) pasa encima
+  sin ajustes.
+- B. cinco estados de partida inesperados (entrada global, destinatario de
+  más, revocación parcial, service_role sin lo suyo, otro rol) abortan sin
+  cambiar nada.
+- C. con la propuesta **delante** de las migraciones, 60 objetos pierden
+  privilegios que hoy solo dan los privilegios por defecto (las 18 tablas,
+  las funciones de `public` y las de pgcrypto local). Por eso solo vale como
+  migración posterior a todas las existentes.
+- Primera ejecución: una comprobación esperaba que la suite necesitara un
+  EXECUTE explícito añadido; era falso (`tests/db/helpers.sql:71` ya lo
+  concede) y se cambió por la comprobación de que no hace falta.
+
+**Runbook del incidente** (`incident-runbook-selftest.sh`, 36
+comprobaciones; detalle en `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md`,
+sección 10.2): captura y verificación sin errores ni escrituras en tres
+esquemas (Fase 1; el estado de `roomly-validation-3`, hasta `20261016120000`,
+sin el hotfix; todas las migraciones), detección antes y después, contención
+con `--single-transaction`, otro concedente, privilegios por rol, Q8 en un
+clúster temporal con `pg_stat_statements` precargada y Q11 con las columnas de
+Supabase. Si no hay `initdb` utilizable, la parte del clúster temporal se
+omite con un aviso (no se ha comprobado si el runner de GitHub lo tiene).
+
+**Coexistencia con la Fase 4.4, repetida con las guardas** (copia temporal
+del árbol de `feature/phase4-4-public-search` con `git archive`, sin tocar la
+rama; borrada al terminar):
+- encima: el hotfix, `tests/db/24` y `25`, los tests estáticos, los
+  autotests nuevos, merges de 3 vías de `preflight.sql`,
+  `preflight-selftest.sh`, `package.json` y `ci.yml` (conflictos de «los dos
+  añaden en el mismo sitio», resueltos conservando los dos lados) y los
+  ajustes de PV8 y PR5 de la sesión 72;
+- resultados: `test:db` **936/936**; `test:infra` **416**, más
+  `default-privileges-selftest` 18 e `incident-runbook-selftest` 36; `tsc` en
+  verde; unitarios **1556/1556 solo después de ajustar un test de R8** (ver el
+  punto 3 de abajo);
+- **corrección a la sesión 72:** aquella comprobación de la copia no ejecutó
+  los unitarios, y su `test:infra` (402) no incluía las mutaciones P4 del
+  hotfix en el preflight. Por eso no detectó el test de R8.
+
+### Ajustes pendientes al integrar la Fase 4.4
+
+Ninguno se ha hecho en la rama 4.4. Todos se han probado en la copia
+temporal.
+
+1. **`tests/db/13`, PV8:** tomar el bloque del hotfix (anon y authenticated
+   reciben 42501; la definición se comprueba como dueño).
+2. **`tests/db/23`, PR5:** «authenticated solo conserva SELECT» pasa a
+   «authenticated no tiene ningún privilegio», y «authenticated sigue
+   leyendo la vista» pasa a esperar 42501.
+3. **`tests/unit/validation-infra.test.ts`, test de R8 «fija exactamente las
+   3 primeras migraciones posteriores a la Fase 3»:** con el hotfix en
+   `20261014120000`, las tres primeras pasan a ser `20261013`, `20261014` y
+   `20261015`, y el test falla. Ajuste mínimo probado: excluir el hotfix del
+   cálculo (`.filter((f) => f !== "20261014120000_public_profile_previews_write_lockdown.sql")`).
+   **No cambia los pins ni las huellas de R8** ni las copias congeladas, pero
+   cambia la invariante de un test de R8: lo decide el propietario.
+4. **`tests/integration/supabase-validation.test.ts`, PR10:** la 4.4 solo
+   registra la lectura de anon (H3); tomar la versión del hotfix (42501 para
+   leer, actualizar y borrar) y añadir PR10b.
+5. **`package.json` (`test:infra`) y `ci.yml`:** conservar los dos lados
+   (los autotests de R8 y de la conciliación de la 4.4, y los dos nuevos). Un
+   test de la 4.4 exige que cada `*-selftest.sh` esté en los dos sitios.
+6. **`tests/supabase/preflight.sql` y `preflight-selftest.sh`:** conservar
+   los dos bloques de P4 (hotfix y `rooms`/`room_images` de la 4.4) y unir los
+   avisos y la cabecera.
+7. **Documentación de la 4.4** (PROGRESS, CLAUDE.md, SECURITY, DATABASE,
+   TESTING): conflictos previsibles; donde diga que authenticated conserva
+   SELECT sobre la vista («H4, decisión pendiente»), queda superado por el
+   hotfix. El comentario de `20261031120100` queda desfasado y se documenta,
+   sin reescribir la migración.
+
+**No ejecutado en esta sesión:** la CI, la api-suite (solo en el workflow
+manual), Supabase real, E1 y `build` (no cambia código de la aplicación). El
+`node_modules` es el de la rama 4.4 (no se reinstaló, para no usar la red).
+
 ## Hotfix `public_profile_previews` (2026-10-31; solo en local)
 
 Rama local `hotfix/public-profile-previews-write-lockdown`, desde `master`

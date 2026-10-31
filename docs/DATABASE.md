@@ -522,6 +522,39 @@ en local** (rama `hotfix/public-profile-previews-write-lockdown`, desde
   sus mutaciones, PR10 y PR10b de la api-suite y el test estático
   `tests/unit/public-profile-previews-lockdown.test.ts`.
 
+## Vistas y privilegios de objetos nuevos (sesión 73, 2026-10-31)
+
+Reglas de esquema que salen del hotfix. Razonamiento, excepciones y dónde se
+comprueban: `docs/SECURITY.md`, «Guardas generales de vistas».
+
+- **Toda vista nueva** de `public`:
+  - `with (security_invoker = true)`;
+  - en la misma migración, después del CREATE:
+    `revoke all on public.<vista> from public, anon, authenticated;` y,
+    después, solo el GRANT de lectura que haga falta, explícito;
+  - nunca INSERT, UPDATE, DELETE ni TRUNCATE para PUBLIC, anon o
+    authenticated, aunque la RLS de la tabla lo frenara;
+  - una vista materializada no tiene RLS: ningún privilegio de clientes.
+- **Excepción vigente:** `public_profile_previews` (Fase 0,
+  `security_invoker = false`), sin privilegios de clientes desde el hotfix.
+  Una excepción nueva necesita una decisión de seguridad documentada y su
+  test.
+- **GRANT explícitos en los objetos nuevos.** Las funciones de las Fases
+  4.1–4.4 (en sus ramas, todavía sin fusionar) ya lo hacen: `revoke all …
+  from public, anon, authenticated, service_role` y después `grant execute`
+  al rol que corresponda. Muchos objetos existentes, en cambio, reciben de
+  los privilegios por defecto de Supabase privilegios que ninguna migración
+  concede: 60 en una instalación local (las 18 tablas y varias funciones;
+  por ejemplo, el SELECT de authenticated en `profiles`). Consecuencias:
+  - una migración que borre y vuelva a crear un objeto existente (DROP +
+    CREATE) tiene que concederle de forma explícita lo que tenía; CREATE OR
+    REPLACE conserva los privilegios;
+  - una tabla nueva debe conceder lo que necesite cada rol, sin contar con
+    los privilegios por defecto, para que siga funcionando si se aplica la
+    propuesta de `tests/supabase/default-privileges-proposal.sql`
+    (no aplicada; ver `docs/SECURITY.md`, «Privilegios por defecto:
+    propuesta sin aplicar»).
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid

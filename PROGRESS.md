@@ -6,6 +6,106 @@ próximos pasos.**
 
 ---
 
+## 2026-10-31 — Sesión 73: endurecimiento preventivo de vistas y preparación del hotfix (en commits locales sin publicar; misma rama que la sesión 72)
+
+**Contexto.** Después del hotfix (sesión 72) y de una auditoría solo de
+análisis de los privilegios por defecto y del plan de respuesta, el
+propietario pidió extender las guardas a todas las vistas, preparar (sin
+aplicar) el endurecimiento de los privilegios por defecto, revisar el runbook
+Q0–Q12 en local y corregir la documentación. Autorizado: cambios locales en
+esta rama, tests locales, documentación y commits locales. No autorizado:
+push, PR, merge, fetch, workflows remotos, conexión a Supabase, SQL remoto,
+aplicar el hotfix en proyectos reales, modificar la rama 4.4, migrar los
+privilegios por defecto y pausar, borrar o rotar claves de proyectos.
+
+**Punto de partida (verificado):** rama
+`hotfix/public-profile-previews-write-lockdown` en `700bb60`, árbol limpio;
+`d76220c` y `700bb60` presentes; `master` en `7818a15`;
+`feature/phase4-4-public-search` en `48e4fea`.
+
+**Qué se hizo**
+- **Guardas generales de vistas** (`b53bc08`): `tests/db/25_views_security.sql`
+  (VW0–VW8, privilegios efectivos y ACL con PUBLIC), P5 del preflight con seis
+  mutaciones y una variante aceptada, test estático
+  `views-security-static.test.ts` con el parser compartido
+  `tests/unit/helpers/sql-privileges.ts` (GRANT con varias relaciones, por
+  columnas, con comillas; REVOKE; privilegios por defecto; pertenencias).
+  Reglas: `docs/SECURITY.md`, «Guardas generales de vistas».
+- **Privilegios por defecto, solo propuesta** (`9ffaa42`):
+  `tests/supabase/default-privileges-proposal.sql` (fuera de las
+  migraciones) y su autotest. Falla de forma segura ante cualquier estado
+  inesperado. Recomendación: `docs/SECURITY.md`, «Privilegios por defecto:
+  propuesta sin aplicar».
+- **Runbook revisado** (`cf4e8cb`): las consultas pasan a
+  `tests/supabase/incident-*.sql` (captura obligatoria, dos opcionales y
+  verificación) y `incident-runbook-selftest.sh` las ejecuta en local.
+  Documento: `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md` (fases A–E, evidencias
+  privadas, inventario, revisión de Q0–Q12).
+- **Documentación** (este commit): SECURITY, DATABASE, TESTING, CLAUDE.md y
+  el runbook. Se añade `roomly-validation` (Fase 1) a los proyectos
+  potencialmente afectados (faltaba en la sesión 72) y se corrige la frase de
+  CLAUDE.md que presentaba `public_profile_previews` como la vía para datos de
+  otros. Se conserva el texto anterior, marcado como versión de la sesión 72.
+
+**Estado del incidente** (sin cambios desde la sesión 72 en lo remoto):
+reproducido solo en local; potencialmente afectados `roomly-validation`,
+`roomly-validation-2b` (`uwxb…`) y `roomly-validation-3`; inspeccionados de
+verdad, ninguno; evidencia de explotación real, ninguna, ni a favor ni en
+contra; sin registros históricos no se puede demostrar quién usó la vista ni
+qué cambió. Ningún proyecto se da por seguro.
+
+**Resultados** (detalle en `docs/TESTING.md`, sesión 73)
+- `test:db` 428/428 (409 antes), `test:infra` 238 (177 antes), unitarios
+  1052/1052 en 39 archivos (1040 antes), `lint`, `typecheck` y
+  `format:check` en verde.
+- El script de explotación de la sesión 72, sobre el código final: con el
+  hotfix, 12/12 intentos sobre la vista con 42501; sin él, 6 escrituras y 2
+  lecturas permitidas.
+- Las guardas estáticas detectan 8 migraciones temporales indebidas (vista
+  definer, invoker sin REVOKE, escritura en un GRANT con varias relaciones,
+  UPDATE por columnas con comillas, pertenencia, privilegios por defecto,
+  «all tables» y vista materializada).
+- Coexistencia con la 4.4 en una copia temporal (`git archive`, rama sin
+  tocar): `test:db` 936/936, `test:infra` 416 más 18 y 36 de los autotests
+  nuevos, unitarios 1556/1556 tras el ajuste de R8 descrito abajo.
+
+**Problemas encontrados**
+- El autotest de la propuesta suponía que la suite `tests/db` necesitaría un
+  EXECUTE explícito sin el EXECUTE global de PUBLIC. Era falso:
+  `tests/db/helpers.sql` ya lo concede. Se cambió la comprobación.
+- Los primeros archivos nuevos iban en subdirectorios de `tests/supabase`, y
+  `validation-infra.test.ts` lee esa carpeta como si solo hubiera archivos.
+  Se aplanaron (`incident-*.sql`, `default-privileges-proposal.sql`) en vez
+  de tocar ese test; así también los cubre su comprobación de marcas.
+- **Corrección a la sesión 72:** su comprobación de coexistencia no ejecutó
+  los unitarios de la copia. Con el hotfix, un test de R8 de la 4.4 («las 3
+  primeras migraciones posteriores a la Fase 3») falla, porque
+  `20261014120000` pasa a ser la segunda. Los pins y huellas de R8 no
+  cambian; el ajuste mínimo (excluir el hotfix del cálculo) está probado solo
+  en la copia y lo decide el propietario.
+- El autotest del runbook modelaba «sin hotfix» como todas las migraciones
+  menos el hotfix; con la 4.4 eso no es el estado de ningún proyecto real
+  (`20261031120100` ya retira la escritura). Ahora usa el estado de
+  `roomly-validation-3` (hasta `20261016120000`).
+
+**Qué queda (necesita autorización del propietario)**
+- Todo lo de la sesión 72: revisión, push, PR y merge del hotfix; aplicarlo en
+  los proyectos según el runbook; integrarlo en las ramas de la Fase 4 con
+  los siete ajustes de `docs/TESTING.md` («Ajustes pendientes al integrar la
+  Fase 4.4»), incluido el del test de R8.
+- Ejecutar Q6 (solo lectura) en cada proyecto antes de decidir si la
+  propuesta de privilegios por defecto se convierte en migración.
+- Decidir cómo dar en el futuro datos públicos de otras personas (Fase 5).
+- Si el clúster temporal del autotest del runbook funciona en el runner de
+  GitHub (si no hay `initdb`, esa parte se omite con aviso).
+
+**Sin cambios:** las migraciones (incluida `20261014120000`, misma huella
+`eb53f350…`), la rama 4.4 y las demás ramas, los PR, las copias congeladas de
+D3, sus huellas y los pins de R8. No hubo push, PR, merge, fetch, workflows ni
+conexión a Supabase o a ningún proyecto real.
+
+---
+
 ## 2026-10-31 — Sesión 72: hotfix de seguridad, `public_profile_previews` sin privilegios de clientes (en commits locales sin publicar; rama propia desde `master`)
 
 > Las sesiones 44–71 están en las ramas de la Fase 4 aún sin fusionar (PR
