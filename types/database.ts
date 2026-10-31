@@ -241,6 +241,12 @@ export interface Database {
           created_at: string;
           updated_at: string;
           deleted_at: string | null;
+          /**
+           * Fecha de la última publicación (20261031120000). La pone el
+           * trigger `trg_rooms_published_at`; ningún cliente la escribe, por
+           * eso no está en `Insert` ni en `Update`.
+           */
+          published_at: string | null;
         };
         Insert: {
           id?: string;

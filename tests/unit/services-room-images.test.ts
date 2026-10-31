@@ -6,7 +6,9 @@ import {
   deleteRoomImage,
   isDefinitiveInsertRejection,
   listOwnRoomImages,
+  listRoomCovers,
   listRoomImages,
+  ROOM_COVERS_MAX_ROOMS,
   type RecoveryEvent,
   type RoomImagesDeps,
 } from "@/lib/services/room-images";
@@ -1010,6 +1012,93 @@ describe("listRoomImages: fotos de una habitación para quien la mira", () => {
       error: "forbidden",
     });
     expect(admin.storageCalls).toHaveLength(0);
+  });
+});
+
+describe("listRoomCovers: portadas de una página de la búsqueda pública (sesión 71)", () => {
+  const cover = (n: number, roomId = ROOM) => ({
+    ...image(n, 0, roomId),
+    room_id: roomId,
+  });
+
+  it("ids no válidos o demasiados: validation, sin leer ni firmar", async () => {
+    const tooMany = Array.from(
+      { length: ROOM_COVERS_MAX_ROOMS + 1 },
+      (_, i) => `${String(i).padStart(8, "0")}-3333-4444-8555-666666666666`
+    );
+    for (const ids of ["x", [ROOM, "../otra"], tooMany, null]) {
+      const d = deps(adminClient());
+      const { client, calls } = userClient({});
+      const result = await listRoomCovers(client, ids, d.value);
+      expect(!result.ok && result.error).toBe("validation");
+      expect(calls).toHaveLength(0);
+      expect(d.adminCreated()).toBe(0);
+    }
+  });
+
+  it("lista vacía: sin leer ni firmar", async () => {
+    const d = deps(adminClient());
+    const { client, calls } = userClient({});
+    const result = await listRoomCovers(client, [], d.value);
+    expect(result.ok && result.data.covers.size).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect(d.adminCreated()).toBe(0);
+  });
+
+  it("una lectura con el cliente de quien pregunta (ids sin repetir, en minúsculas) y una firma", async () => {
+    const admin = adminClient();
+    const { client, calls } = userClient({
+      userId: null,
+      images: [cover(1), cover(2), cover(3, OTHER_ROOM)] as unknown as Images,
+    });
+    const result = await listRoomCovers(
+      client,
+      [ROOM, ROOM.toUpperCase(), OTHER_ROOM],
+      deps(admin).value
+    );
+    expect(calls).toEqual([
+      expect.objectContaining({
+        table: "room_images",
+        columns: "id, room_id, storage_path, position",
+        filters: [{ kind: "in", column: "room_id", value: [ROOM, OTHER_ROOM] }],
+        order: ["position", "created_at", "id"],
+      }),
+    ]);
+    expect(admin.storageCalls).toEqual([
+      {
+        op: "sign",
+        bucket: "room-images",
+        paths: [cover(1).storage_path, cover(3, OTHER_ROOM).storage_path],
+        expiresIn: 600,
+      },
+    ]);
+    expect(result.ok && Object.fromEntries(result.data.covers)).toEqual({
+      [ROOM]: { url: signed(cover(1).storage_path), expiresAt: EXPIRES },
+      [OTHER_ROOM]: {
+        url: signed(cover(3, OTHER_ROOM).storage_path),
+        expiresAt: EXPIRES,
+      },
+    });
+    // service_role solo firma: ninguna lectura de tablas.
+    expect(admin.calls).toHaveLength(0);
+  });
+
+  it("un error de lectura: el de la base de datos, sin firmar", async () => {
+    const admin = adminClient();
+    const { client } = userClient({ imagesError: dbError("42501") });
+    expect(await listRoomCovers(client, [ROOM], deps(admin).value)).toEqual({
+      ok: false,
+      error: "forbidden",
+    });
+    expect(admin.storageCalls).toHaveLength(0);
+  });
+
+  it("la firma falla entera: sin portadas y signed: false", async () => {
+    const admin = adminClient({ signError: { message: "caído" } });
+    const { client } = userClient({ images: [cover(1)] as unknown as Images });
+    const result = await listRoomCovers(client, [ROOM], deps(admin).value);
+    expect(result.ok && result.data.signed).toBe(false);
+    expect(result.ok && result.data.covers.size).toBe(0);
   });
 });
 
