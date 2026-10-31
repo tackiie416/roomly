@@ -6,6 +6,95 @@ próximos pasos.**
 
 ---
 
+## 2026-10-31 — Sesión 69: atribución del catálogo de barrios, verificada y unificada (Fase 4 EN CURSO; en commits locales sin publicar, en la rama del CRUD; PR #26, #27 y #28 sin fusionar)
+
+**Contexto.**
+- Primer intento (sin cambios): la procedencia no se pudo verificar desde
+  el entorno. La política de red rechaza `opendata-ajuntament.barcelona.cat`
+  y `datos.gob.es`, y el repositorio no guardaba la URL de la ficha. Se paró
+  antes de editar.
+- Después, el propietario verificó la procedencia y la licencia en el
+  registro del catálogo oficial de datos.gob.es y facilitó los metadatos.
+
+**Metadatos verificados por el propietario** (Claude no ha podido abrir esas
+páginas desde el entorno):
+- conjunto: «Unidades administrativas de la ciudad de Barcelona», publicado
+  por el Ayuntamiento de Barcelona (servicio de datos abiertos Open Data
+  BCN). Ficha:
+  https://datos.gob.es/es/catalogo/l01080193-unidades-administrativas-de-la-ciudad-de-barcelona;
+- identificador del conjunto en Open Data BCN:
+  `808daafa-d9ce-48c0-925a-fa5afdb1ed41`;
+- recurso utilizado: `BarcelonaCiutat_Barris.json`, identificador
+  `75197dfe-0306-4c5e-9643-34948af07fb6`, creado el 2023-06-07 y
+  actualizado el 2024-11-12 según la ficha. Descarga original:
+  https://opendata-ajuntament.barcelona.cat/data/dataset/808daafa-d9ce-48c0-925a-fa5afdb1ed41/resource/75197dfe-0306-4c5e-9643-34948af07fb6/download;
+- licencia: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/deed.es.
+
+**Corrección de la redacción anterior** (las entradas históricas no se
+cambian):
+- La sesión 68 llamó «conjunto `BarcelonaCiutat_Barris`» al archivo y
+  enlazó la portada del portal.
+- D1 (sesión 58) habla de «la ficha de datos.gob.es del conjunto
+  `BarcelonaCiutat_Barris.json`».
+- `BarcelonaCiutat_Barris.json` es el recurso, no el conjunto. D1 no
+  cambia: su licencia y sus condiciones son las mismas.
+
+**Comprobación de la adaptación** contra la migración `20261016120000` y el
+esquema:
+- solo se insertan `name` (`nom_barri`, tal cual) y `slug` (derivado);
+- el `id` lo genera `gen_random_uuid()`;
+- `codi_barri` solo queda en la migración como traza;
+- no se usan los distritos ni las geometrías.
+
+El texto acordado lo describe sin afirmar nada que el código contradiga.
+
+**Qué se hizo**
+- `components/rooms/neighborhoods-attribution.tsx`, el único componente de
+  atribución:
+  - el texto acordado;
+  - `NEIGHBORHOODS_SOURCE` con los metadatos;
+  - los tres enlaces: conjunto → ficha, recurso → descarga original y
+    «CC BY 4.0» → licencia en español;
+  - sin estado ni JavaScript.
+- `components/onboarding/preferences-form.tsx`: el mismo componente dentro
+  del fieldset de los barrios, así que aparece en el onboarding
+  (`/bienvenida/preferencias`) y en `/preferencias`, con o sin ciudad
+  elegida. No cambia la lógica de selección.
+- Las pantallas de habitaciones (alta, edición y listado) ya lo usaban y
+  ahora muestran el texto nuevo. El CRUD no cambia.
+- Tests: `neighborhoods-attribution.test.tsx` (11) y uno más en
+  `preferences-page.test.tsx`. Se adaptaron las comprobaciones de
+  `rooms-crud-pages`, `rooms-crud.spec`, `student-flow.spec` y
+  `no-javascript.spec` (nuevo test sin JavaScript).
+- Documentación: `docs/DATABASE.md` (procedencia, identificadores,
+  licencia, adaptación y dónde se muestra), `docs/ROADMAP.md` (R1),
+  `docs/SECURITY.md`, `docs/TESTING.md`, `CLAUDE.md` y esta entrada.
+
+**Verificación** (en local)
+- `npm run test`: 1424/1424 en 55 archivos.
+- `test:db`: 812/812.
+- `test:infra`: 377/377.
+- E1: 48/48, orientativo.
+- `lint`, `typecheck`, `format:check` y `build`: en verde.
+
+**Pendiente**
+- `/explorar` muestra los nombres de los barrios preferidos de los
+  candidatos sin atribución. No estaba en el encargo: queda para decidir.
+- Sigue aparte la limitación de `/preferencias` y del onboarding sin
+  JavaScript: los barrios se filtran por ciudad en el navegador, así que
+  sin JavaScript solo se ven los de la ciudad inicial (sesión 68,
+  discrepancia 1). No se ha tocado.
+- El archivo que facilitó el propietario no se ha vuelto a descargar ni a
+  comparar con el recurso publicado.
+- La confirmación antes del lanzamiento (condición de D1) sigue siendo del
+  propietario.
+
+**Sin cambios:** el CRUD, las migraciones, R8, las políticas y las
+decisiones registradas. No hubo push, PR, workflows ni conexión a
+Supabase.
+
+---
+
 ## 2026-10-30 — Sesión 68: CRUD de habitaciones propias, en local (Fase 4 EN CURSO; CRUD en commits locales sin publicar, apilado sobre la 4.2; PR #26, #27 y #28 sin fusionar)
 
 **Contexto.** Después de la sesión 67, y con la autorización expresa del

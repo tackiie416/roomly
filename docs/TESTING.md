@@ -199,6 +199,33 @@ Detalle, con los niveles de evidencia, en `docs/SUPABASE_VALIDATION.md`
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
 
+## R1 — atribución del catálogo de barrios (2026-10-31, sesión 69; solo en local)
+
+En la rama local `feature/phase4-3-rooms-crud`. **Nada se ha ejecutado en la
+CI ni en Supabase real.**
+
+- `npm run test`: 1424/1424 en 55 archivos (1412 antes). Nuevos:
+  - `neighborhoods-attribution.test.tsx` (11): el texto exacto; el conjunto
+    y el recurso con su nombre correcto, sin llamar «conjunto» al archivo;
+    los tres enlaces (ficha de datos.gob.es, descarga original del recurso
+    en Open Data BCN y CC BY 4.0 en español); los identificadores del
+    conjunto y del recurso; que la adaptación descrita es la de la migración
+    `20261016120000` (solo nombre y slug; ni distritos ni geometrías); que es
+    HTML sin estado; que ningún otro archivo de la app repite la fuente o la
+    licencia ni conserva la redacción antigua; y que aparece dentro del
+    fieldset de los barrios del `PreferencesForm` (onboarding, con y sin
+    ciudad, y `/preferencias`);
+  - `preferences-page.test.tsx` (+1): la página `/preferencias` la muestra.
+  - `rooms-crud-pages.test.tsx` comprueba el texto nuevo en las pantallas de
+    habitaciones.
+- E1: 48/48, orientativo, con el Chromium preinstalado. Nuevo en
+  `no-javascript.spec.ts`: la atribución en `/bienvenida/preferencias` y en
+  `/preferencias` sin JavaScript, dentro del grupo de los barrios y con sus
+  tres enlaces. `student-flow.spec.ts` la ve en `/preferencias` con
+  JavaScript, y `rooms-crud.spec.ts`, con el texto nuevo.
+- `test:db` 812/812 y `test:infra` 377/377 (sin cambios de SQL); `lint`,
+  `typecheck`, `format:check` y `build`, en verde.
+
 ## Fase 4.3 — CRUD de habitaciones propias (2026-10-30, sesión 68; solo en local)
 
 Sobre `f074ecc`, en la rama local `feature/phase4-3-rooms-crud`. **Nada se ha

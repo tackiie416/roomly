@@ -333,8 +333,12 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - con el cliente del usuario, sin service_role ni migraciones (D17 sin
       cambios). A un admin, una habitación ajena le da 404;
     - ubicación solo con ciudad y barrio (R2), con la atribución de los
-      barrios (R1) en esas pantallas; falta en el onboarding y en
-      `/preferencias`;
+      barrios (R1) en esas pantallas y, desde la sesión 69, también en el
+      onboarding y en `/preferencias`: un único componente
+      (`components/rooms/neighborhoods-attribution.tsx`) con la procedencia
+      verificada en datos.gob.es (conjunto «Unidades administrativas de la
+      ciudad de Barcelona», recurso `BarcelonaCiutat_Barris.json`, CC BY
+      4.0; `docs/DATABASE.md`);
     - en local: `test` 1412, `test:db` 812, `test:infra` 377 y E1 47/47
       (orientativo). Sin validar en Supabase real ni en la CI;
     - fuera de alcance: búsqueda, filtros, detalle público (R3, R4) y
@@ -732,8 +736,10 @@ borrado de cuenta (H6).
   - Ejecutada el 2026-10-30 con esa autorización: PR #28 en borrador
     (`PROGRESS.md`, sesión 68). Su merge sigue sin decidir.
 - Fase 4.3 (CRUD, en local, sin publicar): cuándo se publica su rama y su PR
-  (apilado sobre el PR #28), y la atribución de los barrios en el onboarding
-  y en `/preferencias`, que hoy no la muestran.
+  (apilado sobre el PR #28). La atribución de los barrios en el onboarding y
+  en `/preferencias` ya está hecha en local (sesión 69); queda decidir si
+  `/explorar`, que muestra nombres de barrios de los candidatos, también la
+  lleva.
 - Desde la sesión 65 (el DELETE directo de `rooms` ya está cerrado, con
   `20261030120000`):
   - repetir en un despliegue (staging) la medición del cuerpo de una subida

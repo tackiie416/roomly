@@ -449,7 +449,9 @@ columnas; las dos capas son independientes, como en `profiles` y
 - **Pendiente:**
   - la visibilidad de las habitaciones de cuentas desactivadas (R7);
   - mostrar la atribución del Ajuntament (CC BY 4.0) en la interfaz donde se
-    vean los barrios: es una decisión de producto, sin hacer;
+    vean los barrios: es una decisión de producto, sin hacer. **Hecha en
+    local en la sesión 69**, con la procedencia verificada en datos.gob.es
+    (`docs/DATABASE.md`), salvo en `/explorar`, que queda para decidir;
   - los privilegios `TRUNCATE`, `REFERENCES` y `TRIGGER` de los privilegios
     por defecto de Supabase en `rooms`, que no se han tocado y no son
     alcanzables desde PostgREST.

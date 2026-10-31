@@ -56,3 +56,51 @@ test("perfil, preferencias, ajustes y logout sin JavaScript", async ({
   expect(pathOf(p)).toBe("/login?next=%2Fajustes");
   await noJs.close();
 });
+
+// Atribución del catálogo de barrios (CC BY 4.0, sesión 69): junto al
+// selector de barrios del onboarding y de /preferencias, también sin
+// JavaScript, con sus tres enlaces.
+test("atribución de los barrios en el onboarding y en /preferencias, sin JavaScript", async ({
+  page,
+  browser,
+}) => {
+  const email = uniqueEmail("atribucion");
+  await loginWithMagicLink(page, email);
+  await expect(page).toHaveURL(`${APP}/bienvenida/perfil`);
+  await page.locator("#full_name").fill("Atribución E1");
+  await page.locator("#date_of_birth").fill("2001-03-15");
+  await page.getByLabel("Busco habitación").check();
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page).toHaveURL(`${APP}/bienvenida/preferencias`);
+  await expect(page.getByTestId("neighborhoods-attribution")).toBeVisible();
+
+  const noJs = await browser.newContext({
+    javaScriptEnabled: false,
+    storageState: await page.context().storageState(),
+  });
+  const p = await noJs.newPage();
+  for (const path of ["/bienvenida/preferencias", "/preferencias"]) {
+    await p.goto(`${APP}${path}`);
+    const attribution = p.getByTestId("neighborhoods-attribution");
+    await expect(attribution).toBeVisible();
+    await expect(attribution).toContainText(
+      "datos procedentes del conjunto “Unidades administrativas de la ciudad de Barcelona”"
+    );
+    await expect(attribution).toContainText("recurso “BarcelonaCiutat_Barris.json”");
+    await expect(
+      p
+        .getByRole("group", { name: /Barrios que prefieres/ })
+        .getByTestId("neighborhoods-attribution")
+    ).toBeVisible();
+    expect(
+      await attribution
+        .getByRole("link")
+        .evaluateAll((links) => links.map((a) => (a as HTMLAnchorElement).href))
+    ).toEqual([
+      "https://datos.gob.es/es/catalogo/l01080193-unidades-administrativas-de-la-ciudad-de-barcelona",
+      "https://opendata-ajuntament.barcelona.cat/data/dataset/808daafa-d9ce-48c0-925a-fa5afdb1ed41/resource/75197dfe-0306-4c5e-9643-34948af07fb6/download",
+      "https://creativecommons.org/licenses/by/4.0/deed.es",
+    ]);
+  }
+  await noJs.close();
+});

@@ -42,7 +42,8 @@ import EditRoomPage from "@/app/(app)/habitaciones/[id]/editar/page";
 
 const notFoundError = expect.objectContaining({ notFound: true });
 const redirectsTo = (url: string) => expect.objectContaining({ url });
-const ATTRIBUTION = /© Ajuntament de Barcelona,.*Open Data BCN.*CC BY 4\.0/;
+const ATTRIBUTION =
+  /Barrios de Barcelona: datos procedentes del conjunto “.*Unidades administrativas de la ciudad de Barcelona.*”.*Licencia .*CC BY 4\.0/;
 
 beforeEach(() => {
   serverMock.createClient.mockReset();

@@ -20,7 +20,8 @@ import {
 // No es el E2 real: no hay Supabase de verdad.
 
 const NOT_FOUND = "No encontramos esa habitación entre las tuyas.";
-const ATTRIBUTION = /© Ajuntament de Barcelona,\s*Open Data BCN/;
+const ATTRIBUTION =
+  /datos procedentes del conjunto “Unidades administrativas de la ciudad de Barcelona”/;
 
 const JPEG = () =>
   sharp({ create: { width: 64, height: 48, channels: 3, background: "#c63" } })

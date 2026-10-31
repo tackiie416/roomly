@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { submitOnboardingPreferences } from "@/app/actions/onboarding";
 import type { PreferencesFormState } from "@/lib/validation/preferences-form";
 import { Input } from "@/components/ui/input";
+import { NeighborhoodsAttribution } from "@/components/rooms/neighborhoods-attribution";
 import {
   FieldError,
   FormError,
@@ -18,7 +19,8 @@ import {
  * obligatoria salvo `cityRequired={false}`; el resto, opcional y sin techos
  * (solo mínimos ≥ 0 y mínimo ≤ máximo, como en la base de datos). Universidad
  * y barrios se filtran por la ciudad elegida; la coherencia real la comprueban
- * el servidor y los triggers de la base de datos.
+ * el servidor y los triggers de la base de datos. Junto a los barrios va su
+ * atribución (CC BY 4.0, sesión 69), también sin JavaScript.
  */
 
 type Option = { id: string; name: string };
@@ -234,6 +236,7 @@ export function PreferencesForm({
             ))}
           </div>
         )}
+        <NeighborhoodsAttribution />
         <FieldError
           id="preferred_neighborhood_ids-error"
           messages={errors.preferred_neighborhood_ids}

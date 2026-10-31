@@ -70,6 +70,8 @@ test("estudiante nuevo: alta por magic link, onboarding, app y logout", async ({
   await nav.getByRole("link", { name: "Preferencias" }).click();
   await expect(page).toHaveURL(`${APP}/preferencias`);
   await expect(page.locator("#city_id")).toHaveJSProperty("required", true);
+  // Atribución del catálogo de barrios junto a su selector (sesión 69).
+  await expect(page.getByTestId("neighborhoods-attribution")).toBeVisible();
   await page.locator("#budget_max").fill("720");
   await page.getByRole("button", { name: "Guardar preferencias" }).click();
   await expect(page.getByText("Preferencias guardadas.")).toBeVisible();

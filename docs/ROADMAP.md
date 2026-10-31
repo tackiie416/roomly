@@ -665,6 +665,11 @@ demás siguen sin tomar:
     - Fuente: © Ajuntament de Barcelona, Open Data BCN
       (`BarcelonaCiutat_Barris.json`, facilitado por el propietario),
       licencia CC BY 4.0.
+    - Verificado por el propietario en datos.gob.es (sesión 69): el conjunto
+      es «Unidades administrativas de la ciudad de Barcelona» (Ayuntamiento
+      de Barcelona, Open Data BCN) y `BarcelonaCiutat_Barris.json` es uno de
+      sus recursos; licencia CC BY 4.0. Identificadores y enlaces en
+      `docs/DATABASE.md`.
     - 73 barrios de los 10 districtes, verificados en el archivo; nombre
       oficial y slug derivado, sin coordenadas.
     - Crea Barcelona si falta, con los valores del seed, y se detiene sin
@@ -676,6 +681,12 @@ demás siguen sin tomar:
     - Desde la sesión 68 (4.3, en local) la muestran el alta, la edición y el
       listado de habitaciones. Siguen sin ella el onboarding y
       `/preferencias`, y falta confirmarla antes del lanzamiento.
+    - **Hecha en local en la sesión 69:** un único componente, con los
+      metadatos verificados, en el alta, la edición y el listado de
+      habitaciones, en el onboarding y en `/preferencias`, también sin
+      JavaScript. `/explorar` muestra nombres de barrios de los candidatos
+      sin atribución: queda para decidir. La confirmación antes del
+      lanzamiento (condición de D1) sigue siendo del propietario.
 - **R2.** Ubicación aproximada: solo el barrio, o coordenadas difuminadas con
   mapa; el proveedor (Mapbox está recomendado, sin confirmar) y la
   distancia a la universidad, que no tiene coordenadas.
