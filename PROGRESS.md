@@ -6,6 +6,99 @@ próximos pasos.**
 
 ---
 
+## 2026-10-31 — Sesión 72: hotfix de seguridad, `public_profile_previews` sin privilegios de clientes (en commits locales sin publicar; rama propia desde `master`)
+
+> Las sesiones 44–71 están en las ramas de la Fase 4 aún sin fusionar (PR
+> #26, #27 y #28, y las ramas locales de la 4.3 y la 4.4). Esta entrada va en
+> una rama desde `master`, así que aquí no aparecen.
+
+**Contexto.** En la sesión 71 (rama 4.4) se encontró que la vista
+`public_profile_previews` permitía escribir en `profiles` saltándose la RLS.
+El propietario pidió un hotfix mínimo y aislado desde `master`, sin tocar la
+rama 4.4 ni los PR. Autorizado: rama local desde `master`, migración, tests,
+documentación, pruebas locales y commits locales. No autorizado: push, PR,
+merge, fetch, workflows, Supabase, SQL remoto ni aplicar la migración en
+proyectos reales.
+
+**Punto de partida**
+- `master` = `origin/master` (referencia local, sin fetch) = `7818a15`.
+- `feature/phase4-4-public-search` intacta en `48e4fea`, con sus seis
+  commits.
+- Rama nueva `hotfix/public-profile-previews-write-lockdown` desde `master`.
+
+**Vulnerabilidad** (detalle en `docs/SECURITY.md`, «Hotfix: escritura en
+`profiles` a través de `public_profile_previews`»)
+- Origen: `20260925120100` (Fase 0). Vista `security_invoker = false`,
+  actualizable, dueño `postgres`.
+- La migración solo concedía `select`, pero los privilegios por defecto de
+  Supabase daban ALL a anon y authenticated.
+- Una escritura por la vista se comprueba con los privilegios del dueño: sin
+  RLS ni GRANT por columnas.
+- Reproducido en local con las migraciones de `master`: authenticated se pone
+  `role = 'admin'`; anon y authenticated cambian nombres o roles ajenos y
+  **borran** perfiles ajenos.
+- Auditoría: es la única vista de `public` en todas las ramas; ninguna otra
+  con la misma combinación.
+
+**Qué se hizo**
+- Migración `20261014120000_public_profile_previews_write_lockdown.sql`:
+  `revoke all` a PUBLIC, anon y authenticated (también la lectura: ningún
+  código la usa), un comentario en la vista y una comprobación que hace
+  fallar la migración si queda algún privilegio efectivo.
+- Timestamp entre `20261013120000` (último de `master`) y `20261015120000`
+  (primero sin fusionar), para que vaya antes de todas las migraciones de la
+  Fase 4.1–4.4.
+- Tests:
+  - `tests/db/24_public_profile_previews_lockdown.sql` (LK0–LK7);
+  - PV8 de `tests/db/13` (ahora exige el rechazo);
+  - P4 del preflight vigente y 7 mutaciones;
+  - PR10 y PR10b de la api-suite (sin ejecutar);
+  - test estático `tests/unit/public-profile-previews-lockdown.test.ts`.
+- Documentación: `docs/SECURITY.md`, `docs/DATABASE.md`, `docs/TESTING.md`,
+  esta entrada y una línea en `CLAUDE.md` (Seguridad).
+
+**Commits locales** (sin publicar): `d76220c` (migración y tests) y el de
+la documentación.
+
+**Verificación** (local)
+- Antes y después: 6 escrituras permitidas en `master`; las 12 sobre la
+  vista rechazadas con 42501 con el hotfix (tabla en `docs/TESTING.md`).
+- `test:db` 409 (378 en `master`); `test:infra` 177 (169); `test` 1040/1040;
+  `lint`, `typecheck` y `format:check` en verde.
+- Sin el hotfix, los tests nuevos fallan (PV8 y LK0). El test estático detecta
+  tres migraciones temporales de regresión.
+- Instantánea de privilegios antes y después: solo cambia la vista.
+- Coexistencia con la 4.4 en una copia temporal: las migraciones se aplican en
+  orden; el estado final es el mismo en los tres órdenes probados; al
+  integrar hay que ajustar PV8 de `13` y PR5 de `23` de esa rama (con el
+  ajuste, 917/917 y `test:infra` 402).
+
+**Problemas encontrados**
+- El primer control LK5 falló: un UPDATE con `WHERE` necesita también SELECT
+  de las columnas que filtra. El control concede SELECT y UPDATE, como tenían
+  anon y authenticated antes del hotfix.
+- `typecheck` falló por `.next/types/validator.ts`, generado por el build de
+  la 4.4 (rutas que no existen en `master`). Se borró `.next` (artefacto
+  ignorado por git).
+- `node_modules` es el de la 4.4 (`next` 16.4.3; `master` pide 16.3.6). No se
+  reinstaló para no usar la red.
+
+**Qué queda (necesita autorización del propietario)**
+- Revisión del hotfix; push, PR y merge.
+- Aplicarlo en `roomly-validation-3` y decidir sobre `roomly-validation-2b`.
+- Comprobar en los proyectos reales los privilegios de la vista y si hay
+  rastros de uso. **No hay evidencia todavía de explotación real**, ni
+  comprobación de que no la haya.
+- Integrarlo en las ramas de la Fase 4 (ajuste de dos tests de la 4.4).
+- Si se restringen los privilegios por defecto de Supabase en `public`
+  (defensa en profundidad).
+
+**Sin cambios:** `feature/phase4-4-public-search` y las demás ramas, los PR
+#26, #27 y #28, y la configuración de Supabase. No hubo push, PR, merge,
+fetch, workflows ni conexión a Supabase.
+
+---
+
 ## 2026-10-15 — Sesión 43: correcciones de la auditoría del PR #25 (Fase 4 EN CURSO)
 
 **Contexto**

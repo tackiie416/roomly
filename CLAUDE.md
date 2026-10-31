@@ -421,6 +421,13 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   de Fase 0 «`profiles` completo requiere sesión»). Los datos públicos de
   otros usuarios salen de la vista `public_profile_previews` (solo
   id/nombre/avatar/rol). No reabras la lectura de perfiles ajenos.
+  - **Hotfix `20261014120000` (2026-10-31, en local):** la vista es
+    `security_invoker = false` y actualizable, y por ella se escribía en
+    `profiles` sin RLS. PUBLIC, anon y authenticated ya no tienen ningún
+    privilegio sobre ella. **Nunca** se los devuelvas ni vuelvas a crear la
+    vista sin una decisión de seguridad explícita
+    (`tests/unit/public-profile-previews-lockdown.test.ts`,
+    `docs/SECURITY.md`).
 - Dirección exacta de habitación aislada en `room_addresses`, solo
   legible por el propietario.
 - `matches`/`conversations`/`conversation_participants` no aceptan INSERT

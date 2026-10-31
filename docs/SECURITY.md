@@ -13,7 +13,7 @@ corregidas están en `docs/DATABASE.md`.
 | Habitaciones editables solo por su propietario | `rooms_{insert,update,delete}_own`, `room_addresses_{insert,update,delete}_own` y `room_images_{insert,update,delete}_own`, solo con la cuenta activa desde la Fase 4.0 (antes, `rooms_owner_write`, `room_addresses_owner_only` y `room_images_owner_write`, FOR ALL). La dirección exacta va un paso más allá: `room_addresses_select_own`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
 | Respuestas del test (Fase 3.1) | `compatibility_responses_select_own`: `authenticated` solo **lee** su fila; no tiene INSERT, UPDATE ni DELETE (GRANT). `anon`, ningún privilegio. Solo escribe el servidor (service_role, `lib/services/compatibility.ts`), y el trigger `trg_compatibility_responses_integrity` aplica S1–S6 y el bloqueo de cuentas eliminadas a todos los roles |
-| Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); los datos públicos de otros, en la vista `public_profile_previews`; `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
+| Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); los datos públicos de otros, en la vista `public_profile_previews` (desde el hotfix `20261014120000`, sin ningún privilegio para PUBLIC, anon ni authenticated: ver «Hotfix: escritura en `profiles` a través de `public_profile_previews`»); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
 
 Las políticas (38 desde `20260930130000`, 37 desde `20261004120100`) están en
 `supabase/migrations/20260925120100_rls_policies.sql`, con 8 de ellas
@@ -23,6 +23,105 @@ migraciones de Fase 2 —
 esta tabla es el mapa de lectura rápida, no la fuente de la verdad. Los
 tests de regresión de seguridad están en `tests/db/` (ver
 `docs/TESTING.md`).
+
+## Hotfix: escritura en `profiles` a través de `public_profile_previews` (2026-10-31; solo en local)
+
+**Vulnerabilidad crítica de autorización**, corregida en la rama local
+`hotfix/public-profile-previews-write-lockdown` (desde `master`, `7818a15`)
+con la migración `20261014120000_public_profile_previews_write_lockdown.sql`.
+**No se ha aplicado en ningún proyecto real.**
+
+- **Origen (Fase 0, `20260925120100_rls_policies.sql`).** La vista se creó
+  para que las páginas públicas mostraran nombre y avatar sin abrir
+  `profiles`:
+  `create view public_profile_previews with (security_invoker = false) as
+  select id, full_name, avatar_url, role from profiles where deleted_at is
+  null;` y después `grant select ... to anon, authenticated`.
+- **Mecanismo del bypass:**
+  1. Los privilegios por defecto de Supabase (`alter default privileges in
+     schema public grant all on tables to anon, authenticated,
+     service_role`, que el shim de `tests/db` reproduce) dan **todos** los
+     privilegios sobre cualquier tabla o vista nueva. El `grant select` era
+     redundante: anon y authenticated tenían también INSERT, UPDATE, DELETE,
+     TRUNCATE, REFERENCES y TRIGGER.
+  2. La vista es de una sola tabla y con columnas simples, así que PostgreSQL
+     la puede actualizar sola: INSERT, UPDATE y DELETE sobre ella se
+     reescriben sobre `profiles`.
+  3. Con `security_invoker = false`, esa reescritura se comprueba con los
+     privilegios del **dueño de la vista** (`postgres`, dueño también de
+     `profiles`): la RLS de `profiles` no se aplica a su dueño y el GRANT por
+     columnas (que deja `role` y `deleted_at` fuera del UPDATE de
+     authenticated) tampoco cuenta.
+- **Explotación comprobada en local** (base temporal con las migraciones de
+  `master` y el shim; cada intento con el rol real y deshecho después):
+  - un usuario autenticado se pone `role = 'admin'` (escalado a admin);
+  - un usuario autenticado cambia el nombre de otra persona;
+  - anon cambia el nombre o el rol de cualquier perfil activo;
+  - anon y cualquier usuario autenticado **borran** perfiles ajenos (con su
+    cascada: preferencias, respuestas del test, habitaciones...);
+  - INSERT tenía el privilegio, pero fallaba por el NOT NULL de
+    `date_of_birth` (la vista no expone esa columna);
+  - por la tabla `profiles`, el mismo cambio de rol sí se rechazaba
+    (42501): el fallo era solo de la vista.
+- **Corrección** (`20261014120000`): `revoke all` sobre la vista a PUBLIC,
+  anon y authenticated, también la lectura, porque ningún código de la
+  aplicación la usa (solo la nombraban tests y documentación). Un bloque
+  final hace fallar la migración si cualquiera de los tres conserva un
+  privilegio efectivo de tabla o de columna (directo, heredado o de PUBLIC).
+  No cambian la definición de la vista, service_role, `profiles` ni los
+  privilegios por defecto. Comentario en la vista: no conceder privilegios de
+  cliente sin una decisión de seguridad explícita.
+- **Privilegios efectivos sobre la vista:**
+
+  | Rol | Antes | Después |
+  |---|---|---|
+  | PUBLIC | ninguno | ninguno |
+  | anon | SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER | ninguno |
+  | authenticated | SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER | ninguno |
+  | service_role | todos | todos (sin cambios) |
+
+- **Sin otros cambios de permisos:** una instantánea de las ACL de todas las
+  relaciones (`public`, `auth`, `storage`), columnas, funciones, políticas y
+  privilegios por defecto, antes y después, solo difiere en la ACL y el
+  comentario de esta vista.
+- **Otras vistas:** es la única vista del esquema `public` en `master` y en
+  las ramas de la Fase 4 (ninguna migración crea otra). No hay vistas
+  materializadas. Las vistas de los esquemas propios de Supabase (`auth`,
+  `storage`, `extensions`...) no existen en el shim y no se han auditado.
+- **Regresión:** `tests/db/24_public_profile_previews_lockdown.sql`
+  (intentos reales con los roles de PostgreSQL, catálogo, controles y
+  `profiles` sin cambios), PV8 de `tests/db/13`, P4 del preflight con sus
+  mutaciones, PR10 y PR10b de la api-suite (sin ejecutar: solo el workflow
+  manual) y el test estático
+  `tests/unit/public-profile-previews-lockdown.test.ts`, que falla si una
+  migración posterior vuelve a conceder algo sobre la vista a esos roles,
+  concede sobre todas las tablas del esquema, cambia sus privilegios por
+  defecto o vuelve a crear la vista. Detalle en `docs/TESTING.md`.
+- **Proyectos reales — sin verificar:** `roomly-validation-2b` (`uwxb…`) y
+  `roomly-validation-3` recibieron `20260925120100` con los privilegios por
+  defecto de Supabase, así que lo más probable es que sean vulnerables. Claude
+  no se conecta a Supabase y **no se ha comprobado** su estado ni si alguien
+  usó la vista. **No hay ninguna evidencia, a favor ni en contra, de
+  explotación real.** No consta ningún despliegue de producción; a qué
+  proyecto se conectan los Deploy Previews de Netlify sigue sin revisar (un
+  pendiente anterior).
+- **Pendiente (con autorización del propietario):**
+  - aplicar `20261014120000` en `roomly-validation-3` y decidir qué hacer
+    con `roomly-validation-2b` (rotar sus claves y pausarlo ya era un
+    pendiente operativo);
+  - revisar en cada proyecto los privilegios reales de la vista y si hay
+    rastros de escrituras por ella (cambios de `role`, nombres o perfiles
+    borrados), con los registros que ofrezca Supabase;
+  - si los privilegios por defecto de Supabase se restringen para todo el
+    esquema (defensa en profundidad; afecta a cualquier tabla o vista
+    futura).
+- **Integración con la Fase 4.4** (rama `feature/phase4-4-public-search`,
+  sin tocar): su migración `20261031120100` también revoca sobre la vista
+  pero deja SELECT a authenticated; con el hotfix delante, el resultado final
+  es «ningún privilegio de clientes» en cualquier orden de aplicación. Al
+  integrar habrá que ajustar dos tests de esa rama que exigen que
+  authenticated lea la vista (PV8 de `tests/db/13` y PR5 de `tests/db/23`);
+  con ese ajuste, su suite completa pasa en local.
 
 ## Correcciones de la auditoría inicial (2026-09-26)
 
@@ -392,6 +491,10 @@ incluida `date_of_birth`. Pasan de 38 a 37 políticas.
 - **Datos públicos de otros**: solo `public_profile_previews` (id, nombre,
   avatar, rol), sin `date_of_birth`. Que exponga `role` a anon es H3, sin
   cambios.
+  - Hotfix `20261014120000` (2026-10-31): la vista ya no tiene privilegios
+    para PUBLIC, anon ni authenticated. Por ella se podía escribir en
+    `profiles` saltándose la RLS. Ver «Hotfix: escritura en `profiles` a
+    través de `public_profile_previews`».
 - **Contradice la regla de la Fase 0** «`profiles` completo requiere
   sesión»: prevalece esta decisión específica de privacidad.
 - Sin cambios en INSERT, UPDATE, DELETE, GRANT, servicios, Server Actions
