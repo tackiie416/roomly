@@ -197,6 +197,8 @@ describe("isProtectedPath (proxy)", () => {
     "/administracion",
     "/perfiles",
     "/barcelona/habitaciones",
+    // Fase 4.4: búsqueda y detalle públicos (R4), sin sesión.
+    "/barcelona/habitaciones/22222222-3333-4444-8555-666666666666",
     "/habitacionesx",
   ])("%s es pública", (path) => {
     expect(isProtectedPath(path)).toBe(false);

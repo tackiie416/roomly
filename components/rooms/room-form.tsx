@@ -36,6 +36,13 @@ const fieldClass =
 
 const initialState: RoomFormState = {};
 
+/**
+ * Aviso de la Fase 4.4: los textos libres se publican tal cual en
+ * `/[city]/habitaciones`. Nada filtra teléfonos ni direcciones, así que se
+ * pide no ponerlos (y se enlaza desde cada campo de texto).
+ */
+const PUBLIC_TEXT_WARNING_ID = "public-text-warning";
+
 export function RoomForm({
   action: submitAction,
   cities,
@@ -116,7 +123,7 @@ export function RoomForm({
         maxLength={ROOM_TEXT_LIMITS[name]}
         defaultValue={text(name)}
         aria-invalid={Boolean(errors[name])}
-        aria-describedby={described(name, `${name}-hint`)}
+        aria-describedby={described(name, `${name}-hint ${PUBLIC_TEXT_WARNING_ID}`)}
         className={fieldClass}
       />
       <p id={`${name}-hint`} className={hintClass}>
@@ -141,6 +148,17 @@ export function RoomForm({
     >
       {roomId ? <input type="hidden" name="roomId" value={roomId} /> : null}
 
+      <p
+        id={PUBLIC_TEXT_WARNING_ID}
+        className="rounded-[var(--radius)] border border-[var(--border)] p-3 text-sm"
+        data-testid="room-public-text-warning"
+      >
+        Cuando publiques la habitación, el título, la descripción, las normas y las
+        preferencias de convivencia se verán en la búsqueda pública, también sin iniciar
+        sesión. No escribas teléfonos, correos, enlaces de contacto ni la dirección
+        exacta: Roomly no revisa estos textos ni los quita.
+      </p>
+
       <div>
         <label htmlFor="title" className={labelClass}>
           Título
@@ -152,7 +170,7 @@ export function RoomForm({
           maxLength={ROOM_TEXT_LIMITS.title}
           defaultValue={text("title")}
           aria-invalid={Boolean(errors.title)}
-          aria-describedby={described("title")}
+          aria-describedby={described("title", PUBLIC_TEXT_WARNING_ID)}
           className="mt-1"
         />
         <FieldError id="title-error" messages={errors.title} />
