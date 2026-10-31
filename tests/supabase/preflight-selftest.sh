@@ -146,7 +146,28 @@ P3|room_images_admin_select pasa a FOR ALL|drop policy room_images_admin_select 
 P3|room_images_admin_select para todos los roles (sin to authenticated)|drop policy room_images_admin_select on public.room_images; create policy room_images_admin_select on public.room_images for select using (public.is_admin());
 P3|room_images_admin_select abierta a cualquiera|drop policy room_images_admin_select on public.room_images; create policy room_images_admin_select on public.room_images for select to authenticated using (true);
 P3|rooms_select_active_public sin R7 (la de antes de la 4.2)|drop policy rooms_select_active_public on public.rooms; create policy rooms_select_active_public on public.rooms for select using (status = 'active' and deleted_at is null);
-P3|room_images_select sin R7 (la de antes de la 4.2)|drop policy room_images_select on public.room_images; create policy room_images_select on public.room_images for select using (exists (select 1 from public.rooms r where r.id = room_images.room_id and (r.status = 'active' or r.owner_id = auth.uid())));
+P3|room_images_select_public sin R7 (la condición de antes de la 4.2)|drop policy room_images_select_public on public.room_images; create policy room_images_select_public on public.room_images for select using (exists (select 1 from public.rooms r where r.id = room_images.room_id));
+P3|vuelve room_images_select (la que leía rooms.owner_id para todos los roles)|create policy room_images_select on public.room_images for select using (exists (select 1 from public.rooms r where r.id = room_images.room_id and r.owner_id = auth.uid()));
+P3|room_images_select_own para todos los roles (también anon)|drop policy room_images_select_own on public.room_images; create policy room_images_select_own on public.room_images for select using (exists (select 1 from public.rooms r where r.id = room_images.room_id and r.owner_id = auth.uid()));
+P4|anon recupera SELECT de tabla en rooms|grant select on public.rooms to anon;
+P4|anon lee rooms.owner_id|grant select (owner_id) on public.rooms to anon;
+P4|anon lee rooms.approx_lat|grant select (approx_lat) on public.rooms to anon;
+P4|anon pierde SELECT de rooms.published_at|revoke select (published_at) on public.rooms from anon;
+P4|anon con REFERENCES en rooms|grant references on public.rooms to anon;
+P4|PUBLIC con SELECT en rooms|grant select on public.rooms to public;
+P4|PUBLIC con SELECT de una columna de rooms|grant select (title) on public.rooms to public;
+P4|anon vuelve a leer public_profile_previews|grant select on public.public_profile_previews to anon;
+P4|authenticated con UPDATE en public_profile_previews (escritura por la vista)|grant update on public.public_profile_previews to authenticated;
+P4|authenticated con DELETE en public_profile_previews|grant delete on public.public_profile_previews to authenticated;
+P4|PUBLIC con SELECT en public_profile_previews|grant select on public.public_profile_previews to public;
+P1|falta rooms.published_at (20261031120000)|alter table public.rooms drop column published_at cascade;
+P1|chk_rooms_published_at sin validar (NOT VALID)|alter table public.rooms drop constraint chk_rooms_published_at; alter table public.rooms add constraint chk_rooms_published_at check (status <> 'active' or published_at is not null) not valid;
+P1|falta el índice idx_rooms_public_recent|drop index public.idx_rooms_public_recent;
+P1|idx_rooms_public_recent sin el filtro de visibilidad|drop index public.idx_rooms_public_recent; create index idx_rooms_public_recent on public.rooms (city_id, published_at desc, id desc);
+P6|falta trg_rooms_published_at|drop trigger trg_rooms_published_at on public.rooms;
+P6|trg_rooms_published_at desactivado|alter table public.rooms disable trigger trg_rooms_published_at;
+P6|set_room_published_at pasa a SECURITY DEFINER|alter function public.set_room_published_at() security definer;
+P6|authenticated puede ejecutar set_room_published_at|grant execute on function public.set_room_published_at() to authenticated;
 P3|una política en storage.objects|create policy zz_selftest_read on storage.objects for select to authenticated using (true);
 P4|authenticated con INSERT en room_images|grant insert on public.room_images to authenticated;
 P4|authenticated con UPDATE de room_images.position|grant update (position) on public.room_images to authenticated;
@@ -186,8 +207,8 @@ CASES
 echo "== el preflight no deja nada creado"
 if "${P[@]}" -At -c "select count(*) from pg_class where relpersistence = 't'" | grep -qx 0 \
   && run_with "select 1;" \
-  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "41" ]; then
-  echo "   ok - sin tablas temporales ni cambios; siguen 41 políticas"
+  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "42" ]; then
+  echo "   ok - sin tablas temporales ni cambios; siguen 42 políticas"
 else
   echo "   FALLO: el preflight dejó restos"
   failed=1

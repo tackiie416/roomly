@@ -98,8 +98,9 @@ select roomly_test.ok(
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'room_images')
-  = array['room_images_admin_select:SELECT', 'room_images_select:SELECT'],
-  'RI0: room_images tiene sus 2 políticas de lectura (desde la 4.2, sin las de escritura)');
+  = array['room_images_admin_select:SELECT', 'room_images_select_own:SELECT',
+          'room_images_select_public:SELECT'],
+  'RI0: room_images tiene sus 3 políticas de lectura (desde la 4.2, sin las de escritura; la pública y la propia, separadas desde 20261031120100)');
 select roomly_test.ok(
   not exists (
     select 1 from pg_policies
@@ -591,6 +592,6 @@ select roomly_test.ok(
               where room_id = '15100000-0000-0000-0000-0000000000d2'),
   'RI9: y lo que hicieron se deshizo');
 select roomly_test.ok(
-  (select count(*) = 11 from pg_policies
+  (select count(*) = 12 from pg_policies
    where schemaname = 'public' and tablename in ('rooms', 'room_addresses', 'room_images')),
-  'RI9: rooms, room_addresses y room_images siguen con sus 11 políticas (14 hasta la 4.2; 12 hasta quitar rooms_delete_own)');
+  'RI9: rooms, room_addresses y room_images siguen con sus 12 políticas (14 hasta la 4.2; 12 hasta quitar rooms_delete_own; 11 hasta dividir room_images_select en 20261031120100)');

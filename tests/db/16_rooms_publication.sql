@@ -62,11 +62,11 @@ select roomly_test.ok(
    from pg_constraint c
    where c.conrelid = 'public.rooms'::regclass and c.contype = 'c' and c.convalidated)
   = array['chk_deposit_nonneg', 'chk_price_positive', 'chk_rooms_features_catalog',
-          'chk_rooms_features_unique', 'chk_rooms_publishable', 'chk_rooms_total_roommates',
-          'chk_rooms_total_rooms', 'chk_stay_range']
+          'chk_rooms_features_unique', 'chk_rooms_publishable', 'chk_rooms_published_at',
+          'chk_rooms_total_roommates', 'chk_rooms_total_rooms', 'chk_stay_range']
   and not exists (select 1 from pg_constraint c
                   where c.conrelid = 'public.rooms'::regclass and not c.convalidated),
-  'RS1: rooms tiene exactamente sus 8 CHECK, todas validadas');
+  'RS1: rooms tiene exactamente sus 9 CHECK, todas validadas (chk_rooms_published_at desde 20261031120000)');
 select roomly_test.ok(
   exists (
     select 1 from pg_constraint c
@@ -112,8 +112,11 @@ select roomly_test.ok(
          and has_column_privilege('authenticated', a.attrelid, a.attnum, 'UPDATE'))
     = 'available_from,city_id,deposit_amount,description,expenses_included,features,house_rules,max_stay_months,min_stay_months,neighborhood_id,pets_allowed,price_month,roommate_preferences,smoking_allowed,status,students_only,title,total_roommates,total_rooms',
   'RS4: authenticated escribe por columnas: sin status al crear, sin deleted_at, fechas, approx_*, ni id/owner_id al editar (y, desde 20261030120000, sin DELETE)');
+-- Desde 20261031120100 (sesión 71), anon lee solo las columnas públicas
+-- (tests/db/23), no la tabla entera.
 select roomly_test.ok(
-  has_table_privilege('anon', 'public.rooms', 'SELECT')
+  has_column_privilege('anon', 'public.rooms', 'id', 'SELECT')
+  and not has_column_privilege('anon', 'public.rooms', 'owner_id', 'SELECT')
   and not has_any_column_privilege('anon', 'public.rooms', 'INSERT')
   and not has_any_column_privilege('anon', 'public.rooms', 'UPDATE')
   and not has_table_privilege('anon', 'public.rooms', 'DELETE')
@@ -560,7 +563,8 @@ reset role;
 rollback;
 
 select roomly_test.ok(
-  (select count(*) = 8 from pg_constraint c
+  -- 9 CHECK desde 20261031120000 (chk_rooms_published_at).
+  (select count(*) = 9 from pg_constraint c
    where c.conrelid = 'public.rooms'::regclass and c.contype = 'c')
   and exists (select 1 from pg_constraint c
               where c.conrelid = 'public.rooms'::regclass and c.conname = 'fk_rooms_neighborhood_city')

@@ -1,8 +1,9 @@
 -- Fase 2.9 — H4: privacidad de `profiles` (20261004120100_profiles_privacy.sql).
 -- Debe fallar si un usuario autenticado vuelve a poder leer el perfil (y su
 -- `date_of_birth`) de otra persona, si pierde el acceso a su propio perfil,
--- si un admin activo deja de leerlos todos, si anon lee alguno, o si la vista
--- pública deja de funcionar o empieza a exponer `date_of_birth`.
+-- si un admin activo deja de leerlos todos, si anon lee alguno (tampoco por la
+-- vista, desde 20261031120100), o si la vista deja de funcionar para
+-- authenticated o empieza a exponer `date_of_birth`.
 --
 -- A y B: cuentas activas. C: cuenta eliminada. E: admin activo. F: admin con
 -- la cuenta eliminada (no es admin: `is_admin()` exige `deleted_at` nulo).
@@ -93,12 +94,14 @@ select roomly_test.expect_rows(
   0, 'PV7: anon no lee ningún perfil');
 
 -- ------------------------------------------------------------
--- 8–9. La vista pública sigue funcionando y no expone date_of_birth.
+-- 8–9. La vista sigue funcionando para authenticated y no expone
+-- date_of_birth. Desde 20261031120100 (sesión 71, decisión del propietario
+-- para la búsqueda pública) anon ya no la lee: antes, PV8 comprobaba que sí.
 -- ------------------------------------------------------------
-select roomly_test.expect_rows(
+select roomly_test.expect_error(
   $$select 1 from public.public_profile_previews
-    where id = 'd0000000-0000-0000-0000-00000000000b' and full_name = 'Privacidad B'$$,
-  1, 'PV8: anon lee el nombre de B en public_profile_previews');
+    where id = 'd0000000-0000-0000-0000-00000000000b'$$,
+  '42501', 'PV8: anon no lee public_profile_previews (desde 20261031120100)');
 select roomly_test.expect_error(
   $$select date_of_birth from public.public_profile_previews$$,
   '42703', 'PV9: public_profile_previews no tiene date_of_birth (anon)');
@@ -139,5 +142,5 @@ select roomly_test.ok(
    where schemaname = 'public' and tablename = 'profiles' and cmd in ('SELECT', 'ALL')),
   'PV10: las únicas que dan lectura son la propia y la de admin');
 select roomly_test.ok(
-  (select count(*) = 41 from pg_policies where schemaname = 'public'),
-  'PV10: 41 políticas en public (37 hasta la 4.0; 44 hasta la 4.2; 42 hasta quitar rooms_delete_own)');
+  (select count(*) = 42 from pg_policies where schemaname = 'public'),
+  'PV10: 42 políticas en public (37 hasta la 4.0; 44 hasta la 4.2; 42 hasta quitar rooms_delete_own; 41 hasta dividir room_images_select en 20261031120100)');

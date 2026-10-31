@@ -96,10 +96,10 @@ select roomly_test.ok(
   and not has_column_privilege('authenticated', 'public.rooms', 'status', 'INSERT')
   and has_table_privilege('authenticated', 'public.rooms', 'REFERENCES')
   and has_table_privilege('authenticated', 'public.rooms', 'TRIGGER')
-  and has_table_privilege('anon', 'public.rooms', 'SELECT')
+  and has_column_privilege('anon', 'public.rooms', 'id', 'SELECT')
   and not has_any_column_privilege('anon', 'public.rooms', 'INSERT')
   and not has_any_column_privilege('anon', 'public.rooms', 'UPDATE'),
-  'DS0: el resto de privilegios de clientes sigue igual (SELECT, INSERT y UPDATE por columnas, REFERENCES y TRIGGER)');
+  'DS0: el resto de privilegios de clientes sigue igual (SELECT, INSERT y UPDATE por columnas, REFERENCES y TRIGGER; anon, SELECT de las columnas públicas desde 20261031120100)');
 select roomly_test.ok(
   (select bool_and(has_table_privilege('service_role', 'public.rooms', p))
    from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) as p)
@@ -111,8 +111,8 @@ select roomly_test.ok(
    from pg_policies where schemaname = 'public' and tablename = 'rooms')
   = array['rooms_admin_all:ALL', 'rooms_insert_own:INSERT', 'rooms_select_active_public:SELECT',
           'rooms_select_own:SELECT', 'rooms_update_own:UPDATE']
-  and (select count(*) = 41 from pg_policies where schemaname = 'public'),
-  'DS0: sin rooms_delete_own: rooms tiene 5 políticas y public 41');
+  and (select count(*) = 42 from pg_policies where schemaname = 'public'),
+  'DS0: sin rooms_delete_own: rooms tiene 5 políticas y public 42 (41 hasta dividir room_images_select en 20261031120100)');
 select roomly_test.ok(
   (select not p.prosecdef
       and p.provolatile = 'v'
