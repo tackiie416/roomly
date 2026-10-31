@@ -190,6 +190,16 @@ describe("GRANT de anon sobre rooms = columnas que usa la búsqueda pública", (
     expect(used).toEqual(anonGrant());
   });
 
+  it("el mock de E1 emula el mismo GRANT de anon", () => {
+    const mock = readFileSync("tests/e2e/support/mock-supabase.mjs", "utf8");
+    const match = /const ANON_ROOM_COLUMNS = \[([^\]]*)\]/.exec(mock);
+    expect(match).not.toBeNull();
+    const columns = [...(match as RegExpExecArray)[1].matchAll(/"([a-z_]+)"/g)]
+      .map((m) => m[1])
+      .sort();
+    expect(columns).toEqual(anonGrant());
+  });
+
   it("fuera del GRANT: la propietaria, las coordenadas, el estado, el borrado y las fechas internas", () => {
     for (const column of [
       "owner_id",

@@ -84,9 +84,11 @@ export async function seedCandidate(options: {
   budgetMin?: number;
   budgetMax?: number;
   neighborhoods?: string[];
+  /** Email de la cuenta (por defecto, uno único): para sembrarle habitaciones o entrar con ella. */
+  email?: string;
 }): Promise<string> {
   const params = new URLSearchParams({
-    email: uniqueEmail("candidata"),
+    email: options.email ?? uniqueEmail("candidata"),
     name: options.name,
     version: String(options.version),
     ids: options.questionIds.join(","),
@@ -182,13 +184,22 @@ export const appNav = (page: Page) => page.getByRole("navigation", { name: "Tu c
  */
 export async function seedRoom(
   email: string,
-  options: { title?: string; status?: string; photos?: number; complete?: boolean } = {}
+  options: {
+    title?: string;
+    status?: string;
+    photos?: number;
+    complete?: boolean;
+    /** Más columnas para la búsqueda pública (ver `/__test/seed-room` en el mock). */
+    extra?: Record<string, string | number>;
+  } = {}
 ): Promise<string> {
   const params = new URLSearchParams({ email });
   if (options.title) params.set("title", options.title);
   if (options.status) params.set("status", options.status);
   if (options.photos !== undefined) params.set("photos", String(options.photos));
   if (options.complete) params.set("complete", "1");
+  for (const [key, value] of Object.entries(options.extra ?? {}))
+    params.set(key, String(value));
   const response = await mock(`/__test/seed-room?${params}`);
   expect(response.status).toBe(200);
   return ((await response.json()) as { id: string }).id;
