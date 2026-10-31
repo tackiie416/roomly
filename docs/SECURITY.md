@@ -13,7 +13,7 @@ corregidas están en `docs/DATABASE.md`.
 | Habitaciones editables solo por su propietario | `rooms_{insert,update,delete}_own`, `room_addresses_{insert,update,delete}_own` y `room_images_{insert,update,delete}_own`, solo con la cuenta activa desde la Fase 4.0 (antes, `rooms_owner_write`, `room_addresses_owner_only` y `room_images_owner_write`, FOR ALL). Desde la Fase 4.1, en `rooms` solo las columnas del GRANT: sin `status` al crear, ni `deleted_at`, fechas, `approx_lat`/`approx_lng`, ni `id`/`owner_id` al editar. La dirección exacta va un paso más allá: `room_addresses_select_own`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
 | Respuestas del test (Fase 3.1) | `compatibility_responses_select_own`: `authenticated` solo **lee** su fila; no tiene INSERT, UPDATE ni DELETE (GRANT). `anon`, ningún privilegio. Solo escribe el servidor (service_role, `lib/services/compatibility.ts`), y el trigger `trg_compatibility_responses_integrity` aplica S1–S6 y el bloqueo de cuentas eliminadas a todos los roles |
-| Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); los datos públicos de otros, en la vista `public_profile_previews`; `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
+| Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); los datos públicos de otros, en la vista `public_profile_previews` (desde la sesión 71, solo SELECT de authenticated; anon, nada); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
 
 Las políticas (38 desde `20260930130000`, 37 desde `20261004120100`) están en
 `supabase/migrations/20260925120100_rls_policies.sql`, con 8 de ellas
@@ -674,6 +674,9 @@ incluida `date_of_birth`. Pasan de 38 a 37 políticas.
 - **Datos públicos de otros**: solo `public_profile_previews` (id, nombre,
   avatar, rol), sin `date_of_birth`. Que exponga `role` a anon es H3, sin
   cambios.
+  - Sesión 71: anon y PUBLIC ya no tienen ningún privilegio sobre la vista,
+    y authenticated solo SELECT (`20261031120100`; ver «Fase 4.4»). La
+    vista se podía usar para escribir en `profiles` saltándose la RLS.
 - **Contradice la regla de la Fase 0** «`profiles` completo requiere
   sesión»: prevalece esta decisión específica de privacidad.
 - Sin cambios en INSERT, UPDATE, DELETE, GRANT, servicios, Server Actions
@@ -1213,6 +1216,124 @@ siguen este mismo modelo.
   - una edición manipulada que omite un campo conserva su valor (UPDATE
     parcial de columnas permitidas y validadas).
 
+## Fase 4.4 — búsqueda y detalle públicos (sesión 71; solo en local)
+
+Decisiones del propietario (2026-10-31): R4 público (sin sesión, indexable,
+sin identidad de la propietaria) y R3 con cuatro órdenes (`docs/ROADMAP.md`).
+Antes de abrir nada a anon se auditaron sus privilegios en local (con los
+privilegios por defecto de Supabase del shim) y se corrigieron con
+`20261031120100_public_read_minimum.sql`.
+
+### Hallazgo grave: escritura en `profiles` a través de una vista
+
+- **Qué pasaba.** `public_profile_previews` (`20260925120100`) es
+  `security_invoker = false` y, al ser de una sola tabla y columnas
+  simples, PostgreSQL la puede actualizar sola. anon y authenticated tenían
+  **todos** los privilegios sobre ella (los por defecto de Supabase). Un
+  UPDATE o DELETE sobre la vista se ejecuta con los privilegios de su dueño:
+  sin la RLS de `profiles` ni su GRANT por columnas.
+- **Comprobado en local** (`tests/db/23`, PR5): un usuario autenticado se
+  puso `role = 'admin'` y anon cambió el `full_name` de otra persona. Es un
+  escalado de privilegios y una escritura anónima.
+- **Alcance.** Viene de la Fase 0 y está en `master`. Previsiblemente
+  también en `roomly-validation-2b` y `roomly-validation-3` (no se ha
+  comprobado: Claude no se conecta a Supabase). Nada de la aplicación usa la
+  vista.
+- **Corrección.** anon y PUBLIC pierden todo; authenticated pierde INSERT,
+  UPDATE, DELETE, TRUNCATE, REFERENCES y TRIGGER y conserva SELECT (H4: «datos
+  públicos de otros»). service_role no cambia. Retirarle también el SELECT a
+  authenticated, o borrar la vista, es una decisión pendiente del
+  propietario. Lo fijan `tests/db/23` (PR5), P4 del preflight y su mutación.
+- **Pendiente (operativo, con autorización):** aplicar la corrección en los
+  proyectos reales y revisar si alguien la ha usado.
+
+### anon sobre `rooms` y `room_images`
+
+| | Antes (local) | Después (`20261031120100`) |
+|---|---|---|
+| `rooms`, tabla | SELECT de las 26 columnas, REFERENCES y TRIGGER | ninguno |
+| `rooms`, columnas | — | SELECT de 20: `id`, `title`, `description`, `city_id`, `neighborhood_id`, `price_month`, `expenses_included`, `deposit_amount`, `available_from`, `min_stay_months`, `max_stay_months`, `total_roommates`, `total_rooms`, `features`, `pets_allowed`, `smoking_allowed`, `students_only`, `house_rules`, `roommate_preferences`, `published_at` |
+| `rooms`, PUBLIC | nada | nada (revocado igualmente) |
+| `room_images` | `room_images_select` (subconsulta sobre `rooms.owner_id`) | `room_images_select_public` (R7) y `room_images_select_own` (solo authenticated) |
+| `public_profile_previews` | todos los privilegios | ninguno |
+
+- Fuera del GRANT de anon: `owner_id`, `approx_lat`, `approx_lng`,
+  `status`, `deleted_at`, `created_at` y `updated_at`. Seleccionarlas,
+  filtrar u ordenar por ellas da 42501; `select *` también.
+- Las filas las sigue decidiendo R7 (`rooms_select_active_public`, sin
+  cambios): las condiciones de una política sobre la propia tabla no exigen
+  privilegio de columna. Una subconsulta dentro de una política sí (se
+  ejecuta con los privilegios de quien consulta): por eso se dividió
+  `room_images_select`.
+- La lista de 20 columnas es exactamente la que usa el servicio
+  (`tests/unit/room-search-static.test.ts` lo comprueba en ejecución contra
+  la migración, y también el mock de E1).
+- Las únicas funciones SECURITY DEFINER que anon puede ejecutar siguen
+  siendo `is_admin()` e `is_room_publicly_visible(uuid)`; anon no lee
+  ninguna vista de `public` (PR6).
+- authenticated, sin cambios: SELECT de tabla en `rooms` y el INSERT/UPDATE
+  por columnas del CRUD.
+
+### Cómo leen las páginas públicas
+
+- **Siempre como un visitante.** `/[city]/habitaciones` y su detalle usan
+  `createPublicClient()` (`lib/supabase/public.ts`): la clave anon, sin
+  cookies ni sesión guardada, también cuando hay una sesión. Así la base de
+  datos aplica R7 y el GRANT de anon a todo el mundo; con el cliente de la
+  sesión, una propietaria vería sus borradores (`rooms_select_own`), un admin
+  cualquier habitación (`rooms_admin_all`) y authenticated todas las
+  columnas, y solo un filtro de la aplicación lo evitaría.
+- **Sin service_role para leer.** `lib/services/room-search.ts` no importa
+  el cliente admin. Las fotos siguen la secuencia de la 4.2: el visitante
+  lee la habitación (R7), el visitante lee sus fotos (R7 otra vez) y solo
+  después `room-images.ts` firma esas rutas canónicas con la validez
+  configurada (600 s). `listRoomCovers` hace lo mismo para una página entera
+  en una lectura y una firma.
+- **Lista blanca.** `PublicRoomCard` y `PublicRoomDetail` se construyen campo
+  a campo; nunca se serializa una fila. Ni identidad, ni `owner_id`, ni
+  coordenadas, ni `room_addresses` (no se consulta), ni estado, borrado
+  lógico o fechas internas.
+- **404 indistinguible.** Inexistente, de otra ciudad, ciudad inactiva, id
+  no válido o no pública (borrador, pausada, alquilada, retirada, eliminada
+  o de una cuenta desactivada): la misma página y el mismo 404.
+- **Parámetros.** Esquema estricto (`lib/validation/room-search.ts`):
+  un parámetro desconocido o repetido, un valor fuera de formato o un barrio
+  de otra ciudad invalidan la búsqueda y no se consulta nada. Los valores
+  del cursor se validan por tipo antes de ir, entre comillas, al filtro de
+  PostgREST. El cursor es opaco para la interfaz, pero no va firmado: quien
+  lo manipule solo cambia el punto de partida dentro de las filas públicas.
+- **Caché.** Las dos páginas son `force-dynamic`, sin ISR, y las fotos van
+  con `<img>` (no `next/image`): las URL firmadas caducan.
+- **SEO.** Canónica sin parámetros; las variantes con filtros, orden o
+  cursor llevan `noindex, follow`, y una ciudad sin habitaciones publicadas
+  tampoco se indexa.
+
+### Textos libres
+
+El título, la descripción, las normas y las preferencias se publican tal
+cual. Nada detecta ni quita teléfonos, correos o direcciones: el formulario
+de publicación avisa de no escribirlos (`room-public-text-warning`). Es una
+limitación conocida, no una garantía.
+
+### Riesgos y limitaciones
+
+- **Sin validar en Supabase real, en la CI ni en un despliegue.** Las
+  migraciones se han probado en local (`test:db`, `test:infra`) y las
+  páginas, con E1 contra el mock.
+- **Privilegios por defecto de anon en otras tablas.** La auditoría local
+  muestra que anon conserva los de Supabase en el resto de tablas de
+  `public` (por ejemplo, TRUNCATE, REFERENCES y TRIGGER, y en
+  `room_addresses` también SELECT). Todas tienen RLS, que frena SELECT,
+  INSERT, UPDATE y DELETE, y PostgREST no expone TRUNCATE, REFERENCES ni
+  TRIGGER. Revocarlos sería defensa en profundidad; queda como decisión
+  pendiente, fuera del alcance de la 4.4.
+- **El cursor no es una instantánea**: un anuncio que cambie de precio o de
+  fecha, o se vuelva a publicar, mientras alguien pasa páginas puede
+  aparecer dos veces o no aparecer.
+- **Parámetros de seguimiento** (`utm_*`, `fbclid`...): el esquema estricto
+  los rechaza y la página muestra el aviso de filtros no válidos. Si se
+  quieren aceptar, es una decisión de producto.
+
 ## Privacidad de ubicación
 
 `room_addresses.address_exact` en tabla separada, RLS restringida al
@@ -1220,6 +1341,13 @@ propietario (ver `docs/DATABASE.md` para el razonamiento completo). Los
 pines públicos usan coordenadas difuminadas (~150-300m), nunca la
 dirección real, hasta que exista una lógica de "compañero con match
 confirmado" que amplíe el acceso sin tocar la tabla `rooms`.
+
+> Corrección de la sesión 71 (R2, alcance mínimo, 2026-10-15): en la Fase 4
+> la ubicación pública es solo el barrio y la ciudad. No hay pines, mapa ni
+> coordenadas públicas: anon no puede leer `approx_lat` ni `approx_lng`
+> (`20261031120100`) y nada de la aplicación nombra `room_addresses`. El
+> párrafo anterior describe el diseño de la Fase 0; el mapa sigue pendiente
+> de R2.
 
 ## Auditoría
 

@@ -199,6 +199,68 @@ Detalle, con los niveles de evidencia, en `docs/SUPABASE_VALIDATION.md`
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
 
+## Fase 4.4 — búsqueda y detalle públicos (2026-10-31, sesión 71; solo en local)
+
+Rama local `feature/phase4-4-public-search` (desde `ce803ae`). Resultados de
+esta sesión, con el código final:
+
+| Comando | Resultado |
+|---|---|
+| `npm run format:check` | sin cambios pendientes |
+| `npm run lint` | sin errores |
+| `npm run typecheck` | sin errores |
+| `npm run test` | 60 archivos, **1536/1536** (antes 1432) |
+| `npm run test:db` | **886/886** (antes 812), con `22` y `23` |
+| `npm run test:infra` | **401/401** (antes 377) |
+| `npm run build` | correcto; `/[city]/habitaciones` y su detalle, dinámicas (ƒ) |
+| E1 (`npx playwright test`) | **55/55** (antes 49), con `public-rooms.spec.ts` (6) |
+
+- **Base de datos** (`test:db`, PostgreSQL 16 local con el shim):
+  - `22_rooms_published_at.sql` (PA0–PA11): estructura, trigger, CHECK,
+    índice, sin escritura de clientes; publicar, pausar y re-publicar (fecha
+    nueva), editar (sin cambios), H5 (rechaza sin tocar la fecha; un admin
+    que re-publica una retirada, fecha nueva), service_role y el CHECK con el
+    trigger desactivado;
+  - `23_public_read_minimum.sql` (PR0–PR6): las 20 columnas de anon y nada
+    más, sin PUBLIC; anon no lee, filtra ni ordena por las demás; R7 sigue
+    decidiendo filas y fotos; CRUD de la propietaria intacto; la vista sin
+    anon ni escritura (incluido el escalado `role = 'admin'`); ninguna otra
+    vista ni función SECURITY DEFINER nueva al alcance de anon;
+  - cuentas actualizadas en `10`, `13`, `14`, `15`, `16`, `19`, `20` y `21`.
+- **Infraestructura** (`test:infra`): preflight vigente con 22 mutaciones
+  nuevas o reescritas (4 de P1, 3 de P3, una de ellas sustituye a la de
+  `room_images_select`, 11 de P4 y 4 de P6); `sql-suite-selftest` con 42
+  políticas; UP5b en `migration-upgrade-selftest` (relleno histórico de
+  `published_at` sin tocar `updated_at`). En una ejecución de la suite SQL en
+  modo remoto (cada archivo en un `BEGIN…ROLLBACK`) se vio que `now()` no
+  avanza dentro de la transacción: el trigger usa `clock_timestamp()`.
+- **Mutaciones comprobadas** (en copias temporales o con el cambio
+  revertido): sin la migración de lectura mínima fallan `23` y las cuentas;
+  sin la de `published_at` fallan `16`, `22` y `23`; firmar las portadas
+  habitación a habitación hace fallar la prueba de N+1; copiar la fila
+  entera en la tarjeta hace fallar la de la lista blanca.
+- **Unitarios**: `validation-room-search` (28: esquema estricto, órdenes,
+  cursor y URL), `services-room-search` (43: consultas, filtros, cuatro
+  órdenes con desempate, cursores, DTO, portadas, errores y caducidad de la
+  firma, 404 y la **prueba de N+1**: 4 consultas del visitante y 1 firma con
+  1 y con 20 resultados, y ninguna lectura de tablas con service_role),
+  `services-room-images` (`listRoomCovers`), `public-rooms-pages` (17: render,
+  404, metadatos, paginación, aviso del formulario) y `room-search-static`
+  (10: el GRANT de anon es exactamente lo que usa el servicio, también en el
+  mock; sin identidad, dirección, estado ni ISR).
+- **E1** (`public-rooms.spec.ts`, contra el mock, que emula el GRANT por
+  columnas de anon y R7): búsqueda sin sesión como anon (service_role solo
+  firma), paginación sin repetidas ni perdidas, cambio de orden con precios
+  repetidos, filtros sin JavaScript, parámetros manipulados, detalle con
+  fotos firmadas, 404 indistinguible, la misma vista para la propietaria y
+  el admin (sin borradores), publicar desde la gestión y `published_at`
+  estable tras una edición, y el aviso del formulario. E1 usa el Chromium
+  preinstalado (`PLAYWRIGHT_CHROMIUM_EXECUTABLE`): resultado orientativo.
+- **No ejecutado:** la CI, Supabase real (ni la suite SQL ni la api-suite
+  contra un proyecto), el E2 y un despliegue. Ningún resultado de esta
+  sección valida PostgREST real (por ejemplo, el `or=(and(...))` anidado o la
+  comparación de `uuid` en el cursor): lo emulan el mock y los tests.
+
 ## R1 — atribución en `/explorar` (2026-10-31, sesión 70; solo en local)
 
 - `npm run test`: 1432/1432 en 56 archivos (1424 antes). Nuevo

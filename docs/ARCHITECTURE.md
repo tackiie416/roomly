@@ -56,8 +56,14 @@ app/actions/*.ts   → Server Actions (delgadas, solo Next.js)
         ↓ llaman a
 lib/services/*.ts  → lógica de negocio real (validación, orquestación, reglas)
         ↓ usa
-lib/supabase/*.ts  → clientes Supabase (browser / server / admin)
+lib/supabase/*.ts  → clientes Supabase (browser / server / public / admin)
 ```
+
+`lib/supabase/public.ts` (Fase 4.4, sesión 71) es el cliente de un visitante:
+la clave anon, sin cookies ni sesión. Lo usan solo las páginas públicas de
+habitaciones, para leer siempre como cualquier visitante (R7 y el GRANT por
+columnas de anon los aplica la base de datos, también a la propietaria y al
+admin). No es privilegiado.
 
 Cuando exista la app Expo, se añade `app/api/v1/*/route.ts` como una capa
 fina adicional que llama a los **mismos** `lib/services/*` — cero lógica de
@@ -310,6 +316,49 @@ vacías. La vista pública `public_profile_previews` (ver DATABASE.md) es lo
 que permite que estas páginas sean rastreables sin sesión sin reabrir el
 acceso público a `profiles` completo.
 
+> Cambio de la Fase 4.4 (sesión 71) para `/[city]/habitaciones` y su
+> detalle `/[city]/habitaciones/[id]`:
+> - **Sin ISR ni `generateStaticParams`**: las páginas llevan URL firmadas de
+>   fotos que caducan a los 10 minutos, así que son dinámicas en cada
+>   petición (`export const dynamic = "force-dynamic"`). Una ciudad
+>   inexistente o inactiva es 404, así que no hay páginas vacías por ciudad,
+>   y una ciudad activa sin habitaciones publicadas lleva `noindex`.
+> - **Canónica** sin parámetros; las variantes con filtros, orden o cursor
+>   llevan `noindex, follow`.
+> - **Sin identidad** de la propietaria (R4): no usan
+>   `public_profile_previews`, y anon ya no tiene acceso a esa vista
+>   (`20261031120100`). `/[city]/companeros-de-piso` sigue sin implementar;
+>   si necesita datos públicos de personas, hará falta una decisión nueva.
+
+## Búsqueda pública de habitaciones (Fase 4.4)
+
+```
+app/(marketing)/[city]/habitaciones/page.tsx        → formulario GET, tarjetas, cursor
+app/(marketing)/[city]/habitaciones/[id]/page.tsx   → detalle, 404 indistinguible
+        ↓ createPublicClient() (anon, sin sesión)
+lib/services/room-search.ts   → searchPublicRooms / getPublicRoom (DTO de lista blanca)
+lib/validation/room-search.ts → parámetros estrictos, cuatro órdenes, cursor
+        ↓ solo para firmar
+lib/services/room-images.ts   → listRoomCovers / listRoomImages (service_role solo firma)
+```
+
+- **Peticiones constantes** (sin N+1): búsqueda = ciudad + barrios de la
+  ciudad + habitaciones (21) + fotos de la página + una firma; detalle =
+  ciudad + habitación + barrio + `listRoomImages` (habitación, fotos y una
+  firma). Lo comprueba `tests/unit/services-room-search.test.ts` con 1 y 20
+  resultados.
+- **Paginación por cursor (keyset)**: 20 por página, se piden 21, sin
+  `count=exact`; desempate por `id` en la dirección del orden. La condición
+  del cursor y la de la estancia van en un único `or=(and(...))` de
+  PostgREST. Solo enlaces «Página siguiente» y «Volver a la primera página»:
+  la página anterior exigiría la consulta inversa.
+- **Formularios sin JavaScript**: GET, con `<details>` nativos para barrios y
+  características. Los metadatos y la página comparten una sola lectura por
+  petición (`cache` de React).
+- **Rutas**: las estáticas de la aplicación (`/habitaciones`, `/perfil`...)
+  ganan a `[city]`; `proxy.ts` no protege `/[city]/habitaciones` (no empieza
+  por ningún prefijo protegido; `tests/unit/auth-destination.test.ts`).
+
 ## Estructura de carpetas
 
 Los segmentos de ruta orientados a usuario van en español (para que las
@@ -328,7 +377,7 @@ roomly/
 │   ├── api/webhooks/          # vacío en MVP; api/v1 se añade con Mobile
 │   └── actions/                # Server Actions, delgadas
 ├── lib/
-│   ├── supabase/{client,server,admin}.ts
+│   ├── supabase/{client,server,public,admin}.ts
 │   ├── matching/{score,weights,types,questionnaire,questionnaire-status,filters,explanations}.ts
 │   ├── services/                # lógica de negocio real
 │   ├── images/                   # limpieza de fotos con sharp (Fase 4.2, server-only)

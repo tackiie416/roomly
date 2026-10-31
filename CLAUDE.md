@@ -343,7 +343,41 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - en local: `test` 1412, `test:db` 812, `test:infra` 377 y E1 47/47
       (orientativo). Sin validar en Supabase real ni en la CI;
     - fuera de alcance: búsqueda, filtros, detalle público (R3, R4) y
-      moderación.
+      moderación (la búsqueda y el detalle llegan en la 4.4, abajo).
+  - **4.4 (búsqueda y detalle públicos): en local (sesión 71)**, en la rama
+    `feature/phase4-4-public-search` (apilada sobre la 4.3, desde
+    `ce803ae`), con commits locales **sin publicar**. R3 y R4 decididos por
+    el propietario el 2026-10-31:
+    - **hallazgo grave corregido en local:** anon y authenticated tenían
+      todos los privilegios sobre la vista actualizable
+      `public_profile_previews`, y con ellos se escribía en `profiles` sin
+      RLS (un usuario se ponía `role = 'admin'`). Viene de la Fase 0, está en
+      `master` y, previsiblemente, en los proyectos reales. Lo corrige
+      `20261031120100` (anon y PUBLIC sin nada; authenticated solo SELECT);
+      aplicarlo en real necesita autorización (`docs/SECURITY.md`, «Fase
+      4.4»);
+    - `20261031120100` también deja a anon solo SELECT de 20 columnas de
+      `rooms` (sin `owner_id`, `approx_*`, `status`, `deleted_at` ni
+      fechas internas) y divide `room_images_select` en `_public` (R7) y
+      `_own`: 42 políticas;
+    - `20261031120000`: `rooms.published_at` con el trigger
+      `trg_rooms_published_at` (fecha nueva al publicar o re-publicar; las
+      ediciones no la cambian; las activas históricas, con `created_at`),
+      `chk_rooms_published_at` e índice parcial. 15 triggers y 15 funciones;
+    - `/[city]/habitaciones` y `/[city]/habitaciones/[id]`: sin sesión, sin
+      identidad de la propietaria, filtros GET sin JavaScript, cuatro órdenes
+      (más recientes, precio ascendente y descendente, disponibilidad), cursor
+      de 20 + 1, 404 indistinguible, dinámicas (sin ISR) y `noindex` en las
+      variantes. Leen siempre con `createPublicClient()` (anon, sin sesión),
+      también con sesión: la propietaria y el admin no ven borradores;
+    - `lib/services/room-search.ts` sin service_role: las fotos las firma
+      `room-images.ts` (`listRoomCovers`, `listRoomImages`) después de que el
+      visitante las lea;
+    - en local: `test` 1536, `test:db` 886, `test:infra` 401 y E1 55/55
+      (orientativo). **Sin validar en Supabase real, en la CI ni en un
+      despliegue**; el E2 no la cubre;
+    - las dos migraciones no tocan las copias congeladas de R8 (D3) ni sus
+      pins; su validación en real seguirá D2, con autorización.
   - R8 (decisión del 2026-10-17: antes de decidir el merge del PR #26): la
     herramienta `tests/supabase/phase4-upgrade.sh` (entrada `phase4_upgrade`
     del workflow, `dry_run` y `apply`), probada en local, se ejecutó contra
@@ -528,6 +562,10 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   de Fase 0 «`profiles` completo requiere sesión»). Los datos públicos de
   otros usuarios salen de la vista `public_profile_previews` (solo
   id/nombre/avatar/rol). No reabras la lectura de perfiles ajenos.
+  - La vista es `security_invoker = false` y actualizable: desde
+    `20261031120100` (sesión 71, en local) anon y PUBLIC no tienen nada y
+    authenticated solo SELECT. **Nunca** le concedas INSERT, UPDATE ni
+    DELETE a un cliente: escribiría en `profiles` saltándose la RLS.
 - Dirección exacta de habitación aislada en `room_addresses`, solo
   legible por el propietario.
 - `matches`/`conversations`/`conversation_participants` no aceptan INSERT
@@ -565,7 +603,9 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   - `status` no está en el INSERT: toda habitación nace `draft`.
   - `deleted_at`, `created_at`, `updated_at`, `approx_lat` y `approx_lng` no
     están en ninguno de los dos, e `id` y `owner_id` tampoco en el UPDATE.
-  - `anon` solo tiene SELECT.
+  - `anon` solo tiene SELECT; desde la 4.4 (`20261031120100`, en local),
+    solo de 20 columnas públicas: nunca `owner_id`, `approx_*`, `status`,
+    `deleted_at` ni las fechas internas. No le devuelvas el SELECT de tabla.
   - Publicar sigue siendo un UPDATE de `status`, acotado por la RLS de la 4.0,
     el trigger de moderación (H5) y `chk_rooms_publishable`.
   - No lo reviertas ni añadas una operación privilegiada para `status` sin
@@ -584,6 +624,10 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   aplica la ruta, el límite de 8, las habitaciones retiradas o eliminadas y
   las cuentas desactivadas **también a service_role**. No abras la escritura
   de clientes ni hagas público el bucket sin una decisión explícita.
+  - Lectura (sesión 71, en local): `room_images_select_public` (R7, todos
+    los roles) y `room_images_select_own` (solo authenticated). Ninguna
+    política de lectura que se aplique a anon puede leer `rooms.owner_id`
+    en una subconsulta: anon no tiene SELECT en esa columna.
   - Borrado de habitaciones (sesiones 64 y 65): desde `20261030120000`,
     `anon`, `authenticated` y PUBLIC no tienen DELETE ni TRUNCATE sobre
     `rooms`. La app solo borra con `deleteOwnRoom` → `delete_own_room`
@@ -642,7 +686,11 @@ tamaño de la subida, con E1 (`upload-size.spec.ts`); sus Server Actions, la int
 el borrado, con tests unitarios y E1 (`room-photos.spec.ts`, contra el
 Storage simulado del mock). El CRUD de la 4.3 (sesión 68), con tests
 unitarios y estáticos y E1 (`rooms-crud.spec.ts`, con el INSERT y el UPDATE
-de `rooms` emulados en el mock), solo en local. E2E: E1
+de `rooms` emulados en el mock), solo en local. La búsqueda y el detalle
+públicos de la 4.4 (sesión 71), con `tests/db/22` y `23`, el preflight
+vigente, tests unitarios (con la prueba de N+1 de 1 frente a 20 resultados)
+y E1 (`public-rooms.spec.ts`, con el GRANT por columnas de anon y R7
+emulados en el mock), solo en local. E2E: E1
 (`npm run test:e2e`, Supabase simulado; desde el PR #19 incluye D1 sobre el
 build de E1) corre en local y
 en CI; el entorno cloud de Claude Code no puede descargar el navegador de
@@ -688,7 +736,9 @@ sin merge): la gestión de fotos de una habitación propia y su borrado
 seguro, solo desde el servidor (sesiones 64 y 65), sin validar en real. De
 la 4.3, en local y sin publicar (sesión 68): el CRUD de habitaciones propias
 (crear en borrador, listar, editar y cambiar el estado), sin validar en
-real. Sin búsqueda ni detalle público.
+real. De la 4.4, en local y sin publicar (sesión 71): la búsqueda y el
+detalle públicos de habitaciones (`/[city]/habitaciones`), sin sesión, sin
+validar en real.
 
 ## Funcionalidades pendientes
 
@@ -747,3 +797,17 @@ borrado de cuenta (H6).
     se ha podido consultar ni comprobar. Si fuera menor, bajar
     `ROOM_IMAGE_MAX_BYTES` (R5) o cambiar de modelo de subida
     (`docs/SECURITY.md`, «Tamaño real de la subida»).
+- Fase 4.4 (búsqueda y detalle públicos, en local, sin publicar; sesión 71):
+  - **aplicar en los proyectos reales la corrección de
+    `public_profile_previews`** (`20261031120100`) y revisar si alguien
+    escribió a través de la vista: necesita autorización (Claude no se
+    conecta a Supabase);
+  - si authenticated conserva el SELECT de la vista o se borra (H4: la app
+    no la usa);
+  - si se revocan a anon los privilegios por defecto de Supabase que
+    conserva en las demás tablas (frenados por la RLS; TRUNCATE, REFERENCES
+    y TRIGGER no los expone PostgREST);
+  - si la búsqueda acepta parámetros de seguimiento (`utm_*`, `fbclid`): hoy
+    el esquema estricto los rechaza;
+  - cuándo se publica la rama y su PR (apilado sobre la 4.3), y cómo se
+    validan sus dos migraciones (D2).

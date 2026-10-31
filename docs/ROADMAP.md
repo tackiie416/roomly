@@ -518,10 +518,20 @@ pausarlo.
 ## Fase 4 — Rooms — 🟡 EN CURSO (desde el 2026-10-13)
 
 CRUD de habitaciones, subida de fotos a Storage, búsqueda con filtros,
-página de detalle (con dirección aproximada, nunca exacta, hasta match).
+página de detalle (con la ubicación aproximada: solo barrio y ciudad, nunca
+la dirección exacta ni coordenadas, según R2).
+
+> Corrección de la sesión 71: el texto original decía «con dirección
+> aproximada, nunca exacta, hasta match». R2 (alcance mínimo, 2026-10-15)
+> decidió que en la Fase 4 la ubicación pública es solo el barrio y la
+> ciudad; el mapa y las coordenadas siguen pendientes de R2.
 
 **Criterios de aceptación**: búsqueda paginada, sin N+1 verificado con
 tests, `room_addresses` nunca se serializa en ninguna respuesta pública.
+- Estado (sesión 71, **solo en local**): la búsqueda pública pagina por
+  cursor; la ausencia de N+1 la comprueban los tests unitarios con 1 y 20
+  resultados; `room_addresses` no se consulta ni se nombra en el código de
+  la aplicación (tests estáticos). Sin validar en Supabase real ni en la CI.
 
 **Inicio** (2026-10-13): el propietario autorizó expresamente iniciar la Fase
 4, tras una auditoría de su alcance (`PROGRESS.md`, sesión 42). El roadmap
@@ -651,6 +661,53 @@ Subfases:
   - Fuera de alcance: búsqueda, filtros y detalle público (R3, R4), el mapa
     (R2) y la moderación.
 
+- **4.4 Búsqueda y detalle públicos** (sesión 71, 2026-10-31): autorizada
+  por el propietario con R3 y R4 decididos (abajo), **en local**, en la rama
+  `feature/phase4-4-public-search` (apilada sobre la 4.3, desde `ce803ae`),
+  con commits sin publicar.
+  - Seguridad de anon antes de abrir nada (migración
+    `20261031120100_public_read_minimum.sql`):
+    - `rooms`: anon pierde el SELECT de tabla (las 26 columnas, también
+      `owner_id`, `approx_*`, `status`, `deleted_at` y las fechas) y sus
+      REFERENCES y TRIGGER, y recibe SELECT solo de las 20 columnas de los
+      DTO públicos. PUBLIC, sin privilegios. `authenticated` y R7, sin
+      cambios;
+    - `room_images_select` se divide en `room_images_select_public` (R7) y
+      `room_images_select_own` (solo authenticated): la antigua leía
+      `rooms.owner_id` en una subconsulta, que anon ya no puede leer. Pasan
+      a ser 42 políticas;
+    - **hallazgo grave corregido:** anon y authenticated tenían todos los
+      privilegios sobre la vista `public_profile_previews`, que se puede
+      actualizar y se ejecuta con los privilegios de su dueño. En local, un
+      usuario autenticado se puso `role = 'admin'` y anon cambió el nombre
+      de otra persona. Ahora anon y PUBLIC no tienen nada y authenticated
+      solo SELECT. El fallo viene de `20260925120100` y está en `master` y,
+      previsiblemente, en los proyectos de validación
+      (`docs/SECURITY.md`, «Fase 4.4»).
+  - Fecha de publicación (migración `20261031120000_rooms_published_at.sql`):
+    `published_at`, que pone el trigger `trg_rooms_published_at` al insertar
+    una activa o al pasar a `active` desde otro estado; una edición ordinaria
+    no la cambia y nadie la escribe a mano. Las activas anteriores reciben
+    `created_at` como aproximación documentada. `chk_rooms_published_at` y el
+    índice parcial `idx_rooms_public_recent`. 15 triggers y 15 funciones.
+  - Código: `lib/supabase/public.ts` (cliente de un visitante, sin sesión),
+    `lib/validation/room-search.ts`, `lib/services/room-search.ts` y
+    `listRoomCovers` en `lib/services/room-images.ts`. Sin service_role
+    nuevo: el servicio de fotos solo firma las rutas que el visitante acaba
+    de leer.
+  - Rutas `/[city]/habitaciones` y `/[city]/habitaciones/[id]`, sin sesión,
+    dinámicas (sin ISR), con formulario GET, los cuatro órdenes, paginación
+    por cursor, 404 indistinguible, canónica y `noindex` en las variantes.
+    Funcionan sin JavaScript.
+  - Aviso en el formulario de publicación: no escribir teléfonos, correos,
+    enlaces de contacto ni la dirección exacta. Nada lo filtra.
+  - Tests: `tests/db/22` y `23`, el preflight vigente y sus mutaciones,
+    `migration-upgrade-selftest` (UP5b), unitarios (validación, servicio,
+    páginas, estáticos y N+1) y E1 (`public-rooms.spec.ts`). **Sin validar en
+    Supabase real, en la CI ni en un despliegue**; el E2 no la cubre.
+  - Fuera de alcance: relevancia, compatibilidad y distancia (R3), el mapa
+    (R2), el contacto («Me interesa», Fase 5) y la moderación (Fase 7).
+
 **Decisiones del propietario** (auditoría del 2026-10-13). Del 2026-10-15
 son las de R1, R2 (alcance mínimo), R6, R7 (publicación y estado) y R9; las
 demás siguen sin tomar:
@@ -697,11 +754,41 @@ demás siguen sin tomar:
     (barrio y ciudad), sin pedir ni guardar la dirección exacta desde la
     futura interfaz.
   - `approx_lat`/`approx_lng` quedan reservadas al servidor desde la 4.1.
+  - Sesión 71 (4.4, en local): la búsqueda y el detalle públicos muestran
+    solo el barrio y la ciudad. anon no puede leer `approx_lat` ni
+    `approx_lng` (GRANT por columnas, `20261031120100`), y `room_addresses`
+    no se consulta.
   - **Pendiente:** el mapa, el proveedor y la distancia.
 - **R3.** Qué órdenes entran en la búsqueda. «Relevancia» no está definida, y
   «compatibilidad» exigiría usar service_role fuera de los dos servicios de
   D17.
+  - Corrección de la sesión 71: cuando se escribió, D17 tenía dos servicios
+    con service_role. Hoy son cuatro: `matching.ts`, `compatibility.ts`,
+    `room-images.ts` (4.2) y `rooms.ts` (sesión 65), fijados por
+    `tests/unit/admin-client-usage.test.ts`. El razonamiento no cambia: la
+    compatibilidad seguiría exigiendo service_role fuera de ellos.
+  - **Decidido (2026-10-31) e implementado en local (4.4):** cuatro órdenes:
+    «Más recientes» (`published_at DESC, id DESC`, por defecto), precio
+    ascendente, precio descendente y disponibilidad más próxima
+    (`available_from`), todos con desempate por `id`. Sin relevancia,
+    compatibilidad ni distancia.
+  - Filtros de §13 (`ROOMLY_MASTER_SPEC.md`): ciudad (de la ruta), barrios
+    de esa ciudad, precio máximo, fecha de entrada (disponible ese día o
+    antes), meses de estancia (dentro del mínimo y el máximo, sin límite si
+    no los tiene), características (todas las marcadas, `features @>`),
+    mascotas y tabaco (sí, no o indiferente), solo estudiantes (activado:
+    `students_only = true`; desactivado, sin condición), y dos filtros de
+    cantidad distintos: dormitorios de la vivienda (`total_rooms`) y
+    personas con las que se convivirá (`total_roommates`), como máximo.
+  - Paginación por cursor: 20 por página, se piden 21, sin `count=exact`. No
+    es una instantánea: un anuncio que cambia de precio o de fecha mientras
+    alguien pasa páginas puede cambiar de sitio.
 - **R4.** Búsqueda con sesión o pública.
+  - **Decidido (2026-10-31) e implementado en local (4.4):** pública, sin
+    sesión e indexable (§34), sin identidad de la propietaria (ni nombre, ni
+    avatar, ni `owner_id`). Las páginas leen siempre como un visitante
+    anónimo, también con sesión: la propietaria y el admin ven lo mismo que
+    cualquiera.
 - **R5.** Fotos: número máximo, tamaño, tipos MIME y compresión. Además, cómo
   probar las políticas de Storage, que `test:db` no cubre.
   - **Decidido (2026-10-24) e implementado en local (4.2):** 8 fotos por
@@ -799,6 +886,14 @@ demás siguen sin tomar:
     - no hubo ninguna aprobación del Environment, aunque D4 las preveía, y
       la causa está sin determinar;
     - detalle en `docs/SUPABASE_VALIDATION.md` («Resultado: run 21»).
+  - **Migraciones nuevas de la 4.4 (sesión 71):** `20261031120000` y
+    `20261031120100` no forman parte de R8 ni de su congelación (D3): las
+    copias fijadas (`phase3-baseline-preflight.sql`,
+    `phase4-upgrade-baseline.sql`, `phase4-final-preflight.sql`) y los pins
+    de `phase4-upgrade.sh` no cambian. Solo el preflight vigente
+    (`tests/supabase/preflight.sql`) las conoce. Su validación en real
+    seguirá D2 (instalación limpia en un proyecto aislado) y necesita su
+    propia autorización; ningún run las ha ejecutado.
   - **Pendiente:**
     - revisar el Environment (por qué no hubo aprobaciones) antes de
       cualquier otro run;
