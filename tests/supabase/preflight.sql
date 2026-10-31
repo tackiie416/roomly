@@ -370,6 +370,7 @@ end $$;
 do $$
 declare
   definer_views text;
+  unsafe_views text;
   mutable_fns text;
   rls_no_policy text;
 begin
@@ -382,6 +383,31 @@ begin
     and c.relname <> 'public_profile_previews';
   if definer_views is not null then
     raise exception 'FALLO P5: vistas SECURITY DEFINER no esperadas: %', definer_views;
+  end if;
+
+  -- Guardas generales de vistas (sesión 73, tras el hotfix 20261014120000),
+  -- por privilegios EFECTIVOS (directos, heredados o de PUBLIC), de tabla o
+  -- de columna, para PUBLIC, anon y authenticated:
+  --   - ninguna vista ni vista materializada les da INSERT, UPDATE, DELETE
+  --     ni TRUNCATE, aunque sea security_invoker = true (no se da por hecho
+  --     que la RLS de la tabla de debajo lo cubre);
+  --   - una vista security_invoker = false (también la aprobada) o una vista
+  --     materializada (sin RLS) no les da ningún privilegio, ni SELECT.
+  select string_agg(distinct format('%s (%s: %s)', c.relname, r.rol, p.priv), ', ')
+    into unsafe_views
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  cross join unnest(array['public', 'anon', 'authenticated']) r(rol)
+  cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p(priv)
+  where n.nspname = 'public' and c.relkind in ('v', 'm')
+    and (has_table_privilege(r.rol, c.oid, p.priv)
+         or (p.priv in ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
+             and has_any_column_privilege(r.rol, c.oid, p.priv)))
+    and (p.priv in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')
+         or c.relkind = 'm'
+         or not coalesce((select bool_or(opt ~* '^security_invoker=(true|on|yes|1)$')
+                          from unnest(c.reloptions) opt), false));
+  if unsafe_views is not null then
+    raise exception 'FALLO P5: vistas con privilegios de clientes indebidos: %', unsafe_views;
   end if;
 
   -- function_search_path_mutable: toda función PROPIA de public debe fijar

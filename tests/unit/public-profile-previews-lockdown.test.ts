@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
+import {
+  CLIENT_ROLES,
+  migrationFiles,
+  migrationSql,
+  normalizeSql,
+  privilegeStatements,
+} from "./helpers/sql-privileges";
 
 // Hotfix de seguridad (2026-10-31) — public_profile_previews sin privilegios
 // de clientes (20261014120000). La vista es `security_invoker = false` y
@@ -17,42 +22,26 @@ import path from "node:path";
 // cambio consciente de este test. Lo que pasa en la base de datos lo prueban
 // tests/db/24 y P4 del preflight.
 
-const MIGRATIONS_DIR = "supabase/migrations";
 const HOTFIX = "20261014120000_public_profile_previews_write_lockdown.sql";
 const ORIGINAL = "20260925120100_rls_policies.sql";
-const CLIENT_ROLES = ["public", "anon", "authenticated"];
+const VIEW = "public_profile_previews";
 
-/** SQL sin comentarios `--` ni `/* *\/`, en minúsculas y con espacios normalizados. */
-function normalizedSql(file: string): string {
-  return readFileSync(path.join(MIGRATIONS_DIR, file), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/--.*$/gm, " ")
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-const migrations = readdirSync(MIGRATIONS_DIR)
-  .filter((name) => name.endsWith(".sql"))
-  .sort();
+const migrations = migrationFiles();
+const normalizedSql = migrationSql;
 const after = (file: string) => migrations.filter((name) => name > file);
+const isClient = (role: string) => (CLIENT_ROLES as readonly string[]).includes(role);
 
-/** Roles de la cláusula TO de un GRANT, sin `with grant option`. */
-function grantees(clause: string): string[] {
-  return clause
-    .replace(/\bwith grant option\b/, "")
-    .split(",")
-    .map((role) => role.trim().replace(/^"|"$/g, ""))
-    .filter(Boolean);
-}
-
-/** GRANT sobre la vista: privilegios y roles de cada uno. */
+/**
+ * GRANT sobre la vista (parser compartido de tests/unit/helpers/sql-privileges.ts:
+ * también cuando la vista va en un GRANT con varias relaciones). Heurístico:
+ * no ve SQL dinámico ni pertenencias a roles; eso lo miran tests/db/24 y P4.
+ */
 function viewGrants(sql: string) {
-  const pattern =
-    /\bgrant\s+([^;]*?)\s+on\s+(?:table\s+)?(?:public\.)?"?public_profile_previews"?\s+to\s+([^;]*?)\s*;/g;
-  return [...sql.matchAll(pattern)].map((match) => ({
-    privileges: match[1].trim(),
-    roles: grantees(match[2]),
-  }));
+  return privilegeStatements(sql)
+    .filter(
+      (s) => s.kind === "grant" && s.objectKind === "relation" && s.objects.includes(VIEW)
+    )
+    .map((s) => ({ privileges: s.privileges, roles: s.roles }));
 }
 
 describe("el hotfix 20261014120000 existe y revoca todo a los clientes", () => {
@@ -97,22 +86,29 @@ describe("ninguna migración posterior vuelve a abrir la vista", () => {
   it("ningún GRANT sobre la vista a PUBLIC, anon o authenticated después del hotfix", () => {
     const offenders = after(HOTFIX).flatMap((name) =>
       viewGrants(normalizedSql(name))
-        .filter((grant) => grant.roles.some((role) => CLIENT_ROLES.includes(role)))
+        .filter((grant) => grant.roles.some(isClient))
         .map((grant) => `${name}: grant ${grant.privileges} to ${grant.roles.join(", ")}`)
     );
     expect(offenders).toEqual([]);
   });
 
   it("ningún GRANT sobre todas las tablas del esquema ni cambio de privilegios por defecto para esos roles", () => {
-    const pattern =
-      /\bgrant\s+[^;]*?\s+on\s+all\s+tables\s+in\s+schema\s+public\s+to\s+([^;]*?)\s*;|\balter\s+default\s+privileges\b[^;]*?\bgrant\b[^;]*?\bon\s+tables\b[^;]*?\bto\s+([^;]*?)\s*;/g;
-    const offenders = migrations.flatMap((name) =>
-      [...normalizedSql(name).matchAll(pattern)]
-        .filter((match) =>
-          grantees(match[1] ?? match[2]).some((role) => CLIENT_ROLES.includes(role))
-        )
-        .map(() => name)
-    );
+    const defaults =
+      /\balter\s+default\s+privileges\b[^;]*?\bgrant\b[^;]*?\bon\s+tables\b[^;]*?\bto\s+([^;]*?)\s*;/g;
+    const offenders = migrations.flatMap((name) => {
+      const sql = normalizedSql(name);
+      const allTables = privilegeStatements(sql).filter(
+        (s) =>
+          s.kind === "grant" && s.objectKind === "all-tables" && s.roles.some(isClient)
+      );
+      const defaultGrants = [...sql.matchAll(defaults)].filter((match) =>
+        match[1]
+          .split(",")
+          .map((role) => role.trim().replace(/^"|"$/g, ""))
+          .some(isClient)
+      );
+      return allTables.length + defaultGrants.length > 0 ? [name] : [];
+    });
     expect(offenders).toEqual([]);
   });
 
@@ -127,16 +123,20 @@ describe("ninguna migración posterior vuelve a abrir la vista", () => {
 });
 
 describe("el detector reconoce lo que debe impedir", () => {
-  it("encuentra GRANT de DML, ALL y por columnas, con o sin esquema", () => {
-    const sql = [
-      "grant update on public.public_profile_previews to anon;",
-      "grant all on table public_profile_previews to authenticated with grant option;",
-      'grant select (full_name) on "public_profile_previews" to public;',
-    ].join(" ");
+  it("encuentra GRANT de DML, ALL, por columnas y con varias relaciones, con o sin esquema", () => {
+    const sql = normalizeSql(
+      [
+        "grant update on public.public_profile_previews to anon;",
+        "grant all on table public_profile_previews to authenticated with grant option;",
+        'grant select (full_name) on "public_profile_previews" to public;',
+        "grant select, delete on public.profiles, public.public_profile_previews to anon;",
+      ].join(" ")
+    );
     expect(viewGrants(sql)).toEqual([
       { privileges: "update", roles: ["anon"] },
       { privileges: "all", roles: ["authenticated"] },
       { privileges: "select (full_name)", roles: ["public"] },
+      { privileges: "select, delete", roles: ["anon"] },
     ]);
   });
 });
