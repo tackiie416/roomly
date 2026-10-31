@@ -216,6 +216,7 @@ do $$
 declare
   failures text[] := '{}';
   col text;
+  grantee text;
 begin
   -- profiles: role y deleted_at fuera de INSERT y UPDATE para authenticated
   foreach col in array array['role', 'deleted_at'] loop
@@ -339,10 +340,27 @@ begin
     failures := failures || 'authenticated NO tiene SELECT en compatibility_responses (no podría leer su estado)'::text;
   end if;
 
+  -- public_profile_previews (hotfix 20261014120000): PUBLIC, anon y
+  -- authenticated sin ningún privilegio, ni de tabla ni de columna. Es
+  -- `security_invoker = false` y actualizable: escribir por ella se saltaba
+  -- la RLS y el GRANT por columnas de profiles.
+  foreach grantee in array array['public', 'anon', 'authenticated'] loop
+    foreach col in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] loop
+      if has_table_privilege(grantee, 'public.public_profile_previews', col) then
+        failures := failures || format('%s tiene %s en public_profile_previews', grantee, col);
+      end if;
+    end loop;
+    foreach col in array array['SELECT', 'INSERT', 'UPDATE', 'REFERENCES'] loop
+      if has_any_column_privilege(grantee, 'public.public_profile_previews', col) then
+        failures := failures || format('%s tiene %s de columna en public_profile_previews', grantee, col);
+      end if;
+    end loop;
+  end loop;
+
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences y compatibility_responses)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses y public_profile_previews sin privilegios de clientes)';
 end $$;
 
 -- ============================================================
@@ -390,7 +408,7 @@ begin
     raise exception 'FALLO P5: tablas con RLS y sin políticas: %', rls_no_policy;
   end if;
 
-  raise notice 'P5 info - vista SECURITY DEFINER conocida y aceptada por ahora: public_profile_previews (H3)';
+  raise notice 'P5 info - vista SECURITY DEFINER conocida y aceptada por ahora: public_profile_previews (H3), sin privilegios de clientes desde el hotfix 20261014120000 (P4)';
   raise notice 'ok - P5: sin lints de seguridad inesperados';
 end $$;
 

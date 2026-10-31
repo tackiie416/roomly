@@ -97,6 +97,13 @@ P4|authenticated con INSERT en compatibility_responses|grant insert on public.co
 P4|authenticated con UPDATE de compatibility_responses.completed_at|grant update (completed_at) on public.compatibility_responses to authenticated;
 P4|authenticated sin SELECT en compatibility_responses|revoke select on public.compatibility_responses from authenticated;
 P6|falta trg_housing_preferences_university|drop trigger trg_housing_preferences_university on public.housing_preferences;
+P4|anon vuelve a tener UPDATE en public_profile_previews (el fallo del hotfix)|grant update on public.public_profile_previews to anon;
+P4|authenticated vuelve a tener DELETE en public_profile_previews|grant delete on public.public_profile_previews to authenticated;
+P4|authenticated recupera SELECT en public_profile_previews|grant select on public.public_profile_previews to authenticated;
+P4|anon recupera SELECT en public_profile_previews|grant select on public.public_profile_previews to anon;
+P4|PUBLIC con INSERT en public_profile_previews|grant insert on public.public_profile_previews to public;
+P4|anon con UPDATE de una columna de public_profile_previews|grant update (full_name) on public.public_profile_previews to anon;
+P4|authenticated con SELECT de una columna de public_profile_previews|grant select (role) on public.public_profile_previews to authenticated;
 P6|falta trg_profiles_onboarding_completion|drop trigger trg_profiles_onboarding_completion on public.profiles;
 P6|trigger desactivado|alter table public.housing_preferences disable trigger trg_housing_preferences_city_required;
 P6|sobra un trigger|create trigger zz_extra before update on public.cities for each row execute function public.set_updated_at();
