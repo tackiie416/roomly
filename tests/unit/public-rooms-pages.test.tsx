@@ -330,7 +330,7 @@ describe("búsqueda pública", () => {
 
 describe("metadatos de la búsqueda", () => {
   it("sin parámetros: indexable, con la canónica de la ciudad", async () => {
-    visitorWorld();
+    visitorWorld({ rooms: [card(1)] });
     const metadata = await searchMetadata(searchProps());
     expect(metadata).toMatchObject({
       title: "Habitaciones en Barcelona | Roomly",
@@ -355,6 +355,14 @@ describe("metadatos de la búsqueda", () => {
         robots: { index: false, follow: true },
       });
     }
+  });
+
+  it("ciudad activa sin habitaciones publicadas: noindex (§34, sin páginas vacías)", async () => {
+    visitorWorld({ rooms: [] });
+    expect(await searchMetadata(searchProps())).toMatchObject({
+      alternates: { canonical: "/barcelona/habitaciones" },
+      robots: { index: false, follow: true },
+    });
   });
 
   it("ciudad inexistente: noindex", async () => {

@@ -29,9 +29,11 @@ import { PublicRoomSearchForm } from "@/components/rooms/public-room-search-form
  * Dinámica en cada petición (`force-dynamic`), sin ISR ni caché: la salida
  * lleva URL firmadas que caducan a los 10 minutos.
  *
- * SEO (§34 del ROADMAP): la URL canónica es la de la ciudad sin parámetros, y
- * cualquier variante con filtros, orden o cursor lleva `noindex, follow`, para
- * no indexar combinaciones infinitas como páginas distintas.
+ * SEO (§34 de ROOMLY_MASTER_SPEC.md): la URL canónica es la de la ciudad sin
+ * parámetros, y cualquier variante con filtros, orden o cursor lleva
+ * `noindex, follow`, para no indexar combinaciones infinitas como páginas
+ * distintas. Solo se indexan ciudades activas (las demás son 404) y con
+ * alguna habitación publicada: sin páginas vacías.
  */
 
 export const dynamic = "force-dynamic";
@@ -65,12 +67,19 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     return { title: "Página no encontrada | Roomly", robots: { index: false } };
   const { city } = result.data;
   const isVariant = Object.values(raw).some((value) => value !== undefined);
+  // §34: sin páginas vacías indexadas. Una ciudad activa sin habitaciones
+  // publicadas tampoco se indexa (hasta que tenga alguna).
+  const isEmpty =
+    result.data.outcome.kind === "results" && result.data.outcome.rooms.length === 0;
   return {
     metadataBase: new URL(getPublicEnv().NEXT_PUBLIC_SITE_URL),
     title: `Habitaciones en ${city.name} | Roomly`,
     description: `Habitaciones publicadas en ${city.name}: precio, barrio, disponibilidad y convivencia. Solo mostramos el barrio, nunca la dirección.`,
     alternates: { canonical: roomSearchPath(city.slug) },
-    robots: isVariant ? { index: false, follow: true } : { index: true, follow: true },
+    robots:
+      isVariant || isEmpty
+        ? { index: false, follow: true }
+        : { index: true, follow: true },
   };
 }
 
