@@ -340,6 +340,20 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - `roomly-validation-3` va por delante de `master` hasta el merge del PR
       #26. Cada run, `dry_run` o `apply`, necesita autorización explícita
       (`docs/SUPABASE_VALIDATION.md`, «Resultado: run 21»).
+- **Hotfix de seguridad `public_profile_previews` (2026-10-31): solo en
+  local**, rama `hotfix/public-profile-previews-write-lockdown` (desde
+  `master`): migración `20261014120000` (`d76220c`) y, en la sesión 73,
+  guardas generales de vistas, propuesta de privilegios por defecto sin
+  aplicar y runbook del incidente revisado
+  (`docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md`).
+  - Sin push, PR ni merge, y **no aplicado en ningún proyecto real**.
+  - Potencialmente afectados: `roomly-validation` (Fase 1),
+    `roomly-validation-2b` (`uwxb…`) y `roomly-validation-3`. Ninguno
+    inspeccionado; ninguna evidencia, ni a favor ni en contra, de
+    explotación real. No digas que un proyecto está a salvo sin haberlo
+    verificado.
+  - Integrarlo con la Fase 4.4 exige los ajustes de `docs/TESTING.md`,
+    «Ajustes pendientes al integrar la Fase 4.4».
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -424,7 +438,7 @@ npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (v
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
 npm run test:e2e:real         # E2: alta real contra roomly-validation-3 (solo desde el workflow manual)
-npm run test:infra            # auto-tests de guarda, runner SQL, preflight, actualizaciones (incluida la de la Fase 4) y conciliación de fotos (4.2) contra PostgreSQL local
+npm run test:infra            # auto-tests de guarda, runner SQL, preflight, actualización, R8, conciliación de fotos (4.2), propuesta de privilegios por defecto y runbook del incidente, contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
 ```
@@ -501,9 +515,35 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   referencia (con política de lectura abierta explícita, no por omisión).
 - `profiles`: cada usuario lee solo su perfil y un admin activo todos (Fase
   2.9, H4: se eliminó `profiles_select_authenticated`; sustituye a la regla
-  de Fase 0 «`profiles` completo requiere sesión»). Los datos públicos de
-  otros usuarios salen de la vista `public_profile_previews` (solo
-  id/nombre/avatar/rol). No reabras la lectura de perfiles ajenos.
+  de Fase 0 «`profiles` completo requiere sesión»). No reabras la lectura de
+  perfiles ajenos.
+  - Hasta el hotfix de abajo, los datos públicos de otros usuarios salían de
+    la vista `public_profile_previews` (id/nombre/avatar/rol). **Ya no es
+    una vía autorizada:** desde el hotfix ningún cliente la lee, así que hoy
+    no hay ninguna vía de cliente para datos de otras personas. Cómo darlos
+    en el futuro (Fase 5, `/[ciudad]/companeros-de-piso`) lo decide el
+    propietario, con otro objeto que cumpla la regla de vistas, nunca
+    reabriendo esta.
+  - **Hotfix `20261014120000` (2026-10-31, en local):** la vista es
+    `security_invoker = false` y actualizable, y por ella se escribía en
+    `profiles` sin RLS. PUBLIC, anon y authenticated ya no tienen ningún
+    privilegio sobre ella. **Nunca** se los devuelvas ni vuelvas a crear la
+    vista sin una decisión de seguridad explícita
+    (`tests/unit/public-profile-previews-lockdown.test.ts`,
+    `docs/SECURITY.md`).
+- **Vistas (sesión 73):** toda vista nueva de `public` es
+  `security_invoker = true`, revoca todo a PUBLIC, anon y authenticated en su
+  misma migración y concede después solo lectura explícita. Nunca escritura
+  de clientes sobre una vista, aunque la RLS la frenara; las vistas
+  materializadas, sin privilegios de clientes. Las excepciones necesitan una
+  decisión de seguridad documentada (`VIEW_EXCEPTIONS` en
+  `tests/unit/views-security-static.test.ts`). Lo comprueban
+  `tests/db/25_views_security.sql` y P5 del preflight (privilegios
+  efectivos) y el test estático (heurístico: no ve SQL dinámico).
+- **Objetos nuevos con GRANT explícito:** no cuentes con los privilegios por
+  defecto de Supabase. Restringirlos es una propuesta probada en local y
+  **sin aplicar** (`tests/supabase/default-privileges-proposal.sql`);
+  convertirla en migración necesita la autorización del propietario.
 - Dirección exacta de habitación aislada en `room_addresses`, solo
   legible por el propietario.
 - `matches`/`conversations`/`conversation_participants` no aceptan INSERT

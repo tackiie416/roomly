@@ -25,7 +25,7 @@ Esto es lo que cambió:
 
 | Riesgo | Corrección |
 |---|---|
-| `profiles` era legible por cualquiera, incluso sin sesión — nombre, bio, fecha de nacimiento de cada usuario quedaban rascables por bots anónimos. | El SELECT completo ahora exige `auth.uid() is not null`. Para que las páginas SEO públicas (`/barcelona/habitaciones`) sigan siendo rastreables por Google sin sesión, se añadió la vista `public_profile_previews` (solo id, nombre, avatar, rol) con permiso explícito para `anon`. **Actualización (Fase 2.9, H4)**: ya no basta con tener sesión; cada usuario lee solo su perfil (ver "Fase 2.9 — H4"). |
+| `profiles` era legible por cualquiera, incluso sin sesión — nombre, bio, fecha de nacimiento de cada usuario quedaban rascables por bots anónimos. | El SELECT completo ahora exige `auth.uid() is not null`. Para que las páginas SEO públicas (`/barcelona/habitaciones`) sigan siendo rastreables por Google sin sesión, se añadió la vista `public_profile_previews` (solo id, nombre, avatar, rol) con permiso explícito para `anon`. **Actualización (Fase 2.9, H4)**: ya no basta con tener sesión; cada usuario lee solo su perfil (ver "Fase 2.9 — H4"). **Actualización (hotfix `20261014120000`, 2026-10-31)**: con los privilegios por defecto de Supabase, anon y authenticated tenían también INSERT, UPDATE y DELETE sobre la vista, y por ella se escribía en `profiles` sin RLS. Desde el hotfix, PUBLIC, anon y authenticated no tienen ningún privilegio sobre ella (ver "Hotfix: `public_profile_previews` sin privilegios de clientes"). |
 | Nada impedía que un usuario (o un bot) enviara cientos de "me interesa" por minuto — vector de spam/acoso. | Trigger `enforce_interest_rate_limit` en `interests`: tope de 30 por usuario cada 24h a nivel de base de datos, como backstop además del check "amigable" que hará la UI. |
 | Sin una regla explícita, alguien podría añadir sin querer una política de INSERT en `matches` o `conversation_participants` y permitir que un cliente se "auto-matchee" o se cuele en una conversación ajena. | Se documenta explícitamente en el SQL que la ausencia de política de INSERT en `matches`/`conversations`/`conversation_participants` es intencional: esas filas solo las crea el servidor tras verificar interés mutuo. |
 | La dirección exacta de una habitación vivía en la misma tabla que el resto de campos públicos — un `SELECT *` mal escrito en cualquier punto del código la habría filtrado. | Se movió a `room_addresses`, tabla propia con su propia política RLS (solo el propietario). Es el único campo de todo el esquema cuya fuga tiene una consecuencia física (localizar dónde vive alguien), así que es el único que se protege a nivel de base de datos y no solo "acordándose" de proyectar las columnas correctas en el código. |
@@ -347,7 +347,7 @@ columnas ni políticas. Pasan de **38 a 37 políticas** en `public`
 | Usuario autenticado, su perfil | fila completa, también eliminada | igual (`profiles_select_own_even_if_deleted`) |
 | Admin activo | todos (`profiles_admin_all`) | igual |
 | anon | ninguno | igual |
-| Datos públicos de otros (id, nombre, avatar, rol) | `public_profile_previews` | igual: la vista no depende de la política (`security_invoker = false`) y no tiene `date_of_birth` |
+| Datos públicos de otros (id, nombre, avatar, rol) | `public_profile_previews` | igual: la vista no depende de la política (`security_invoker = false`) y no tiene `date_of_birth`. Desde el hotfix `20261014120000`, ningún cliente la lee ni escribe |
 
 - **Contradice la regla genérica de la Fase 0** («`profiles` completo
   requiere sesión», "Riesgos de seguridad corregidos" arriba): ahora
@@ -996,6 +996,83 @@ por el propietario el 2026-10-30**: no hay triggers que llamen a Storage ni
 borrado de cuenta (H6, fuera del alcance actual). El futuro H6 tendrá que
 limpiar y verificar Storage antes de eliminar el perfil (`docs/SECURITY.md`,
 «Cascadas desde profiles y Auth»).
+
+## Hotfix: `public_profile_previews` sin privilegios de clientes (2026-10-31)
+
+Migración `20261014120000_public_profile_previews_write_lockdown.sql`, **solo
+en local** (rama `hotfix/public-profile-previews-write-lockdown`, desde
+`master`). Razonamiento completo y explotación en `docs/SECURITY.md`.
+
+- **Definición de la vista (sin cambios):**
+  `select id, full_name, avatar_url, role from profiles where deleted_at is
+  null`, `security_invoker = false`, dueño `postgres`. Es actualizable
+  (`pg_relation_is_updatable` = 28: INSERT, UPDATE y DELETE).
+- **Por qué fallaba:** `20260925120100` solo concedía `select`, pero los
+  privilegios por defecto de Supabase ya daban ALL a anon y authenticated, y
+  una escritura por una vista `security_invoker = false` se comprueba con los
+  privilegios de su dueño, sin la RLS ni el GRANT por columnas de `profiles`.
+- **Qué hace:** `revoke all` a PUBLIC, anon y authenticated, un comentario en
+  la vista y una comprobación final que hace fallar la migración si queda
+  algún privilegio efectivo de tabla o de columna para esos roles.
+- **Qué no toca:** la definición, el dueño ni la existencia de la vista (la
+  migración `20261031120100` de la Fase 4.4 la nombra), service_role,
+  `profiles` (tabla, columnas, políticas), los privilegios por defecto ni
+  ningún otro objeto. Una instantánea de todas las ACL antes y después solo
+  difiere en esta vista.
+- **Lectura:** también se retira. Ningún código de la aplicación usa la vista
+  (ni en `master` ni en las ramas de la Fase 4); la decisión de H4 («datos
+  públicos de otros por la vista») queda sin ninguna vía de uso hasta que se
+  diseñe otra. Si alguna funcionalidad futura necesita datos públicos de
+  personas, necesitará una decisión de seguridad y otro objeto (por ejemplo,
+  una vista `security_invoker = true` o una función que no se pueda
+  actualizar), no volver a conceder sobre esta.
+- **Orden de migraciones:** `20261014120000` va después de la última de
+  `master` (`20261013120000`) y antes de todas las no fusionadas
+  (`20261015120000`–`20261031120100`, Fases 4.1–4.4). Es un nombre de orden,
+  no la fecha de redacción; no se ha cambiado ningún timestamp existente. El
+  proyecto no usa el historial de la CLI de Supabase (`db push`): los
+  proyectos de validación aplican las migraciones con psql en orden de
+  nombre. El efecto es el mismo en cualquier orden: probado en local con el
+  hotfix delante de la 4.1, después de la 4.1 (como en `roomly-validation-3`)
+  y después de toda la 4.4. `20261031120100` vuelve a revocar sobre la vista y
+  no concede nada.
+- **Tests:** `tests/db/24_public_profile_previews_lockdown.sql` (LK0–LK7),
+  PV8 de `tests/db/13` (ahora exige el rechazo), P4 del preflight vigente y
+  sus mutaciones, PR10 y PR10b de la api-suite y el test estático
+  `tests/unit/public-profile-previews-lockdown.test.ts`.
+
+## Vistas y privilegios de objetos nuevos (sesión 73, 2026-10-31)
+
+Reglas de esquema que salen del hotfix. Razonamiento, excepciones y dónde se
+comprueban: `docs/SECURITY.md`, «Guardas generales de vistas».
+
+- **Toda vista nueva** de `public`:
+  - `with (security_invoker = true)`;
+  - en la misma migración, después del CREATE:
+    `revoke all on public.<vista> from public, anon, authenticated;` y,
+    después, solo el GRANT de lectura que haga falta, explícito;
+  - nunca INSERT, UPDATE, DELETE ni TRUNCATE para PUBLIC, anon o
+    authenticated, aunque la RLS de la tabla lo frenara;
+  - una vista materializada no tiene RLS: ningún privilegio de clientes.
+- **Excepción vigente:** `public_profile_previews` (Fase 0,
+  `security_invoker = false`), sin privilegios de clientes desde el hotfix.
+  Una excepción nueva necesita una decisión de seguridad documentada y su
+  test.
+- **GRANT explícitos en los objetos nuevos.** Las funciones de las Fases
+  4.1–4.4 (en sus ramas, todavía sin fusionar) ya lo hacen: `revoke all …
+  from public, anon, authenticated, service_role` y después `grant execute`
+  al rol que corresponda. Muchos objetos existentes, en cambio, reciben de
+  los privilegios por defecto de Supabase privilegios que ninguna migración
+  concede: 60 en una instalación local (las 18 tablas y varias funciones;
+  por ejemplo, el SELECT de authenticated en `profiles`). Consecuencias:
+  - una migración que borre y vuelva a crear un objeto existente (DROP +
+    CREATE) tiene que concederle de forma explícita lo que tenía; CREATE OR
+    REPLACE conserva los privilegios;
+  - una tabla nueva debe conceder lo que necesite cada rol, sin contar con
+    los privilegios por defecto, para que siga funcionando si se aplica la
+    propuesta de `tests/supabase/default-privileges-proposal.sql`
+    (no aplicada; ver `docs/SECURITY.md`, «Privilegios por defecto:
+    propuesta sin aplicar»).
 
 ## Diagrama de entidades (simplificado)
 
