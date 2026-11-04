@@ -497,11 +497,37 @@ describe("Profiles (PR)", () => {
     expectOk(select.error);
     expect(select.data).toHaveLength(0);
 
-    // H3 (conocido, no se corrige en este checkpoint): se registra la exposición.
+    // Hotfix 20261014120000: la vista (security_invoker = false, actualizable)
+    // ya no da ningún privilegio a anon ni a authenticated. Antes, escribir
+    // por ella se saltaba la RLS de profiles (y anon la leía: H3). Si el
+    // proyecto no tiene el hotfix aplicado, esto falla.
     const preview = await anon.from("public_profile_previews").select("id, role");
-    record(
-      `PR10/H3: anon lee public_profile_previews → ${preview.error ? `error ${preview.error.code}` : `${preview.data?.length ?? 0} filas (incluye la columna role)`}`
-    );
+    expectPgError(preview.error, "42501");
+    const anonUpdate = await anon
+      .from("public_profile_previews")
+      .update({ full_name: "Cambiado por anon" })
+      .eq("id", A().id);
+    expectPgError(anonUpdate.error, "42501");
+    const anonDelete = await anon
+      .from("public_profile_previews")
+      .delete()
+      .eq("id", A().id);
+    expectPgError(anonDelete.error, "42501");
+  });
+
+  it("PR10b: un usuario no se pone role=admin ni borra perfiles por public_profile_previews (hotfix)", async () => {
+    const escalate = await A()
+      .client.from("public_profile_previews")
+      .update({ role: "admin" })
+      .eq("id", A().id);
+    expectPgError(escalate.error, "42501");
+    const removeOther = await A()
+      .client.from("public_profile_previews")
+      .delete()
+      .eq("id", B().id);
+    expectPgError(removeOther.error, "42501");
+    const read = await A().client.from("public_profile_previews").select("id");
+    expectPgError(read.error, "42501");
   });
 
   it("PR11: el servidor (service_role) sí puede asignar role=admin", async () => {
