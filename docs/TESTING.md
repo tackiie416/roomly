@@ -199,6 +199,212 @@ Detalle, con los niveles de evidencia, en `docs/SUPABASE_VALIDATION.md`
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
 
+## Guardas de vistas, privilegios por defecto y runbook del incidente (sesión 73, 2026-10-31; solo en local)
+
+Misma rama local `hotfix/public-profile-previews-write-lockdown`, sobre
+`700bb60`. PostgreSQL 16.15 local con el shim de `tests/db`. Nada remoto.
+
+**Suites** (con el código final de la sesión):
+
+| Comando | Antes (`700bb60`) | Sesión 73 |
+|---|---|---|
+| `npm run test:db` | 409 | **428** (`25_views_security`: 19) |
+| `npm run test:infra` | 177 | **238**: preflight 57 → 64 (6 mutaciones P5 y 1 variante aceptada), `default-privileges-selftest` 18, `incident-runbook-selftest` 36 |
+| `npm run test` | 38 archivos, 1040 | 39 archivos, **1052/1052** (`views-security-static`, 12) |
+| `lint`, `typecheck`, `format:check` | en verde | en verde |
+
+**El hotfix sigue bloqueando los 12 intentos sobre la vista** (el mismo
+script de explotación de la sesión 72, sobre el código final):
+- sin `20261014120000`: 6 escrituras permitidas (A se pone admin; A y anon
+  cambian nombres o roles ajenos; anon y A borran perfiles), 2 lecturas
+  permitidas, 2 inserciones con el privilegio pero rechazadas por el NOT
+  NULL de `date_of_birth`, y el rol solo con PUBLIC rechazado;
+- con el hotfix: **12/12 con 42501**, y el control por la tabla `profiles`
+  también 42501. Lo mismo comprueban LK1–LK5 de `tests/db/24`.
+
+**Guardas generales de vistas** (reglas en `docs/SECURITY.md`, «Guardas
+generales de vistas»):
+- `tests/db/25_views_security.sql` (VW0–VW8): una función de prueba recorre
+  todas las vistas y vistas materializadas de `public` con privilegios
+  efectivos (`has_table_privilege`, `has_any_column_privilege`) y la ACL
+  (PUBLIC incluido). Controles, cada uno deshecho al terminar:
+  - vista definer nueva con ALL: se detecta por tres motivos, y A de verdad
+    se pone admin por ella;
+  - vista definer con solo SELECT: se detecta, y A ve por ella el perfil de B
+    que la RLS de la tabla le oculta (un SELECT «inocuo» no está protegido
+    por la RLS);
+  - vista invoker con escritura de clientes: se detecta aunque los GRANT y la
+    RLS de `profiles` frenen el intento (42501, 0 filas, solo su propio
+    nombre);
+  - el patrón aprobado (invoker, REVOKE y SELECT explícito): no se señala y
+    lee con la RLS;
+  - INSERT para PUBLIC, UPDATE por columna para anon y una vista
+    materializada legible por anon: se detectan.
+- P5 del preflight: la misma regla, con seis mutaciones nuevas en
+  `preflight-selftest.sh` y una variante aceptada que debe pasar el
+  preflight completo.
+- Test estático `tests/unit/views-security-static.test.ts` (12 tests, con
+  autotests del detector). Demostración con migraciones temporales, una por
+  caso, borradas después:
+
+  | Migración temporal | Reglas que fallan |
+  |---|---|
+  | vista definer nueva sin REVOKE | 1 (security_invoker) y 2 (REVOKE) |
+  | vista invoker sin REVOKE | 2 |
+  | vista invoker con `grant select, update on public.rooms, public.<vista> to anon` | 3 (escritura en un GRANT con varias relaciones) |
+  | `grant update ("full_name") on table "public"."public_profile_previews" to "authenticated"` | 3 y las dos del test del hotfix |
+  | `grant service_role to authenticated` | 4c (pertenencia) |
+  | `alter default privileges … grant all on tables to anon` | 4b y la del test del hotfix |
+  | `grant select on all tables in schema public to authenticated` | 4a y la del test del hotfix |
+  | vista materializada sin REVOKE | 1 y 2 |
+  | control: vista invoker correcta | ninguna regla (solo cambia el recuento de vistas, que obliga a revisar cualquier vista nueva) |
+
+  Es heurístico: no ve SQL dinámico ni concesiones hechas fuera de las
+  migraciones. La garantía son los privilegios efectivos de `tests/db/25` y
+  P5.
+
+**Propuesta de privilegios por defecto** (`tests/supabase/default-privileges-proposal.sql`,
+sin aplicar; `default-privileges-selftest.sh`, 18 comprobaciones en bases
+efímeras):
+- A. aplicada después de las migraciones: ningún objeto existente cambia (93
+  entradas), ni los privilegios por defecto de otro rol creador; los objetos
+  nuevos de `postgres` (tabla, vista, secuencia, función) no dan nada a
+  PUBLIC, anon ni authenticated; service_role conserva lo suyo; un GRANT
+  explícito funciona; lo que crea otro rol sigue con sus privilegios por
+  defecto; repetirla no cambia nada; los helpers de `roomly_test` ya tienen
+  EXECUTE explícito y la suite `tests/db` completa (17 archivos) pasa encima
+  sin ajustes.
+- B. cinco estados de partida inesperados (entrada global, destinatario de
+  más, revocación parcial, service_role sin lo suyo, otro rol) abortan sin
+  cambiar nada.
+- C. con la propuesta **delante** de las migraciones, 60 objetos pierden
+  privilegios que hoy solo dan los privilegios por defecto (las 18 tablas,
+  las funciones de `public` y las de pgcrypto local). Por eso solo vale como
+  migración posterior a todas las existentes.
+- Primera ejecución: una comprobación esperaba que la suite necesitara un
+  EXECUTE explícito añadido; era falso (`tests/db/helpers.sql:71` ya lo
+  concede) y se cambió por la comprobación de que no hace falta.
+
+**Runbook del incidente** (`incident-runbook-selftest.sh`, 36
+comprobaciones; detalle en `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md`,
+sección 10.2): captura y verificación sin errores ni escrituras en tres
+esquemas (Fase 1; el estado de `roomly-validation-3`, hasta `20261016120000`,
+sin el hotfix; todas las migraciones), detección antes y después, contención
+con `--single-transaction`, otro concedente, privilegios por rol, Q8 en un
+clúster temporal con `pg_stat_statements` precargada y Q11 con las columnas de
+Supabase. Si no hay `initdb` utilizable, la parte del clúster temporal se
+omite con un aviso (no se ha comprobado si el runner de GitHub lo tiene).
+
+**Coexistencia con la Fase 4.4, repetida con las guardas** (copia temporal
+del árbol de `feature/phase4-4-public-search` con `git archive`, sin tocar la
+rama; borrada al terminar):
+- encima: el hotfix, `tests/db/24` y `25`, los tests estáticos, los
+  autotests nuevos, merges de 3 vías de `preflight.sql`,
+  `preflight-selftest.sh`, `package.json` y `ci.yml` (conflictos de «los dos
+  añaden en el mismo sitio», resueltos conservando los dos lados) y los
+  ajustes de PV8 y PR5 de la sesión 72;
+- resultados: `test:db` **936/936**; `test:infra` **416**, más
+  `default-privileges-selftest` 18 e `incident-runbook-selftest` 36; `tsc` en
+  verde; unitarios **1556/1556 solo después de ajustar un test de R8** (ver el
+  punto 3 de abajo);
+- **corrección a la sesión 72:** aquella comprobación de la copia no ejecutó
+  los unitarios, y su `test:infra` (402) no incluía las mutaciones P4 del
+  hotfix en el preflight. Por eso no detectó el test de R8.
+
+### Ajustes pendientes al integrar la Fase 4.4
+
+Ninguno se ha hecho en la rama 4.4. Todos se han probado en la copia
+temporal.
+
+1. **`tests/db/13`, PV8:** tomar el bloque del hotfix (anon y authenticated
+   reciben 42501; la definición se comprueba como dueño).
+2. **`tests/db/23`, PR5:** «authenticated solo conserva SELECT» pasa a
+   «authenticated no tiene ningún privilegio», y «authenticated sigue
+   leyendo la vista» pasa a esperar 42501.
+3. **`tests/unit/validation-infra.test.ts`, test de R8 «fija exactamente las
+   3 primeras migraciones posteriores a la Fase 3»:** con el hotfix en
+   `20261014120000`, las tres primeras pasan a ser `20261013`, `20261014` y
+   `20261015`, y el test falla. Ajuste mínimo probado: excluir el hotfix del
+   cálculo (`.filter((f) => f !== "20261014120000_public_profile_previews_write_lockdown.sql")`).
+   **No cambia los pins ni las huellas de R8** ni las copias congeladas, pero
+   cambia la invariante de un test de R8: lo decide el propietario.
+4. **`tests/integration/supabase-validation.test.ts`, PR10:** la 4.4 solo
+   registra la lectura de anon (H3); tomar la versión del hotfix (42501 para
+   leer, actualizar y borrar) y añadir PR10b.
+5. **`package.json` (`test:infra`) y `ci.yml`:** conservar los dos lados
+   (los autotests de R8 y de la conciliación de la 4.4, y los dos nuevos). Un
+   test de la 4.4 exige que cada `*-selftest.sh` esté en los dos sitios.
+6. **`tests/supabase/preflight.sql` y `preflight-selftest.sh`:** conservar
+   los dos bloques de P4 (hotfix y `rooms`/`room_images` de la 4.4) y unir los
+   avisos y la cabecera.
+7. **Documentación de la 4.4** (PROGRESS, CLAUDE.md, SECURITY, DATABASE,
+   TESTING): conflictos previsibles; donde diga que authenticated conserva
+   SELECT sobre la vista («H4, decisión pendiente»), queda superado por el
+   hotfix. El comentario de `20261031120100` queda desfasado y se documenta,
+   sin reescribir la migración.
+
+**No ejecutado en esta sesión:** la CI, la api-suite (solo en el workflow
+manual), Supabase real, E1 y `build` (no cambia código de la aplicación). El
+`node_modules` es el de la rama 4.4 (no se reinstaló, para no usar la red).
+
+## Hotfix `public_profile_previews` (2026-10-31; solo en local)
+
+Rama local `hotfix/public-profile-previews-write-lockdown`, desde `master`
+(`7818a15`). Todo en local, con PostgreSQL 16 y el shim de `tests/db`.
+
+**Antes y después del hotfix** (base temporal, cada intento con el rol real
+de PostgreSQL dentro de una subtransacción que se deshace):
+
+| Intento | `master` | Con `20261014120000` |
+|---|---|---|
+| authenticated se pone `role = 'admin'` por la vista | **permitido** (1 fila) | 42501 |
+| authenticated cambia el nombre de otra persona | **permitido** | 42501 |
+| anon cambia el nombre de otra persona | **permitido** | 42501 |
+| anon pone `role = 'admin'` a otra persona | **permitido** | 42501 |
+| anon borra un perfil ajeno | **permitido** | 42501 |
+| authenticated borra un perfil ajeno | **permitido** | 42501 |
+| anon / authenticated insertan | privilegio concedido; falla por NOT NULL (23502) | 42501 |
+| anon / authenticated leen | permitido | 42501 |
+| rol solo con PUBLIC actualiza o lee | 42501 | 42501 |
+| control: authenticated se pone admin por la tabla `profiles` | 42501 | 42501 |
+
+**Suites** (con el código final de la rama):
+
+| Comando | `master` | Con el hotfix |
+|---|---|---|
+| `npm run test:db` | 378 | **409** (`24`: 30; PV8: +1) |
+| `npm run test:infra` | 169 | **177** (7 mutaciones de P4; la migración en `migration-upgrade-selftest`) |
+| `npm run test` | — | 38 archivos, **1040/1040** (con `public-profile-previews-lockdown`, 8) |
+| `lint`, `typecheck`, `format:check` | — | en verde |
+
+- **Sin el hotfix** (las migraciones de `master` con los tests nuevos):
+  `test:db` falla en PV8 y en LK0, como debe.
+- **Test estático:** detecta una migración temporal que vuelve a conceder
+  UPDATE a anon, otra que cambia los privilegios por defecto y otra que vuelve
+  a crear la vista (las tres, borradas después).
+- **Sin otros cambios de permisos:** instantánea de 183 entradas (ACL de
+  relaciones de `public`, `auth` y `storage`, de columnas y de funciones,
+  políticas y privilegios por defecto) antes y después: solo cambian la ACL y
+  el comentario de la vista.
+- **Coexistencia con la Fase 4.4** (copia temporal de
+  `feature/phase4-4-public-search` con el hotfix y `tests/db/24`; la rama no
+  se ha tocado):
+  - en orden de nombre (`master` → hotfix → 4.1 → 4.2 → 4.4) se aplican
+    todas las migraciones y `tests/db/24` pasa entero;
+  - fallan dos tests de esa rama que exigen que authenticated lea la vista
+    (PV8 de `13` y PR5 de `23`). Con ese ajuste, en la copia, `test:db` da
+    917/917 y `test:infra` (también R8 y la conciliación) 402;
+  - el estado final de la vista es «ningún privilegio de clientes» con el
+    hotfix delante de la 4.1, después de la 4.1 (como `roomly-validation-3`)
+    y después de toda la 4.4.
+- **Dependencias:** `node_modules` era el de la rama 4.4 (`next` 16.4.3,
+  `vitest` 5.0.5); `master` declara `next` 16.3.6. No se reinstaló para no
+  usar la red. `.next` (generado por el build de la 4.4) se borró antes de
+  `typecheck`.
+- **No ejecutado:** la CI, la api-suite (PR10 y PR10b solo corren en el
+  workflow manual contra un proyecto real), Supabase real y E1 (el hotfix no
+  cambia la aplicación).
+
 ## R1 — atribución en `/explorar` (2026-10-31, sesión 70; solo en local)
 
 - `npm run test`: 1432/1432 en 56 archivos (1424 antes). Nuevo
@@ -1093,7 +1299,8 @@ PGHOST=... PGPORT=... PGUSER=postgres npm run test:db
 | `06_profiles_constraints.sql` (Fase 2.0) | límites de `full_name`/`bio`/`avatar_url`, `chk_min_age`, y `role`/`deleted_at` siguen protegidos |
 | `07_onboarding_integrity.sql` (Fase 2.3 y punto A de la 2.9) | perfil sin `seeking_status` (ya no hay default); `flexible` explícito aceptado; marcar `onboarding_completed_at` sin preferencias, sin ciudad o en el INSERT; completar el de otro; ejecutar la función del trigger directamente; el servidor tampoco se lo salta. Desde la 2.9 (OB5b, OB11–OB14): que, ya completado, alguien pueda volver a `NULL` o cambiar la fecha (posterior, anterior, un microsegundo, junto con otro campo) siendo el propio usuario, un admin, `service_role` (también tras borrar las preferencias) o el dueño de las tablas; que se rechace reescribir la misma fecha o editar otros campos; que la fecha original no se conserve; que la función deje de ser `SECURITY INVOKER`, pierda el `search_path` vacío o recupere `EXECUTE` para `anon`/`authenticated` |
 | `12_settings_notifications.sql` (Fase 2.6) | que una cuenta activa deje de poder activar o desactivar su aviso por email, o que el cambio no persista (se relee el valor); que pueda cambiar el de otra **en las dos direcciones** (A→B y B→A, también junto con otro campo), comprobando antes que la fila ajena es **visible** —desde la 2.9 (H4) gracias a una política SELECT temporal dentro de un bloque `begin;`/`rollback;`, como en `11`—, así que el 0 solo lo explica la condición de dueño de `profiles_update_own`; que la fila atacada quede intacta; que el aviso quede nulo; que cambiarlo complete el onboarding; que tras los bloques quede la política temporal o B vea la fila de A con la lectura normal (ST12) |
-| `13_profiles_privacy.sql` (Fase 2.9, H4) | que un usuario autenticado lea el perfil de otro (por id, por `date_of_birth` u otras columnas); que pierda la lectura de su propio perfil, también eliminado; que un admin activo deje de leer todos, incluida la fecha de nacimiento, o que uno eliminado los lea; que anon lea alguno; que `public_profile_previews` deje de devolver el nombre de otros, muestre cuentas eliminadas o exponga `date_of_birth` (columnas exactas); que `profiles` no tenga exactamente sus 4 políticas o haya otra que dé lectura; que no sean 44 políticas en `public` (37 hasta la 4.0) |
+| `13_profiles_privacy.sql` (Fase 2.9, H4) | que un usuario autenticado lea el perfil de otro (por id, por `date_of_birth` u otras columnas); que pierda la lectura de su propio perfil, también eliminado; que un admin activo deje de leer todos, incluida la fecha de nacimiento, o que uno eliminado los lea; que anon lea alguno; que `public_profile_previews` deje de devolver el nombre de otros, muestre cuentas eliminadas o exponga `date_of_birth` (columnas exactas); desde el hotfix `20261014120000`, PV8 exige que anon y authenticated **no** lean la vista (42501) y comprueba su definición como dueño; que `profiles` no tenga exactamente sus 4 políticas o haya otra que dé lectura; que no sean 44 políticas en `public` (37 hasta la 4.0) |
+| `24_public_profile_previews_lockdown.sql` (hotfix `20261014120000`) | que PUBLIC, anon o authenticated recuperen cualquier privilegio de tabla o de columna sobre `public_profile_previews` (`has_table_privilege`, `has_any_column_privilege`, ACL de la vista y de sus columnas, `information_schema.role_table_grants`); que anon cambie el nombre o el rol de otra persona, borre, inserte o lea por la vista; que un usuario autenticado se ponga `role = 'admin'`, cambie o borre un perfil ajeno, inserte o lea; que un rol que solo tiene PUBLIC actualice o lea (solo en local, con superusuario); que el rechazo no se deba a los privilegios (LK5: con los privilegios concedidos a propósito y deshechos después, las mismas sentencias sí afectan a la fila); que el hotfix amplíe `profiles` (columnas de INSERT y UPDATE, RLS, 4 políticas). Cada intento exige 42501. El número 24 deja libres el 16–23 de las ramas de la Fase 4 |
 | `15_rooms_integrity.sql` (Fase 4.0) | que una cuenta desactivada, también a mitad de sesión con el mismo JWT, cree, modifique o borre habitaciones, direcciones exactas o imágenes; que otro usuario escriba en filas ajenas aunque las vea; que otro usuario o `anon` lean la dirección exacta, o que la propietaria desactivada deje de leer las suyas; que `anon` cree habitaciones; que un propietario activo, un admin activo o `service_role` pierdan lo que podían hacer; que cambie la lectura pública (una habitación activa de una cuenta desactivada sigue siendo pública, R7); que las tres tablas no tengan exactamente sus 14 políticas, o que una de escritura no sea de `authenticated`, no exija propiedad y cuenta activa en todas sus expresiones o no cualifique `room_id`; que una de lectura consulte `profiles`. Cada rechazo exige 42501 y cada INSERT rechazado se repite con los mismos datos y entra; RI9 comprueba que, con la condición anterior a la 4.0, la cuenta desactivada volvería a escribir |
 | `18_neighborhoods_catalog.sql` (Fase 4.1, R1) | que falte, sobre o cambie (slug o nombre) alguno de los 73 barrios oficiales de Barcelona, o que tengan coordenadas; que Barcelona no exista una sola vez con los valores del seed o que el seed no termine después de la migración; que otro barrio de Barcelona repita el nombre de uno oficial con otro slug; que la huella no sea la de P1; que un usuario sin rol admin o `anon` añada, renombre o borre barrios; que un barrio oficial no sirva para publicar una habitación de Barcelona, o sirva para una de Madrid; que las preferencias no lo acepten con su ciudad, o lo acepten con otra; que se borre uno en uso. No exige que Barcelona tenga solo 73: en local, las demás pruebas dejan barrios sintéticos (eso lo exigen P1 y el selftest) |
 | `17_rooms_status_transitions.sql` (Fase 4.1, R7) | que la propietaria activa deje de poder mover su habitación entre `draft`, `active`, `paused` y `rented`, o que pueda entrar o salir de `removed`, también con un UPDATE directo; que publique o reactive una habitación incompleta, o que una activa quede incompleta; que el cliente fije `status` al crear; que una cuenta desactivada cambie el estado; que un admin activo o `service_role` pierdan alguna transición; que `anon` escriba. Cada celda distingue el trigger, el CHECK, el GRANT y la RLS, y los controles prueban que los fixtures aceptan lo que se rechaza |

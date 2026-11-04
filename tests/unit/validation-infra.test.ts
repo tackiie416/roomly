@@ -634,6 +634,63 @@ describe("Fase 4.2, D1: bucket privado (20261025120000) aditivo, idempotente y c
   });
 });
 
+// Ajuste aprobado por el propietario (integración del hotfix con la cadena de
+// la Fase 4): 20261014120000_public_profile_previews_write_lockdown.sql es un
+// hotfix de seguridad anterior a la cadena, no una de las tres migraciones
+// funcionales que fija R8. R8 no lo aplica (se aplica aparte, según
+// docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md). Se excluye SOLO por su nombre
+// exacto: cualquier otra migración, o el hotfix con otro nombre, vuelve a
+// contar y hace fallar la comprobación. Los pins y huellas de R8 no cambian.
+const R8_PHASE3_LAST = "20261007120000_compatibility_responses_hardening.sql";
+const R8_EXCLUDED_HOTFIX = "20261014120000_public_profile_previews_write_lockdown.sql";
+const R8_EXCLUDED_HOTFIX_SHA256 =
+  "eb53f35011ad63603129cf191536683a6015b40da79037545f47e8c224efdbb8";
+const R8_FUNCTIONAL = [
+  "20261013120000_rooms_deleted_account_writes.sql",
+  "20261015120000_rooms_integrity_publication.sql",
+  "20261016120000_barcelona_neighborhoods.sql",
+];
+
+/** Las 3 primeras migraciones posteriores a la Fase 3, sin el hotfix (solo por su nombre exacto). */
+function r8FunctionalAfterPhase3(migrations: string[]): string[] {
+  return migrations
+    .filter((f) => f > R8_PHASE3_LAST)
+    .filter((f) => f !== R8_EXCLUDED_HOTFIX)
+    .sort()
+    .slice(0, 3);
+}
+
+/** Problemas de orden, presencia o huella de las migraciones de R8 (vacío si todo cuadra). */
+function r8OrderProblems(
+  migrations: string[],
+  pinned: Array<{ file: string; hash: string }>,
+  hashOf: (file: string) => string
+): string[] {
+  const problems: string[] = [];
+  const after = migrations.filter((f) => f > R8_PHASE3_LAST).sort();
+  const functional = r8FunctionalAfterPhase3(migrations);
+  const pinnedFiles = pinned.map((p) => p.file);
+  if (JSON.stringify(pinnedFiles) !== JSON.stringify(functional)) {
+    problems.push(
+      `las 3 primeras migraciones funcionales posteriores a la Fase 3 son ${functional.join(", ")}; R8 fija ${pinnedFiles.join(", ")}`
+    );
+  }
+  if (JSON.stringify(pinnedFiles) !== JSON.stringify(R8_FUNCTIONAL)) {
+    problems.push(`R8 debe fijar exactamente ${R8_FUNCTIONAL.join(", ")}`);
+  }
+  const at = after.indexOf(R8_EXCLUDED_HOTFIX);
+  if (at === -1) {
+    problems.push(`falta el hotfix ${R8_EXCLUDED_HOTFIX}`);
+  } else if (after[at - 1] !== R8_FUNCTIONAL[0] || after[at + 1] !== R8_FUNCTIONAL[1]) {
+    problems.push("el hotfix no está justo entre 20261013120000 y 20261015120000");
+  }
+  for (const { file, hash } of pinned) {
+    if (!migrations.includes(file) || hashOf(file) !== hash)
+      problems.push(`huella distinta: ${file}`);
+  }
+  return problems;
+}
+
 describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", () => {
   const SCRIPT = "tests/supabase/phase4-upgrade.sh";
   const script = read(SCRIPT);
@@ -666,20 +723,100 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     return workflow.slice(start, next === -1 ? undefined : start + 1 + next);
   };
 
-  it("fija exactamente las 3 primeras migraciones posteriores a la Fase 3, con su SHA-256 real", () => {
-    const after = readdirSync("supabase/migrations")
-      .filter((f) => f > "20261007120000_compatibility_responses_hardening.sql")
-      .sort()
-      .slice(0, 3);
-    expect(pinned.map((p) => p.file)).toEqual(after);
-    expect(pinned.map((p) => p.file)).toEqual([
-      "20261013120000_rooms_deleted_account_writes.sql",
-      "20261015120000_rooms_integrity_publication.sql",
-      "20261016120000_barcelona_neighborhoods.sql",
-    ]);
+  it("fija exactamente las 3 primeras migraciones funcionales posteriores a la Fase 3, con su SHA-256 real", () => {
+    const migrations = readdirSync("supabase/migrations");
+    expect(
+      r8OrderProblems(migrations, pinned, (file) => sha256(`supabase/migrations/${file}`))
+    ).toEqual([]);
+    expect(pinned.map((p) => p.file)).toEqual(R8_FUNCTIONAL);
     for (const { file, hash } of pinned) {
       expect(sha256(`supabase/migrations/${file}`), file).toBe(hash);
     }
+  });
+
+  it("el hotfix 20261014120000 sigue en la instalación, intacto, y R8 no lo aplica ni lo fija", () => {
+    expect(readdirSync("supabase/migrations")).toContain(R8_EXCLUDED_HOTFIX);
+    expect(sha256(`supabase/migrations/${R8_EXCLUDED_HOTFIX}`)).toBe(
+      R8_EXCLUDED_HOTFIX_SHA256
+    );
+    expect(script).not.toContain("20261014120000");
+    expect(pinned.map((p) => p.file)).not.toContain(R8_EXCLUDED_HOTFIX);
+  });
+
+  describe("comprobación de orden de R8 con el hotfix excluido por su nombre exacto", () => {
+    const real = readdirSync("supabase/migrations");
+    const hashOf = (file: string) => sha256(`supabase/migrations/${file}`);
+    const without = (name: string) => real.filter((f) => f !== name);
+
+    it("1. el hotfix no cuenta entre las tres migraciones funcionales", () => {
+      const after = real.filter((f) => f > R8_PHASE3_LAST).sort();
+      expect(after.slice(0, 3)).toContain(R8_EXCLUDED_HOTFIX);
+      expect(r8FunctionalAfterPhase3(real)).toEqual(R8_FUNCTIONAL);
+    });
+
+    it("2. las tres migraciones originales se reconocen exactamente, en su orden", () => {
+      expect(r8OrderProblems(real, pinned, hashOf)).toEqual([]);
+      expect(r8FunctionalAfterPhase3(real)).toEqual([
+        "20261013120000_rooms_deleted_account_writes.sql",
+        "20261015120000_rooms_integrity_publication.sql",
+        "20261016120000_barcelona_neighborhoods.sql",
+      ]);
+    });
+
+    it("3. si el hotfix cambia de nombre, la comprobación falla", () => {
+      for (const renamed of [
+        "20261014120000_public_profile_previews_write_lockdown_v2.sql",
+        "20261014120001_public_profile_previews_write_lockdown.sql",
+        "20261014120000_public_profile_previews.sql",
+      ]) {
+        const problems = r8OrderProblems(
+          [...without(R8_EXCLUDED_HOTFIX), renamed],
+          pinned,
+          hashOf
+        );
+        expect(problems, renamed).toContain(`falta el hotfix ${R8_EXCLUDED_HOTFIX}`);
+        expect(
+          problems.some((p) => p.startsWith("las 3 primeras")),
+          renamed
+        ).toBe(true);
+      }
+      expect(r8OrderProblems(without(R8_EXCLUDED_HOTFIX), pinned, hashOf)).toContain(
+        `falta el hotfix ${R8_EXCLUDED_HOTFIX}`
+      );
+    });
+
+    it("4. una segunda migración inesperada entre las de R8 hace fallar la comprobación", () => {
+      for (const extra of [
+        "20261013130000_otra.sql",
+        "20261014120001_public_profile_previews_write_lockdown.sql",
+        "20261015130000_otra.sql",
+      ]) {
+        expect(
+          r8OrderProblems([...real, extra], pinned, hashOf).some((p) =>
+            p.startsWith("las 3 primeras")
+          ),
+          extra
+        ).toBe(true);
+      }
+    });
+
+    it("5. alterar cualquiera de los tres pins (nombre o huella) sigue fallando", () => {
+      pinned.forEach((pin, i) => {
+        const otherHash = pinned.map((p, j) =>
+          j === i ? { ...p, hash: "0".repeat(64) } : p
+        );
+        expect(r8OrderProblems(real, otherHash, hashOf), pin.file).toContain(
+          `huella distinta: ${pin.file}`
+        );
+        const otherFile = pinned.map((p, j) =>
+          j === i ? { ...p, file: R8_EXCLUDED_HOTFIX } : p
+        );
+        expect(r8OrderProblems(real, otherFile, hashOf).length, pin.file).toBeGreaterThan(
+          0
+        );
+      });
+      expect(r8OrderProblems(real, pinned.slice(0, 2), hashOf).length).toBeGreaterThan(0);
+    });
   });
 
   it("el preflight congelado es el del run 19 (blob 7155e796…) y los dos archivos de estado de partida llevan su SHA-256 real", () => {
