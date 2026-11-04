@@ -31,26 +31,29 @@ pasado.
 ## Resultado de la contención (2026-11-04)
 
 Ejecutado por el propietario desde los paneles de Supabase; Claude no se
-conectó. La evidencia completa (salidas de las consultas y sus SHA-256) está
-fuera del repositorio, en poder del propietario.
+conectó. La evidencia completa (salidas de las consultas y sus SHA-256) y la
+correspondencia con cada proyecto quedan **fuera del repositorio**, en poder
+del propietario. Aquí se describe por estado, sin identificar proyectos.
 
-- **Dos proyectos de validación activos:** captura de solo lectura ejecutada;
-  vista `public_profile_previews` presente, `security_invoker = false`, sin el
-  hotfix → **vulnerabilidad confirmada en real** (anon y authenticated podían
-  escribir por la vista). Se aplicó `20261014120000` en ambos y la
-  verificación posterior (V1 y V2 de este runbook) dio **correcto**: ya no hay
-  privilegios de cliente sobre la vista ni sobre ninguna otra vista de
-  `public`.
-- **Proyecto histórico de la Fase 1:** pausado por el límite del plan; **sin
-  inspeccionar ni corregir.**
-- **Indicios de explotación:** ninguno identificado (los proyectos estaban sin
-  datos y sin historial útil de `pg_stat_statements`). **No puede descartarse
-  una explotación anterior.**
-- **Exposición de la clave anon:** no se encontraron variables de Supabase en
-  el Deploy Preview de Netlify revisado, ni claves en el repositorio público.
-  **Otras integraciones (p. ej. Lovable) siguen sin revisar.**
-- **Pendiente:** inspeccionar o retirar el proyecto histórico, revisar las
-  integraciones que faltan y la rotación de claves (higiene, no urgente).
+**Estado de contención, en tres categorías:**
+
+1. **Corregido y verificado — dos proyectos de validación activos.** La
+   captura de solo lectura confirmó la vista `public_profile_previews`
+   (`security_invoker = false`, sin el hotfix) con `anon` y `authenticated`
+   pudiendo escribir por ella → **vulnerabilidad confirmada en real**. Se
+   aplicó `20261014120000` en ambos y la verificación posterior (V1 y V2 de
+   este runbook) dio **correcto**: ya no hay privilegios de cliente sobre la
+   vista ni sobre ninguna otra vista de `public`.
+2. **Pausado y no inspeccionado — un proyecto histórico de la Fase 1.**
+   Pausado por el límite del plan; **sin hotfix aplicado y sin inspeccionar.**
+3. **Pendiente de investigar — integraciones y entornos.** En el Deploy
+   Preview revisado no había variables de Supabase, y el repositorio público no
+   contiene claves; **otras plataformas de despliegue o integración siguen sin
+   revisar.** La rotación de claves es higiene (no urgente).
+
+**Indicios de explotación:** ninguno identificado (los proyectos estaban sin
+datos y sin historial útil de `pg_stat_statements`). **No puede descartarse
+una explotación anterior:** que no haya indicios no prueba que no ocurriera.
 
 No se da ningún proyecto por «seguro»: la contención corrige el estado actual
 de los privilegios, no el pasado.
@@ -247,21 +250,27 @@ otras vistas o tablas, ni aplicar otras migraciones.
   (sección 9).
 - Registra el resultado en `PROGRESS.md` con las reglas de la sección 3.
 
-## 9. Inventario de proyectos y entornos
+## 9. Inventario de proyectos y entornos (resumen des-identificado)
 
-| Proyecto | Qué recibió (según la documentación) | Estado conocido | Recomendación |
-|---|---|---|---|
-| **`roomly-validation`** (Fase 1, histórico) | `20260925120000`–`20260926120000`, incluida la vista (`20260925120100`), en el checkpoint de la Fase 1 (SQL 58/58, supabase-js 46/46). Faltaba en la primera versión de la documentación del hotfix (sesión 72); se añade en la sesión 73. | Sin inspeccionar. No consta si sigue activo. La captura y la verificación funcionan con el esquema de la Fase 1 (probado en local). | Si sigue activo: A y B, guardar la evidencia; después pausarlo o borrarlo, rotar claves y quitar sus secrets. La fase C solo si se decide mantenerlo. |
-| **`roomly-validation-2b`** (ref `uwxb…`, marca `roomly-validation-2`) | Fases 0–2.9 (runs 13 y 15). | Sin inspeccionar. Activo según `CLAUDE.md` («rotar claves y pausarlo» es un pendiente operativo previo). La guarda del workflow lo rechaza y la regla es no alterar su infraestructura. | A y B a mano; después pausarlo y rotar sus claves. Aplicar el hotfix (C) requiere autorización expresa, porque cambia ese proyecto. |
-| **`roomly-validation-3`** | Fase 3 (run 16) y, según las ramas de la Fase 4, `20261013120000`, `20261015120000` y `20261016120000` con R8 (run 21, documentado en esas ramas, no en `master`). | Sin inspeccionar. Activo. | A, B, C (el hotfix fuera del orden de nombres, después de la 4.1: probado en local) y D, con un run del workflow autorizado al final. |
+Resumen por **estado de contención**, sin nombres ni referencias de proyecto:
+la correspondencia concreta, las marcas y la evidencia quedan **fuera del
+repositorio**, en poder del propietario, para no señalar en un repo público
+qué proyecto sigue sin corregir.
 
-Entornos relacionados (no son bases de datos aparte):
-- **Deploy Preview de Netlify** (`lovely-tulumba-009360`, PR #20): no se ha
-  revisado a qué proyecto apunta. Si lleva la URL y la clave anon de uno de
-  estos proyectos, esa clave estuvo en JavaScript público, y la clave anon es
-  todo lo que necesitaba un atacante sin cuenta.
-- **Entornos locales** (`.env.local`): apuntan a alguno de los proyectos
-  anteriores; no son otra base.
+| Estado | Alcance | Qué queda |
+|---|---|---|
+| **Corregido y verificado** | Los dos proyectos de validación **activos**: hotfix `20261014120000` aplicado y V1/V2 correctos; sin privilegios de cliente sobre la vista | Rotación de claves (higiene) y la validación real por el workflow autorizado |
+| **Pausado y no inspeccionado** | Un proyecto **histórico de la Fase 1**, con solo las migraciones de esa fase y la vista; pausado, sin hotfix | Inspeccionar (fases A–D) o retirar y rotar su clave, con autorización |
+| **Pendiente de investigar** | Integraciones y entornos de despliegue que podrían apuntar a esos proyectos | Revisar a qué proyecto apunta cada despliegue, sin exponer valores; en el Deploy Preview revisado no había variables de Supabase |
+
+**No puede descartarse una explotación anterior:** los proyectos estaban sin
+datos y sin historial útil. La ausencia de indicios no prueba la ausencia de
+explotación.
+
+> La correspondencia proyecto ↔ estado (incluidas marcas, referencias y el
+> despliegue concreto) la conserva el propietario fuera del repositorio. No se
+> publica aquí para no identificar, en un repo público, qué proyecto histórico
+> sigue sin parchear.
 
 ## 10. Revisión del runbook (sesión 73)
 

@@ -6,6 +6,35 @@ próximos pasos.**
 
 ---
 
+## 2026-11-04 — Sesión 75: inventario de contención des-identificado (misma rama del hotfix, PR #29)
+
+**Qué se hizo.** Tras la revisión de seguridad del PR #29, se corrigió la
+inconsistencia del inventario del runbook (la tabla aún marcaba los proyectos
+activos como «sin inspeccionar») y se **des-identificó** el estado: el
+inventario y la sección de contención de `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md`
+pasan a describir **tres estados** —corregido y verificado / pausado y no
+inspeccionado / pendiente de investigar— **sin nombres ni referencias de
+proyecto**, para no señalar en un repo público qué proyecto histórico sigue sin
+parchear. La correspondencia concreta queda fuera del repositorio, en poder del
+propietario.
+
+**Qué no se cambió.** La migración y sus tests; `master`; los PR #26/#27/#28;
+las ramas 4.x. No se afirma que los tres proyectos estén corregidos: dos
+activos sí (verificados), el histórico sigue pausado y sin inspeccionar, y no
+puede descartarse una explotación anterior.
+
+**Nota de alcance.** Este cambio des-identifica el estado NUEVO (inventario y
+contención). Otras referencias a proyectos preexistentes siguen en la
+documentación y en `master`; su retirada completa (o pasar el repo a privado)
+es una decisión aparte del propietario, ya señalada en la revisión de
+seguridad.
+
+**Documentación:** `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md` (sección 9 y
+«Resultado de la contención»); `docs/SECURITY.md` y esta entrada, revisados para
+coherencia.
+
+---
+
 ## 2026-11-04 — Sesión 74: contención real en los proyectos activos y registro (misma rama del hotfix)
 
 **Qué se hizo.** El propietario ejecutó a mano, desde los paneles de Supabase
