@@ -6,9 +6,12 @@
 #   - cada mutación (política que falta, sobra, cambia de comando o de nombre;
 #     tabla sin RLS; GRANT de más en housing_preferences; trigger que falta,
 #     sobra o está desactivado; permisos y trigger de compatibility_responses (Fase 3.1); escrituras de habitaciones sin la comprobación de cuenta activa (Fase 4.0); restricciones de habitaciones que faltan, sin validar o con otro catálogo, GRANT por columnas de rooms y barrios de Barcelona que faltan, sobran o cambian (Fase 4.1); función con otra seguridad o search_path;
-#     función de más; EXECUTE concedido; marcas anteriores) hace fallar la
-#     comprobación que corresponde. Cada mutación va en su propia
-#     transacción y se deshace.
+#     función de más; EXECUTE concedido; marcas anteriores; vistas nuevas
+#     definer, con escritura de clientes, por columnas, para PUBLIC o
+#     materializadas legibles (sesión 73)) hace fallar la comprobación que
+#     corresponde. Cada mutación va en su propia transacción y se deshace;
+#   - las variantes aceptadas (una vista invoker sin privilegios de clientes
+#     y con un SELECT explícito) pasan el preflight completo.
 #
 # Conexión: variables estándar de libpq con un usuario que pueda crear bases
 # de datos y roles (igual que tests/db/run.sh). Todo se borra al terminar.
@@ -116,6 +119,19 @@ P4|anon con INSERT en rooms|grant insert on public.rooms to anon;
 P4|anon sin SELECT en rooms|revoke select on public.rooms from anon;
 P4|service_role sin UPDATE en rooms|revoke update on public.rooms from service_role;
 P6|falta trg_housing_preferences_university|drop trigger trg_housing_preferences_university on public.housing_preferences;
+P4|anon vuelve a tener UPDATE en public_profile_previews (el fallo del hotfix)|grant update on public.public_profile_previews to anon;
+P4|authenticated vuelve a tener DELETE en public_profile_previews|grant delete on public.public_profile_previews to authenticated;
+P4|authenticated recupera SELECT en public_profile_previews|grant select on public.public_profile_previews to authenticated;
+P4|anon recupera SELECT en public_profile_previews|grant select on public.public_profile_previews to anon;
+P4|PUBLIC con INSERT en public_profile_previews|grant insert on public.public_profile_previews to public;
+P4|anon con UPDATE de una columna de public_profile_previews|grant update (full_name) on public.public_profile_previews to anon;
+P4|authenticated con SELECT de una columna de public_profile_previews|grant select (role) on public.public_profile_previews to authenticated;
+P5|vista definer nueva (guardas de vistas, sesión 73)|create view public.zz_pf_definer as select id from public.profiles;
+P5|vista invoker nueva con ALL para anon y authenticated (como los privilegios por defecto)|create view public.zz_pf_inv with (security_invoker = true) as select id, name from public.cities; grant all on public.zz_pf_inv to anon, authenticated;
+P5|vista invoker con UPDATE para authenticated|create view public.zz_pf_upd with (security_invoker = true) as select id, name from public.cities; revoke all on public.zz_pf_upd from public, anon, authenticated; grant update on public.zz_pf_upd to authenticated;
+P5|vista invoker con UPDATE por columna para anon|create view public.zz_pf_col with (security_invoker = true) as select id, name from public.cities; revoke all on public.zz_pf_col from public, anon, authenticated; grant update (name) on public.zz_pf_col to anon;
+P5|vista invoker con INSERT para PUBLIC|create view public.zz_pf_pub with (security_invoker = true) as select id, name from public.cities; revoke all on public.zz_pf_pub from public, anon, authenticated; grant insert on public.zz_pf_pub to public;
+P5|vista materializada legible por anon|create materialized view public.zz_pf_mv as select id, name from public.cities; revoke all on public.zz_pf_mv from public, anon, authenticated; grant select on public.zz_pf_mv to anon;
 P6|falta trg_profiles_onboarding_completion|drop trigger trg_profiles_onboarding_completion on public.profiles;
 P6|trigger desactivado|alter table public.housing_preferences disable trigger trg_housing_preferences_city_required;
 P6|sobra un trigger|create trigger zz_extra before update on public.cities for each row execute function public.set_updated_at();
@@ -129,6 +145,21 @@ P6|PUBLIC puede ejecutar enforce_onboarding_completion|grant execute on function
 P6|falta trg_compatibility_responses_integrity|drop trigger trg_compatibility_responses_integrity on public.compatibility_responses;
 P6|enforce_compatibility_responses_integrity pasa a SECURITY DEFINER|alter function public.enforce_compatibility_responses_integrity() security definer;
 P6|authenticated puede ejecutar enforce_compatibility_responses_integrity|grant execute on function public.enforce_compatibility_responses_integrity() to authenticated;
+CASES
+
+echo "== variantes aceptadas (deben pasar el preflight completo)"
+# <descripción>|<SQL>
+while IFS='|' read -r label sql; do
+  [ -z "$label" ] && continue
+  if run_with "$sql" && grep -q "ok - P5:" "$WORK/out"; then
+    echo "   ok - ${label}"
+  else
+    echo "   FALLO: ${label} no pasa el preflight:"
+    grep -E "ERROR|FALLO" "$WORK/out" | head -3
+    failed=1
+  fi
+done <<'CASES'
+vista invoker sin privilegios de clientes y con SELECT explícito para authenticated|create view public.zz_pf_ok with (security_invoker = true) as select id, name from public.cities; revoke all on public.zz_pf_ok from public, anon, authenticated; grant select on public.zz_pf_ok to authenticated;
 CASES
 
 echo "== el preflight no deja nada creado"
