@@ -1,11 +1,12 @@
 # Incidente: escritura en `profiles` a través de `public_profile_previews`
 
-Runbook para el propietario. **Nada de este documento se ha ejecutado contra
-un proyecto real**: Claude no tiene autorización para conectarse a Supabase
-ni para ejecutar SQL remoto. Las consultas sí se han ejecutado en local,
-contra bases efímeras con el shim de Supabase
-(`tests/supabase/incident-runbook-selftest.sh`, en `npm run test:infra` y en
-la CI).
+Runbook para el propietario. Claude **no se conecta a Supabase** ni ejecuta
+SQL remoto: las consultas se validaron en local contra bases efímeras con el
+shim de Supabase (`tests/supabase/incident-runbook-selftest.sh`, en
+`npm run test:infra` y en la CI). El **2026-11-04 el propietario ejecutó a
+mano**, desde los paneles de Supabase, la captura de solo lectura y la
+contención en los dos proyectos de validación activos (ver «Resultado de la
+contención», más abajo).
 
 Vulnerabilidad, explotación y corrección: `docs/SECURITY.md`, «Hotfix:
 escritura en `profiles` a través de `public_profile_previews`». Migración de
@@ -26,6 +27,33 @@ la corrección: `supabase/migrations/20261014120000_public_profile_previews_writ
 proyecto, las fases A a D y haber guardado la evidencia. Incluso entonces,
 «a salvo» solo vale para el estado actual de los privilegios, no para el
 pasado.
+
+## Resultado de la contención (2026-11-04)
+
+Ejecutado por el propietario desde los paneles de Supabase; Claude no se
+conectó. La evidencia completa (salidas de las consultas y sus SHA-256) está
+fuera del repositorio, en poder del propietario.
+
+- **Dos proyectos de validación activos:** captura de solo lectura ejecutada;
+  vista `public_profile_previews` presente, `security_invoker = false`, sin el
+  hotfix → **vulnerabilidad confirmada en real** (anon y authenticated podían
+  escribir por la vista). Se aplicó `20261014120000` en ambos y la
+  verificación posterior (V1 y V2 de este runbook) dio **correcto**: ya no hay
+  privilegios de cliente sobre la vista ni sobre ninguna otra vista de
+  `public`.
+- **Proyecto histórico de la Fase 1:** pausado por el límite del plan; **sin
+  inspeccionar ni corregir.**
+- **Indicios de explotación:** ninguno identificado (los proyectos estaban sin
+  datos y sin historial útil de `pg_stat_statements`). **No puede descartarse
+  una explotación anterior.**
+- **Exposición de la clave anon:** no se encontraron variables de Supabase en
+  el Deploy Preview de Netlify revisado, ni claves en el repositorio público.
+  **Otras integraciones (p. ej. Lovable) siguen sin revisar.**
+- **Pendiente:** inspeccionar o retirar el proyecto histórico, revisar las
+  integraciones que faltan y la rotación de claves (higiene, no urgente).
+
+No se da ningún proyecto por «seguro»: la contención corrige el estado actual
+de los privilegios, no el pasado.
 
 ## 2. Reglas
 

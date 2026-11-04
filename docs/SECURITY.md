@@ -121,10 +121,24 @@ con la migración `20261014120000_public_profile_previews_write_lockdown.sql`.
     del runbook `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md` (inventario
     completo en su sección 9, con el Deploy Preview de Netlify y los
     `.env.local`).
+- **Contención (2026-11-04, ejecutada por el propietario desde los paneles de
+  Supabase; Claude no se conectó):** en los **dos proyectos de validación
+  activos** se aplicó `20261014120000` y la verificación posterior (V1 y V2 del
+  runbook) dio correcto en ambos — la vista ya no da privilegios a PUBLIC, anon
+  ni authenticated, y ninguna otra vista de `public` da privilegios de cliente.
+  El **proyecto histórico de la Fase 1 sigue pausado**, sin inspeccionar ni
+  corregir. **No se identificó ningún indicio de explotación** (proyectos sin
+  datos ni historial útil), pero **no puede descartarse una explotación
+  anterior.** En Netlify no había variables de Supabase en el Deploy Preview
+  revisado y el repositorio público no contiene claves; **otras integraciones
+  (Lovable, etc.) siguen sin revisar.** La evidencia (salidas y hashes) está
+  fuera del repositorio. Detalle en
+  `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md`, «Resultado de la contención».
 - **Pendiente (con autorización del propietario):**
-  - aplicar `20261014120000` en `roomly-validation-3` y decidir qué hacer
-    con `roomly-validation-2b` (rotar sus claves y pausarlo ya era un
-    pendiente operativo);
+  - inspeccionar o retirar el **proyecto histórico de la Fase 1** (pausado) y
+    revisar las integraciones que faltan (p. ej. Lovable); la rotación de
+    claves es higiene, no urgente (el hotfix ya está aplicado en los dos
+    proyectos activos, ver «Contención»);
   - revisar en cada proyecto los privilegios reales de la vista y si hay
     rastros de escrituras por ella (cambios de `role`, nombres o perfiles
     borrados), con los registros que ofrezca Supabase. Desde la sesión 73,

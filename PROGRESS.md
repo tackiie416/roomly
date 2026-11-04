@@ -6,6 +6,41 @@ próximos pasos.**
 
 ---
 
+## 2026-11-04 — Sesión 74: contención real en los proyectos activos y registro (misma rama del hotfix)
+
+**Qué se hizo.** El propietario ejecutó a mano, desde los paneles de Supabase
+(Claude no se conectó: sin conector ni credenciales en la sesión), la
+inspección de solo lectura y la contención. En los **dos proyectos de
+validación activos** la captura confirmó la vista `security_invoker = false`
+sin el hotfix y con `anon`/`authenticated` pudiendo escribir por ella
+(**vulnerabilidad confirmada en real**); se aplicó `20261014120000` en ambos y
+la verificación posterior (V1 y V2 del runbook) dio **correcto** en los dos.
+Esta sesión solo **registra** el resultado en la documentación; no toca la
+migración ni sus tests.
+
+**Qué queda.** El **proyecto histórico de la Fase 1** está pausado (límite del
+plan), sin inspeccionar ni corregir. Falta revisar integraciones (p. ej.
+Lovable) y decidir la rotación de claves (higiene, no urgente). La validación
+automatizada real (CI del PR, api-suite) sigue pendiente.
+
+**Indicios.** Ninguno de explotación en las comprobaciones disponibles
+(proyectos sin datos y sin historial útil de `pg_stat_statements`); **no puede
+descartarse una explotación anterior.** Netlify sin variables de Supabase en el
+Deploy Preview revisado; repo público sin claves.
+
+**Evidencia.** Las salidas de las consultas y sus SHA-256 están fuera del
+repositorio, en poder del propietario. En la documentación no se incluyen
+identificadores de proyecto, datos personales, salidas SQL ni hashes.
+
+**Decisión.** Se registra la contención (este commit) y se publica la rama del
+hotfix con su PR en borrador contra `master`. Sin merge, sin tocar `master` ni
+las ramas de la Fase 4.
+
+**Documentación:** `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md` («Resultado de la
+contención»), `docs/SECURITY.md` («Contención») y esta entrada.
+
+---
+
 ## 2026-10-31 — Sesión 73: endurecimiento preventivo de vistas y preparación del hotfix (en commits locales sin publicar; misma rama que la sesión 72)
 
 **Contexto.** Después del hotfix (sesión 72) y de una auditoría solo de
