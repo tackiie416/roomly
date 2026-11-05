@@ -521,6 +521,37 @@ tablas, **44 políticas, 13 triggers y 11 funciones**.
     accesible desde el entorno de desarrollo. La licencia es la que indicó
     el propietario.
   - El JSON no se versiona: la migración lleva los datos y no depende de él.
+- **Procedencia y licencia, verificadas** por el propietario en el registro
+  del catálogo oficial de datos.gob.es (sesión 69, 2026-10-31):
+  - conjunto: «Unidades administrativas de la ciudad de Barcelona»,
+    publicado por el Ayuntamiento de Barcelona (servicio de datos abiertos
+    Open Data BCN). Ficha:
+    https://datos.gob.es/es/catalogo/l01080193-unidades-administrativas-de-la-ciudad-de-barcelona;
+  - identificador del conjunto en Open Data BCN:
+    `808daafa-d9ce-48c0-925a-fa5afdb1ed41`;
+  - recurso utilizado: `BarcelonaCiutat_Barris.json` (es un recurso del
+    conjunto, no el conjunto), identificador
+    `75197dfe-0306-4c5e-9643-34948af07fb6`. Descarga original:
+    https://opendata-ajuntament.barcelona.cat/data/dataset/808daafa-d9ce-48c0-925a-fa5afdb1ed41/resource/75197dfe-0306-4c5e-9643-34948af07fb6/download.
+    Según la ficha, creado el 2023-06-07 y actualizado por última vez el
+    2024-11-12;
+  - licencia: Creative Commons Atribución 4.0 Internacional (CC BY 4.0),
+    https://creativecommons.org/licenses/by/4.0/deed.es;
+  - el archivo que facilitó el propietario no se ha vuelto a descargar ni a
+    comparar con el recurso publicado (el entorno de desarrollo no llega a
+    esos dominios).
+- **Atribución en la interfaz** (sesión 69, en local): un único componente,
+  `components/rooms/neighborhoods-attribution.tsx`, con el conjunto enlazado
+  a su ficha, el recurso a su descarga original y «CC BY 4.0» a la licencia,
+  la adaptación (abajo) y la aclaración de que no implica aval. Aparece en
+  el alta, la edición y el listado de habitaciones, en el onboarding y en
+  `/preferencias`, junto al selector de barrios, y desde la sesión 70 en
+  `/explorar`, debajo de la lista cuando alguna tarjeta muestra zonas.
+- **Adaptación al importar** (lo que dice la atribución): ROOMLY usa los
+  nombres de los 73 barrios y genera identificadores internos (el `id` por
+  `gen_random_uuid()` y el `slug`, derivado del nombre). No reutiliza los
+  códigos de distrito ni las geometrías del recurso; el `codi_barri` solo
+  queda en la migración para trazar cada fila.
 - **Qué contiene el archivo, verificado:**
   - un array de 73 objetos con 6 campos: `codi_districte`, `nom_districte`,
     `codi_barri`, `nom_barri`, `geometria_etrs89` y `geometria_wgs84`, con
@@ -624,6 +655,12 @@ tablas, **44 políticas, 13 triggers y 11 funciones**.
 - No se añadieron otros requisitos. Por ejemplo, un título solo con espacios
   cumple `NOT NULL`; ponerle una longitud mínima sería una decisión de
   producto.
+  - El CRUD de la 4.3 (sesión 68, en local) rechaza un título vacío o solo
+    con espacios y limita los textos (título 120, descripción 2000, normas y
+    preferencias 1000) en `lib/validation/rooms.ts`. **Solo en la
+    aplicación:** `rooms` no tiene CHECK de longitud, y una escritura directa
+    por PostgREST no los cumpliría. Sin migración: no era imprescindible para
+    el CRUD.
 - No cambia la visibilidad pública de las habitaciones de cuentas
   desactivadas: esa parte de R7 queda para antes de la búsqueda.
 

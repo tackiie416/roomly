@@ -8,11 +8,14 @@ import { AppNavLinks } from "@/components/app-nav-links";
  * y `/explorar` (Fase 3.5) exigen el onboarding completo y su guard lleva a
  * donde toque (y `/explorar`, sin test completado, a `/test`). No muestra
  * datos del perfil y no hace consultas: cada página tiene su guard.
+ * `/habitaciones` (sesión 68) es la gestión de las habitaciones propias, con
+ * la cuenta activa (`requireActiveProfile`).
  * «Cerrar sesión» es el `SignOutButton` de 2.2 (`signOut`).
  */
 export const APP_NAV_LINKS = [
   { href: "/explorar", label: "Explorar" },
   { href: "/test", label: "Test" },
+  { href: "/habitaciones", label: "Habitaciones" },
   { href: "/perfil", label: "Perfil" },
   { href: "/preferencias", label: "Preferencias" },
   { href: "/ajustes", label: "Ajustes" },

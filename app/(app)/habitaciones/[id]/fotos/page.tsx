@@ -7,7 +7,12 @@ import {
   ONBOARDING_PROFILE_PATH,
   loginPath,
 } from "@/lib/auth/destination";
-import { roomDeletePath, roomPhotosPath } from "@/lib/rooms/paths";
+import {
+  ROOMS_PATH,
+  roomDeletePath,
+  roomEditPath,
+  roomPhotosPath,
+} from "@/lib/rooms/paths";
 import { getRoomPhotos, type RoomPhotosView } from "@/lib/services/rooms";
 import { uuidSchema } from "@/lib/validation/common";
 import {
@@ -29,13 +34,19 @@ import { Card } from "@/components/ui/card";
  * Storage. Se usa `<img>` y no `next/image`: la optimización de imágenes
  * pasaría las URL firmadas por `/_next/image`, que las guardaría en su caché
  * más tiempo del que valen y exigiría abrir `images.remotePatterns`.
+ *
+ * Tras crear una habitación (sesión 68) la acción redirige aquí con
+ * `?creada=1`: el parámetro solo elige un mensaje, no da acceso a nada.
  */
 export default async function RoomPhotosPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  const created = (await searchParams)?.creada === "1";
   const parsed = uuidSchema.safeParse(id);
   const path = parsed.success ? roomPhotosPath(parsed.data) : undefined;
   await requireActiveProfile(path);
@@ -52,10 +63,10 @@ export default async function RoomPhotosPage({
     );
   }
 
-  return <RoomPhotos view={result.data} />;
+  return <RoomPhotos view={result.data} created={created} />;
 }
 
-function RoomPhotos({ view }: { view: RoomPhotosView }) {
+function RoomPhotos({ view, created }: { view: RoomPhotosView; created: boolean }) {
   const { room, images } = view;
   const owner = view.access === "owner";
   return (
@@ -64,6 +75,30 @@ function RoomPhotos({ view }: { view: RoomPhotosView }) {
         <h1 className="text-xl font-medium">Fotos de la habitación</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">{room.title}</p>
       </div>
+
+      {owner && created ? (
+        <p
+          role="status"
+          className="rounded-[var(--radius)] border border-[var(--border)] p-3 text-sm"
+        >
+          Habitación creada como borrador. Puedes añadir fotos ahora (no son obligatorias
+          para publicarla) o volver a sus datos para completarla y publicarla.
+        </p>
+      ) : null}
+
+      {owner ? (
+        <nav
+          aria-label="Gestión de la habitación"
+          className="flex flex-wrap gap-4 text-sm"
+        >
+          <Link href={roomEditPath(room.id)} className="underline">
+            Datos y estado
+          </Link>
+          <Link href={ROOMS_PATH} className="underline">
+            Tus habitaciones
+          </Link>
+        </nav>
+      ) : null}
 
       {!owner ? (
         <p

@@ -319,7 +319,31 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       (orientativo). **Sin validar en Supabase real, con la API de Storage
       real ni en la CI**, ni en un despliegue;
     - publicar la rama y validarla (D2, en un proyecto aislado) necesitan la
-      decisión o la autorización del propietario.
+      decisión o la autorización del propietario;
+    - **publicada el 2026-10-30, con autorización** (`PROGRESS.md`, sesión
+      68): rama remota `feature/phase4-2-rebuild` en `181e57f` y PR #28 en
+      borrador, apilado contra `claude/phase4-r8-upgrade-tool`, con la CI en
+      verde (run `41114709970`). Sin merge ni validación real.
+  - **4.3 (CRUD de habitaciones propias): en local (sesión 68)**, en la rama
+    `feature/phase4-3-rooms-crud`, apilada sobre la 4.2, con commits locales
+    **sin publicar**:
+    - `/habitaciones`, `/habitaciones/nueva` y `/habitaciones/[id]/editar`:
+      crear en borrador, listar, editar y cambiar el estado según R7 (opción
+      A), integrado con las fotos y el borrado. Funciona sin JavaScript;
+    - con el cliente del usuario, sin service_role ni migraciones (D17 sin
+      cambios). A un admin, una habitación ajena le da 404;
+    - ubicación solo con ciudad y barrio (R2), con la atribución de los
+      barrios (R1) en esas pantallas y, desde la sesión 69, también en el
+      onboarding y en `/preferencias` (y en `/explorar` desde la sesión 70,
+      cuando alguna tarjeta muestra zonas): un único componente
+      (`components/rooms/neighborhoods-attribution.tsx`) con la procedencia
+      verificada en datos.gob.es (conjunto «Unidades administrativas de la
+      ciudad de Barcelona», recurso `BarcelonaCiutat_Barris.json`, CC BY
+      4.0; `docs/DATABASE.md`);
+    - en local: `test` 1412, `test:db` 812, `test:infra` 377 y E1 47/47
+      (orientativo). Sin validar en Supabase real ni en la CI;
+    - fuera de alcance: búsqueda, filtros, detalle público (R3, R4) y
+      moderación.
   - R8 (decisión del 2026-10-17: antes de decidir el merge del PR #26): la
     herramienta `tests/supabase/phase4-upgrade.sh` (entrada `phase4_upgrade`
     del workflow, `dry_run` y `apply`), probada en local, se ejecutó contra
@@ -586,6 +610,13 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
     el trigger de moderación (H5) y `chk_rooms_publishable`.
   - No lo reviertas ni añadas una operación privilegiada para `status` sin
     una decisión explícita (afecta a D17).
+  - El CRUD de la 4.3 (sesión 68) escribe solo con el cliente del usuario:
+    las columnas del formulario (`ROOM_WRITABLE_COLUMNS`) más `owner_id` de
+    la sesión al crear, y `status` aparte. INSERT y UPDATE separados, nunca
+    `upsert`; `tests/unit/rooms-crud-static.test.ts` comprueba que todo está
+    dentro del GRANT y que ningún archivo de la app nombra `room_addresses`.
+    Los límites de longitud de los textos solo están en la aplicación
+    (`docs/SECURITY.md`, «CRUD de habitaciones propias»).
 - `room_images` y Storage (Fase 4.2, solo en local): ningún cliente escribe
   fotos (sin políticas de escritura ni GRANT en `room_images`, y ninguna
   política en `storage.objects`). El bucket `room-images` es privado y las
@@ -649,7 +680,9 @@ la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. La 4.2 (`tests/db/19`,
 preflight de la 4.2 y la conciliación) solo se ha probado en local, y el
 tamaño de la subida, con E1 (`upload-size.spec.ts`); sus Server Actions, la interfaz y
 el borrado, con tests unitarios y E1 (`room-photos.spec.ts`, contra el
-Storage simulado del mock). E2E: E1
+Storage simulado del mock). El CRUD de la 4.3 (sesión 68), con tests
+unitarios y estáticos y E1 (`rooms-crud.spec.ts`, con el INSERT y el UPDATE
+de `rooms` emulados en el mock), solo en local. E2E: E1
 (`npm run test:e2e`, Supabase simulado; desde el PR #19 incluye D1 sobre el
 build de E1) corre en local y
 en CI; el entorno cloud de Claude Code no puede descargar el navegador de
@@ -689,11 +722,13 @@ candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta
 api-suite (D6 = B), y desde el run 19 también los servicios
 `saveQuestionnaireAnswers` y `getCandidates` (SVC/GC). El runtime completo
 de Next.js con la clave real no está validado.
-Todavía no hay CRUD de habitaciones (crearlas y editarlas), intereses («Me
-interesa», Fase 5), «Ver perfil» de terceros, chat ni admin real. De la 4.2,
-en local y sin publicar: la gestión de fotos de una habitación propia y su
-borrado seguro, solo desde el servidor (sesiones 64 y 65), sin validar en
-real.
+Todavía no hay intereses («Me interesa», Fase 5), «Ver perfil» de
+terceros, chat ni admin real. De la 4.2, publicada en el PR #28 (borrador,
+sin merge): la gestión de fotos de una habitación propia y su borrado
+seguro, solo desde el servidor (sesiones 64 y 65), sin validar en real. De
+la 4.3, en local y sin publicar (sesión 68): el CRUD de habitaciones propias
+(crear en borrador, listar, editar y cambiar el estado), sin validar en
+real. Sin búsqueda ni detalle público.
 
 ## Funcionalidades pendientes
 
@@ -739,6 +774,12 @@ borrado de cuenta (H6).
       contra `master`, para que su diff tenga solo los commits de la 4.2 y
       no los 16 heredados de los PR #26 y #27.
   - El push, la rama remota y el PR necesitan una autorización separada.
+  - Ejecutada el 2026-10-30 con esa autorización: PR #28 en borrador
+    (`PROGRESS.md`, sesión 68). Su merge sigue sin decidir.
+- Fase 4.3 (CRUD, en local, sin publicar): cuándo se publica su rama y su PR
+  (apilado sobre el PR #28). La atribución de los barrios en el onboarding y
+  en `/preferencias` (sesión 69) y en `/explorar` (sesión 70) ya está hecha
+  en local.
 - Desde la sesión 65 (el DELETE directo de `rooms` ya está cerrado, con
   `20261030120000`):
   - repetir en un despliegue (staging) la medición del cuerpo de una subida

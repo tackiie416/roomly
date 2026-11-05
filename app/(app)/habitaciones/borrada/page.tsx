@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireActiveProfile } from "@/lib/auth/session";
-import { ROOM_DELETED_PATH } from "@/lib/rooms/paths";
+import { ROOMS_PATH, ROOM_DELETED_PATH } from "@/lib/rooms/paths";
 import { Card } from "@/components/ui/card";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -34,8 +34,8 @@ export default async function RoomDeletedPage({
             La habitación y sus fotos se han borrado.
           </p>
         )}
-        <Link href="/perfil" className="text-sm underline">
-          Volver a tu perfil
+        <Link href={ROOMS_PATH} className="text-sm underline">
+          Volver a tus habitaciones
         </Link>
       </Card>
     </main>

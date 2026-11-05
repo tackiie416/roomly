@@ -625,9 +625,31 @@ Subfases:
       Netlify.
   - Sin CRUD de habitaciones: todavía no se crean ni editan desde la app, así
     que la interfaz de fotos solo se alcanza con una habitación ya existente.
+    (Desde la sesión 68, el CRUD existe en local: ver la 4.3.)
   - **Sin validar en Supabase real** ni con la API de Storage real.
     `roomly-validation-3` sigue en la 4.1, y el preflight vigente ya no pasa
     contra él. La validación (D2) necesita su autorización.
+  - **Publicada (2026-10-30, con autorización):** rama remota
+    `feature/phase4-2-rebuild` en `181e57f` y PR #28 en borrador, apilado
+    contra `claude/phase4-r8-upgrade-tool`. La CI de ese head (run
+    `41114709970`) pasó en verde. Sin merge ni validación real.
+- **4.3 CRUD de habitaciones propias** (sesión 68, 2026-10-30): autorizado
+  por el propietario, **en local**, en la rama `feature/phase4-3-rooms-crud`
+  (apilada sobre la 4.2), con commits sin publicar.
+  - Crear en borrador, listar las propias, editarlas y cambiar su estado
+    según R7 (opción A), sin migraciones y sin service_role (D17 sin
+    cambios).
+  - Rutas `/habitaciones`, `/habitaciones/nueva` y
+    `/habitaciones/[id]/editar`, integradas con las fotos y el borrado de la
+    4.2. Funcionan sin JavaScript.
+  - Ubicación solo con ciudad y barrio (R2), con la atribución del catálogo
+    de barrios (R1) en esas pantallas.
+  - A un admin, una habitación ajena le da 404: el CRUD no es la moderación
+    (Fase 7).
+  - Tests unitarios, estáticos y E1 (`rooms-crud.spec.ts`). Sin validar en
+    Supabase real ni en la CI.
+  - Fuera de alcance: búsqueda, filtros y detalle público (R3, R4), el mapa
+    (R2) y la moderación.
 
 **Decisiones del propietario** (auditoría del 2026-10-13). Del 2026-10-15
 son las de R1, R2 (alcance mínimo), R6, R7 (publicación y estado) y R9; las
@@ -643,6 +665,11 @@ demás siguen sin tomar:
     - Fuente: © Ajuntament de Barcelona, Open Data BCN
       (`BarcelonaCiutat_Barris.json`, facilitado por el propietario),
       licencia CC BY 4.0.
+    - Verificado por el propietario en datos.gob.es (sesión 69): el conjunto
+      es «Unidades administrativas de la ciudad de Barcelona» (Ayuntamiento
+      de Barcelona, Open Data BCN) y `BarcelonaCiutat_Barris.json` es uno de
+      sus recursos; licencia CC BY 4.0. Identificadores y enlaces en
+      `docs/DATABASE.md`.
     - 73 barrios de los 10 districtes, verificados en el archivo; nombre
       oficial y slug derivado, sin coordenadas.
     - Crea Barcelona si falta, con los valores del seed, y se detiene sin
@@ -651,6 +678,18 @@ demás siguen sin tomar:
   - **Pendiente:** mostrar la atribución del Ajuntament en la interfaz donde
     se vean los barrios (decisión de producto) y otras ciudades, cuando se
     activen.
+    - Desde la sesión 68 (4.3, en local) la muestran el alta, la edición y el
+      listado de habitaciones. Siguen sin ella el onboarding y
+      `/preferencias`, y falta confirmarla antes del lanzamiento.
+    - **Hecha en local en la sesión 69:** un único componente, con los
+      metadatos verificados, en el alta, la edición y el listado de
+      habitaciones, en el onboarding y en `/preferencias`, también sin
+      JavaScript. `/explorar` muestra nombres de barrios de los candidatos
+      sin atribución: queda para decidir. La confirmación antes del
+      lanzamiento (condición de D1) sigue siendo del propietario.
+    - **Sesión 70:** también en `/explorar`, debajo de la lista, cuando
+      alguna tarjeta muestra zonas (nombres de `neighborhoods`), con el
+      mismo componente.
 - **R2.** Ubicación aproximada: solo el barrio, o coordenadas difuminadas con
   mapa; el proveedor (Mapbox está recomendado, sin confirmar) y la
   distancia a la universidad, que no tiene coordenadas.

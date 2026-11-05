@@ -125,6 +125,17 @@ describe("/preferencias — contenido", () => {
     expect(html).toContain("Guardar preferencias");
   });
 
+  it("muestra la atribución de los barrios (CC BY 4.0) junto a su selector", async () => {
+    as("complete");
+    const html = await render();
+    expect(html.match(/data-testid="neighborhoods-attribution"/g)).toHaveLength(1);
+    expect(html).toContain("Unidades administrativas de la ciudad de Barcelona");
+    expect(html).toContain(
+      'href="https://datos.gob.es/es/catalogo/l01080193-unidades-administrativas-de-la-ciudad-de-barcelona"'
+    );
+    expect(html).toContain('href="https://creativecommons.org/licenses/by/4.0/deed.es"');
+  });
+
   it("incompleto: ciudad opcional y aviso para terminar el onboarding", async () => {
     as("incomplete");
     const html = await render();

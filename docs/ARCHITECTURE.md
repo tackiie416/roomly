@@ -291,6 +291,14 @@ se sirven con URL firmadas que emite el servidor.
   `/habitaciones/borrada`, con `components/rooms/room-photo-forms.tsx`. Las
   rutas, en `lib/rooms/paths.ts`. Sin CRUD de habitaciones: todavía no se
   pueden crear ni editar desde la app.
+- **CRUD de habitaciones propias** (Fase 4.3, sesión 68, en local):
+  `/habitaciones` (listado), `/habitaciones/nueva` y
+  `/habitaciones/[id]/editar`, con `components/rooms/room-form.tsx`,
+  `room-status-forms.tsx` y `neighborhoods-attribution.tsx`. Server Actions
+  `createRoom`, `updateRoom` y `changeRoomStatus` (`app/actions/rooms.ts`)
+  sobre `lib/services/rooms.ts`, con el cliente del usuario (sin
+  service_role). Validación en `lib/validation/rooms.ts` y estado del
+  formulario en `lib/validation/room-form.ts`.
 - Avatares (M3): fuera de alcance por ahora.
 
 ## SEO
@@ -349,8 +357,8 @@ en el layout raíz) es **estática** y no lee la sesión, para que las páginas
 públicas sigan siendo estáticas y no hagan consultas a Supabase; «Entrar»
 está en la página de inicio. La navegación de la cuenta vive en
 `app/(app)/layout.tsx` (`components/app-nav.tsx`): enlaces a `/explorar`,
-`/test` (los dos desde la Fase 3.5), `/perfil`, `/preferencias` y `/ajustes`, y
-el `SignOutButton` de 2.2. El layout no
+`/test` (los dos desde la Fase 3.5), `/habitaciones` (desde la sesión 68),
+`/perfil`, `/preferencias` y `/ajustes`, y el `SignOutButton` de 2.2. El layout no
 consulta nada ni hace de guard: cada página conserva el suyo y sin sesión
 redirige `proxy.ts`. No hay `loading.tsx` en `(app)` (ver `docs/TESTING.md`).
 

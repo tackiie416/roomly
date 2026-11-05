@@ -177,16 +177,18 @@ export const appNav = (page: Page) => page.getByRole("navigation", { name: "Tu c
 
 /**
  * Habitación de `email` (operación de servidor del mock, Fase 4.2), con
- * `photos` fotos ya subidas (fila y objeto). Devuelve su id.
+ * `photos` fotos ya subidas (fila y objeto) y, con `complete`, lo que exige
+ * la publicación (barrio, compañeros y dormitorios). Devuelve su id.
  */
 export async function seedRoom(
   email: string,
-  options: { title?: string; status?: string; photos?: number } = {}
+  options: { title?: string; status?: string; photos?: number; complete?: boolean } = {}
 ): Promise<string> {
   const params = new URLSearchParams({ email });
   if (options.title) params.set("title", options.title);
   if (options.status) params.set("status", options.status);
   if (options.photos !== undefined) params.set("photos", String(options.photos));
+  if (options.complete) params.set("complete", "1");
   const response = await mock(`/__test/seed-room?${params}`);
   expect(response.status).toBe(200);
   return ((await response.json()) as { id: string }).id;
@@ -204,4 +206,14 @@ export async function roomState(id: string): Promise<MockRoomState> {
   const response = await mock(`/__test/room?id=${encodeURIComponent(id)}`);
   expect(response.status).toBe(200);
   return (await response.json()) as MockRoomState;
+}
+
+/**
+ * Convierte la cuenta de `email` en admin activo (solo en el mock, sesión 68):
+ * en Supabase el rol lo cambia el servidor con service_role.
+ */
+export async function makeAdmin(email: string): Promise<void> {
+  expect(
+    (await mock(`/__test/make-admin?email=${encodeURIComponent(email)}`)).status
+  ).toBe(200);
 }

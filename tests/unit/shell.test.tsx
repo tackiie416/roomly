@@ -83,19 +83,27 @@ describe("Página de inicio pública", () => {
 });
 
 describe("Shell autenticado (app)", () => {
-  it("enlaza exactamente a /explorar, /test, /perfil, /preferencias y /ajustes (ninguna ruta futura)", () => {
+  it("enlaza exactamente a /explorar, /test, /habitaciones, /perfil, /preferencias y /ajustes (ninguna ruta futura)", () => {
     expect(APP_NAV_LINKS.map((link) => link.href)).toEqual([
       "/explorar",
       "/test",
+      "/habitaciones",
       "/perfil",
       "/preferencias",
       "/ajustes",
     ]);
     const html = renderToStaticMarkup(<AppNav />);
     const hrefs = [...html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
-    expect(hrefs).toEqual(["/explorar", "/test", "/perfil", "/preferencias", "/ajustes"]);
-    // Fase 3: sin /matches (Fase 5), mensajes, habitaciones ni admin.
-    expect(html).not.toMatch(/matches|mensajes|habitaciones|admin/);
+    expect(hrefs).toEqual([
+      "/explorar",
+      "/test",
+      "/habitaciones",
+      "/perfil",
+      "/preferencias",
+      "/ajustes",
+    ]);
+    // Sin /matches (Fase 5), mensajes ni admin; /habitaciones desde la sesión 68 (CRUD propio).
+    expect(html).not.toMatch(/matches|mensajes|admin/);
   });
 
   it("el logout es el SignOutButton existente", () => {
@@ -105,20 +113,24 @@ describe("Shell autenticado (app)", () => {
     expect(renderToStaticMarkup(<AppNav />)).toContain("Cerrar sesión");
   });
 
-  it.each(["/explorar", "/test", "/perfil", "/preferencias", "/ajustes"])(
-    "marca %s como página actual (aria-current) y solo esa",
-    (pathname) => {
-      navMock.pathname = pathname;
-      const html = renderToStaticMarkup(<AppNavLinks links={APP_NAV_LINKS} />);
-      const current = [
-        ...html.matchAll(
-          /<a[^>]*aria-current="page"[^>]*href="([^"]+)"|<a[^>]*href="([^"]+)"[^>]*aria-current="page"/g
-        ),
-      ];
-      expect(current).toHaveLength(1);
-      expect(current[0][1] ?? current[0][2]).toBe(pathname);
-    }
-  );
+  it.each([
+    "/explorar",
+    "/test",
+    "/habitaciones",
+    "/perfil",
+    "/preferencias",
+    "/ajustes",
+  ])("marca %s como página actual (aria-current) y solo esa", (pathname) => {
+    navMock.pathname = pathname;
+    const html = renderToStaticMarkup(<AppNavLinks links={APP_NAV_LINKS} />);
+    const current = [
+      ...html.matchAll(
+        /<a[^>]*aria-current="page"[^>]*href="([^"]+)"|<a[^>]*href="([^"]+)"[^>]*aria-current="page"/g
+      ),
+    ];
+    expect(current).toHaveLength(1);
+    expect(current[0][1] ?? current[0][2]).toBe(pathname);
+  });
 
   it("el layout renderiza el nav y la página, sin consultas ni guard propio", () => {
     const tree = AppLayout({ children: <p>contenido de la página</p> });

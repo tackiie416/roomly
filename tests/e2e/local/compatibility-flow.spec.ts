@@ -147,6 +147,8 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   // Fase 3: sin «Ver perfil» ni «Me interesa».
   await expect(page.getByText("Ver perfil")).toHaveCount(0);
   await expect(page.getByText("Me interesa")).toHaveCount(0);
+  // Ninguna tarjeta muestra zonas: no hay atribución de barrios (sesión 70).
+  await expect(page.getByTestId("neighborhoods-attribution")).toHaveCount(0);
 
   // Paginación: fuera de rango → aviso; inválida → página 1.
   await page.goto("/explorar?pagina=99");
@@ -265,5 +267,61 @@ test("el test funciona sin JavaScript", async ({ page, browser }) => {
   expect(pathOf(p)).toBe("/explorar");
   const state = await userState(email);
   expect(state.compatibility?.completed_at).not.toBeNull();
+  await noJs.close();
+});
+
+// Sesión 70: las zonas de las tarjetas son nombres del catálogo de barrios
+// (R1), así que /explorar muestra debajo la atribución compartida (CC BY 4.0),
+// también sin JavaScript.
+test("/explorar: las zonas del catálogo llevan su atribución, también sin JavaScript", async ({
+  page,
+  browser,
+}) => {
+  // Cuenta candidatos: parte de un mock vacío (E1 corre con un único worker).
+  await resetMock();
+  const GRACIA = "55555555-5555-4555-8555-555555555555";
+  const SANTS = "66666666-6666-4666-8666-666666666666";
+  await seedCandidate({
+    name: "Con Zonas",
+    version: CURRENT,
+    questionIds: IDS,
+    answer: 2,
+    neighborhoods: [SANTS, GRACIA],
+  });
+  const email = uniqueEmail("explorar-zonas");
+  await loginWithMagicLink(page, email);
+  await completeOnboarding(page, "Exploradora Zonas");
+  await seedOwnResponse(email, {
+    version: CURRENT,
+    questionIds: IDS,
+    answer: 2,
+    completed: true,
+  });
+
+  const noJs = await browser.newContext({
+    javaScriptEnabled: false,
+    storageState: await page.context().storageState(),
+  });
+  for (const p of [page, await noJs.newPage()]) {
+    await p.goto(`${APP}/explorar`);
+    const cards = p.getByTestId("candidate");
+    await expect(cards).toHaveCount(1);
+    await expect(cards).toContainText("Gràcia, Sants");
+    const attribution = p.getByTestId("neighborhoods-attribution");
+    await expect(attribution).toHaveCount(1);
+    await expect(attribution).toBeVisible();
+    await expect(attribution).toContainText(
+      "datos procedentes del conjunto “Unidades administrativas de la ciudad de Barcelona”"
+    );
+    expect(
+      await attribution
+        .getByRole("link")
+        .evaluateAll((links) => links.map((a) => (a as HTMLAnchorElement).href))
+    ).toEqual([
+      "https://datos.gob.es/es/catalogo/l01080193-unidades-administrativas-de-la-ciudad-de-barcelona",
+      "https://opendata-ajuntament.barcelona.cat/data/dataset/808daafa-d9ce-48c0-925a-fa5afdb1ed41/resource/75197dfe-0306-4c5e-9643-34948af07fb6/download",
+      "https://creativecommons.org/licenses/by/4.0/deed.es",
+    ]);
+  }
   await noJs.close();
 });

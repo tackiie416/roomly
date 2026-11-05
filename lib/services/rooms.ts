@@ -12,19 +12,31 @@ import {
 } from "@/lib/services/room-images";
 import {
   type DbClient,
+  type DbError,
+  type DbFieldRule,
+  type FieldErrors,
   type ServiceResult,
   fail,
   getSessionUserId,
   mapDbError,
   ok,
 } from "@/lib/services/result";
-import { uuidSchema } from "@/lib/validation/common";
+import { FORM_ERROR_KEY, toFieldErrors, uuidSchema } from "@/lib/validation/common";
 import { ROOM_IMAGE_MAX_COUNT } from "@/lib/validation/room-images";
+import {
+  ROOM_PUBLICATION_MESSAGES,
+  type RoomPublicationField,
+  missingPublicationFields,
+  roomCreateSchema,
+  roomStatusChangeSchema,
+  roomUpdateSchema,
+} from "@/lib/validation/rooms";
 
 /**
- * Habitaciones (Fase 4.2): la gestión de las fotos y el borrado seguro de una
- * habitación propia. Las lecturas y comprobaciones, siempre con el cliente del
- * usuario (RLS).
+ * Habitaciones: la gestión de las fotos y el borrado seguro de una habitación
+ * propia (Fase 4.2), y el CRUD de la propietaria (Fase 4, sesión 68: crear,
+ * listar, editar y cambiar el estado; ver abajo). Las lecturas y
+ * comprobaciones, siempre con el cliente del usuario (RLS).
  *
  * service_role (D17, ampliada por el propietario el 2026-10-30, sesión 65):
  * este es el cuarto servicio que lo usa, y solo para una cosa, llamar a
@@ -336,4 +348,387 @@ export async function deleteOwnRoom(
   }
   const cleanup = await deps.removeRoomObjects(id, paths);
   return ok({ photosRemoved: cleanup.complete });
+}
+
+// ------------------------------------------------------------------
+// CRUD de la propietaria (Fase 4, sesión 68)
+// ------------------------------------------------------------------
+//
+// Crear, listar, leer para editar, editar y cambiar el estado de las
+// habitaciones propias. Todo con el cliente del usuario (RLS y GRANT de
+// `authenticated`), nunca con service_role: D17 no cambia y el cliente admin
+// de este archivo sigue siendo solo para `delete_own_room`.
+//   - El id del usuario sale siempre de la sesión; la cuenta activa se
+//     comprueba antes de escribir (y la RLS de la 4.0 lo vuelve a exigir).
+//   - INSERT y UPDATE por separado, nunca `upsert` (reescribiría `id` y
+//     `owner_id`, que no están en el UPDATE del GRANT).
+//   - Solo se escriben las columnas del formulario (`ROOM_WRITABLE_COLUMNS`),
+//     más `owner_id` al crear. Nunca `status` al crear (nace `draft`),
+//     `deleted_at`, `approx_*` ni las fechas.
+//   - Ubicación: solo ciudad y barrio (R2). `room_addresses` no se lee ni se
+//     escribe desde la aplicación.
+//   - El estado sigue R7 (opción A) y H5: la propietaria se mueve entre
+//     `draft`, `active`, `paused` y `rented`; a `active` solo completa
+//     (`chk_rooms_publishable`); `removed` no lo pone ni lo quita.
+//   - Una habitación retirada (`removed`) no se edita desde aquí, aunque la
+//     base de datos solo bloquee su estado (límite de moderación de la
+//     Fase 7). Una con `deleted_at` (borrado lógico del servidor) no aparece.
+
+/** Columnas de una habitación propia que lee el CRUD. Nunca `approx_*`. */
+const OWN_ROOM_COLUMNS =
+  "id, owner_id, title, description, city_id, neighborhood_id, price_month, expenses_included, deposit_amount, available_from, min_stay_months, max_stay_months, total_roommates, total_rooms, features, pets_allowed, smoking_allowed, students_only, house_rules, roommate_preferences, status, deleted_at, created_at, updated_at" as const;
+
+type OwnRoomRow = {
+  id: string;
+  owner_id: string;
+  title: string;
+  description: string | null;
+  city_id: string;
+  neighborhood_id: string | null;
+  price_month: number;
+  expenses_included: boolean;
+  deposit_amount: number | null;
+  available_from: string;
+  min_stay_months: number | null;
+  max_stay_months: number | null;
+  total_roommates: number | null;
+  total_rooms: number | null;
+  features: string[];
+  pets_allowed: boolean;
+  smoking_allowed: boolean;
+  students_only: boolean;
+  house_rules: string | null;
+  roommate_preferences: string | null;
+  status: string;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Una habitación propia, para editarla (sin `owner_id` ni `deleted_at`). */
+export type OwnRoom = Omit<OwnRoomRow, "owner_id" | "deleted_at">;
+
+const toOwnRoom = (row: OwnRoomRow): OwnRoom => {
+  const { owner_id: _owner, deleted_at: _deleted, ...room } = row;
+  void _owner;
+  void _deleted;
+  return room;
+};
+
+const OWN_ROOM_LIST_COLUMNS =
+  "id, owner_id, title, status, city_id, neighborhood_id, price_month, available_from, total_roommates, total_rooms, deleted_at, created_at, updated_at" as const;
+
+type OwnRoomListRow = Pick<
+  OwnRoomRow,
+  | "id"
+  | "owner_id"
+  | "title"
+  | "status"
+  | "city_id"
+  | "neighborhood_id"
+  | "price_month"
+  | "available_from"
+  | "total_roommates"
+  | "total_rooms"
+  | "deleted_at"
+  | "created_at"
+  | "updated_at"
+>;
+
+/** Una habitación del listado propio, con lo que le falta para publicarse. */
+export type OwnRoomListItem = {
+  id: string;
+  title: string;
+  status: string;
+  city_id: string;
+  neighborhood_id: string | null;
+  price_month: number;
+  available_from: string;
+  missingForPublication: RoomPublicationField[];
+};
+
+/**
+ * Errores de la base de datos que tienen un campo del formulario. Se buscan
+ * por SQLSTATE y por el nombre de la restricción, que nunca se devuelve.
+ */
+const ROOM_DB_RULES: DbFieldRule[] = [
+  {
+    code: "23514",
+    match: "chk_price_positive",
+    field: "price_month",
+    message: "El precio tiene que ser mayor que 0",
+  },
+  {
+    code: "23514",
+    match: "chk_deposit_nonneg",
+    field: "deposit_amount",
+    message: "El depósito no puede ser negativo",
+  },
+  {
+    code: "23514",
+    match: "chk_stay_range",
+    field: "max_stay_months",
+    message: "La estancia máxima no puede ser menor que la mínima",
+  },
+  {
+    code: "23514",
+    match: "chk_rooms_total_roommates",
+    field: "total_roommates",
+    message: "No puede ser negativo",
+  },
+  {
+    code: "23514",
+    match: "chk_rooms_total_rooms",
+    field: "total_rooms",
+    message: "La vivienda tiene que tener al menos un dormitorio",
+  },
+  {
+    code: "23514",
+    match: "chk_rooms_features",
+    field: "features",
+    message: "Alguna característica no es válida",
+  },
+  {
+    code: "23514",
+    match: "chk_rooms_publishable",
+    field: FORM_ERROR_KEY,
+    message:
+      "Una habitación publicada necesita barrio, número de compañeros y número de dormitorios.",
+  },
+  {
+    code: "23503",
+    match: "fk_rooms_neighborhood_city",
+    field: "neighborhood_id",
+    message: "El barrio no pertenece a la ciudad elegida",
+  },
+  {
+    code: "23503",
+    match: "rooms_neighborhood_id_fkey",
+    field: "neighborhood_id",
+    message: "El barrio no existe",
+  },
+  {
+    code: "23503",
+    match: "rooms_city_id_fkey",
+    field: "city_id",
+    message: "La ciudad no existe",
+  },
+];
+
+const mapRoomWriteError = (error: DbError) => mapDbError(error, ROOM_DB_RULES);
+
+const CITY_NOT_AVAILABLE = "Esta ciudad todavía no está disponible";
+const ROOM_REMOVED_LOCKED = "removed";
+
+/**
+ * Una ciudad nueva (distinta de la guardada) tiene que estar activa: el
+ * rollout ciudad a ciudad, como en las preferencias. Una ya guardada que
+ * después se desactivó se conserva. Una inexistente la rechaza la FK.
+ */
+async function checkCity(
+  supabase: DbClient,
+  cityId: string,
+  currentCityId: string | null
+): Promise<ServiceResult<true>> {
+  if (cityId === currentCityId) return ok(true);
+  const { data: city, error } = await supabase
+    .from("cities")
+    .select("id, is_active")
+    .eq("id", cityId)
+    .maybeSingle();
+  if (error) return mapDbError(error);
+  if (!city) return fail("validation", { city_id: ["La ciudad no existe"] });
+  if (!city.is_active) return fail("validation", { city_id: [CITY_NOT_AVAILABLE] });
+  return ok(true);
+}
+
+/** Habitación propia y sin borrado lógico, con todas las columnas del CRUD. */
+async function readOwnRoomForCrud(
+  supabase: DbClient,
+  userId: string,
+  roomId: string
+): Promise<ServiceResult<OwnRoomRow>> {
+  const { data, error } = await supabase
+    .from("rooms")
+    .select(OWN_ROOM_COLUMNS)
+    .eq("id", roomId)
+    .eq("owner_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return mapDbError(error);
+  const row = data as OwnRoomRow | null;
+  if (!row || row.owner_id !== userId || row.deleted_at !== null)
+    return fail("not_found");
+  return ok(row);
+}
+
+/** Errores de campo de lo que le falta a una habitación para estar publicada. */
+function publicationErrors(missingFields: RoomPublicationField[]): FieldErrors {
+  return Object.fromEntries(
+    missingFields.map((field) => [field, [ROOM_PUBLICATION_MESSAGES[field]]])
+  );
+}
+
+/** Listado de las habitaciones propias (más recientes primero), en una sola consulta. */
+export async function listOwnRooms(
+  supabase: DbClient
+): Promise<ServiceResult<OwnRoomListItem[]>> {
+  const userId = await getSessionUserId(supabase);
+  if (!userId) return fail("unauthenticated");
+  const account = await requireActiveAccount(supabase, userId);
+  if (!account.ok) return account;
+
+  const { data, error } = await supabase
+    .from("rooms")
+    .select(OWN_ROOM_LIST_COLUMNS)
+    .eq("owner_id", userId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  if (error) return mapDbError(error);
+  const rows = (data ?? []) as OwnRoomListRow[];
+  return ok(
+    rows
+      .filter((row) => row.owner_id === userId && row.deleted_at === null)
+      .map((row) => ({
+        id: row.id,
+        title: row.title,
+        status: row.status,
+        city_id: row.city_id,
+        neighborhood_id: row.neighborhood_id,
+        price_month: row.price_month,
+        available_from: row.available_from,
+        missingForPublication: missingPublicationFields(row),
+      }))
+  );
+}
+
+/**
+ * Una habitación propia para editarla. A cualquier otra persona, también a
+ * un admin, `not_found`: es la gestión de la propietaria, no la moderación.
+ */
+export async function getOwnRoomForEdit(
+  supabase: DbClient,
+  roomId: unknown
+): Promise<ServiceResult<OwnRoom>> {
+  const started = await start(supabase, roomId);
+  if (!started.ok) return started;
+  const room = await readOwnRoomForCrud(
+    supabase,
+    started.data.userId,
+    started.data.roomId
+  );
+  if (!room.ok) return room;
+  return ok(toOwnRoom(room.data));
+}
+
+/** Crea una habitación propia en borrador (`status` lo pone la base de datos). */
+export async function createOwnRoom(
+  supabase: DbClient,
+  input: unknown
+): Promise<ServiceResult<OwnRoom>> {
+  const userId = await getSessionUserId(supabase);
+  if (!userId) return fail("unauthenticated");
+
+  const parsed = roomCreateSchema.safeParse(input);
+  if (!parsed.success) return fail("validation", toFieldErrors(parsed.error));
+  const fields = parsed.data;
+
+  const account = await requireActiveAccount(supabase, userId);
+  if (!account.ok) return account;
+  const city = await checkCity(supabase, fields.city_id, null);
+  if (!city.ok) return city;
+
+  const { data, error } = await supabase
+    .from("rooms")
+    .insert({ ...fields, owner_id: userId })
+    .select(OWN_ROOM_COLUMNS)
+    .single();
+  if (error) return mapRoomWriteError(error);
+  return ok(toOwnRoom(data as OwnRoomRow));
+}
+
+/**
+ * Edita una habitación propia (no su estado). Si está publicada, tiene que
+ * seguir completa: se comprueba antes de escribir, con errores de campo, y
+ * `chk_rooms_publishable` lo vuelve a exigir.
+ */
+export async function updateOwnRoom(
+  supabase: DbClient,
+  roomId: unknown,
+  input: unknown
+): Promise<ServiceResult<OwnRoom>> {
+  const started = await start(supabase, roomId);
+  if (!started.ok) return started;
+  const { userId } = started.data;
+
+  const parsed = roomUpdateSchema.safeParse(input);
+  if (!parsed.success) return fail("validation", toFieldErrors(parsed.error));
+  const fields = parsed.data;
+
+  const current = await readOwnRoomForCrud(supabase, userId, started.data.roomId);
+  if (!current.ok) return current;
+  if (current.data.status === ROOM_REMOVED_LOCKED) return fail("forbidden");
+
+  if (current.data.status === "active") {
+    const missingFields = missingPublicationFields({ ...current.data, ...fields });
+    if (missingFields.length > 0)
+      return fail("validation", publicationErrors(missingFields));
+  }
+  const city = await checkCity(supabase, fields.city_id, current.data.city_id);
+  if (!city.ok) return city;
+
+  const { data, error } = await supabase
+    .from("rooms")
+    .update(fields)
+    .eq("id", current.data.id)
+    .eq("owner_id", userId)
+    .is("deleted_at", null)
+    .select(OWN_ROOM_COLUMNS)
+    .maybeSingle();
+  if (error) return mapRoomWriteError(error);
+  // Sin fila: ya no es suya, se borró o la cuenta se desactivó entretanto (RLS).
+  if (!data) return fail("not_found");
+  return ok(toOwnRoom(data as OwnRoomRow));
+}
+
+/**
+ * Cambia el estado de una habitación propia (R7, opción A): entre `draft`,
+ * `active`, `paused` y `rented`; a `active` solo completa. Una habitación
+ * retirada no cambia de estado desde aquí (H5 también lo impide).
+ */
+export async function changeOwnRoomStatus(
+  supabase: DbClient,
+  input: unknown
+): Promise<ServiceResult<OwnRoom>> {
+  const userId = await getSessionUserId(supabase);
+  if (!userId) return fail("unauthenticated");
+  const parsed = roomStatusChangeSchema.safeParse(input);
+  if (!parsed.success) return fail("validation", toFieldErrors(parsed.error));
+  const { roomId, status } = parsed.data;
+
+  const started = await start(supabase, roomId);
+  if (!started.ok) return started;
+  const current = await readOwnRoomForCrud(supabase, userId, started.data.roomId);
+  if (!current.ok) return current;
+  if (current.data.status === ROOM_REMOVED_LOCKED) return fail("forbidden");
+  if (current.data.status === status) return ok(toOwnRoom(current.data));
+
+  if (status === "active") {
+    const missingFields = missingPublicationFields(current.data);
+    if (missingFields.length > 0)
+      return fail("validation", publicationErrors(missingFields));
+  }
+
+  const { data, error } = await supabase
+    .from("rooms")
+    .update({ status })
+    .eq("id", current.data.id)
+    .eq("owner_id", userId)
+    .is("deleted_at", null)
+    .select(OWN_ROOM_COLUMNS)
+    .maybeSingle();
+  // 42501 (H5, `room_moderation:`, o la RLS) → forbidden; el CHECK de publicación → error general.
+  if (error) return mapRoomWriteError(error);
+  if (!data) return fail("not_found");
+  return ok(toOwnRoom(data as OwnRoomRow));
 }
