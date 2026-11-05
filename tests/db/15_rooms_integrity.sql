@@ -10,11 +10,16 @@
 -- habitación, dirección e imagen · E: desactivado desde el principio ·
 -- X: admin.
 --
+-- Desde la 4.1 (20261015120000) una habitación nace `draft` (`status` no está
+-- en el INSERT de authenticated) y, para estar `active`, necesita barrio y
+-- ocupación: el test crea borradores completos y los publica con un UPDATE.
+--
 -- Por qué las negativas fallan por permisos y no por otra cosa:
---   - authenticated tiene INSERT, UPDATE y DELETE sobre las tres tablas
---     (RI0), así que su 42501 al insertar es la política (RLS), no el GRANT.
---     El GRANT de anon no se comprueba: su 42501 (RI3) puede venir del GRANT
---     o de la RLS, y en los dos casos anon no escribe;
+--   - authenticated tiene INSERT, UPDATE y DELETE sobre las columnas que usa
+--     este test en las tres tablas (RI0; en `rooms`, por columnas desde la
+--     4.1), así que su 42501 al insertar es la política (RLS), no el GRANT.
+--     anon no tiene INSERT en `rooms` desde la 4.1: su 42501 (RI3) es del
+--     GRANT, y antes lo era de la RLS; en los dos casos anon no escribe;
 --   - cada INSERT rechazado se repite después con los mismos datos y entra
 --     (los datos son válidos): lo repite la dueña si su cuenta está activa
 --     (RI2-control y RI3-control) y, si no, service_role (RX2);
@@ -41,13 +46,20 @@ insert into public.profiles (id, full_name, date_of_birth, seeking_status, delet
   ('15000000-0000-0000-0000-00000000000e', 'Desactivada E', '2000-01-01', 'has_room_looking_for_roommate', now());
 insert into public.profiles (id, full_name, date_of_birth, seeking_status, role) values
   ('15000000-0000-0000-0000-0000000000ad', 'Admin', '1990-01-01', 'looking_for_room', 'admin');
+-- Barrio de prueba para publicar (4.1).
+insert into public.neighborhoods (id, city_id, name, slug)
+  select '15300000-0000-0000-0000-000000000001', id, 'Barrio RI test', 'barrio-ri-test'
+  from public.cities where slug = 'barcelona';
 
 -- ------------------------------------------------------------
 -- 0. Estructura: lectura igual, escrituras separadas y con cuenta activa.
 -- ------------------------------------------------------------
 select roomly_test.ok(
-  has_table_privilege('authenticated', 'public.rooms', 'INSERT')
-  and has_table_privilege('authenticated', 'public.rooms', 'UPDATE')
+  (select bool_and(has_column_privilege('authenticated', 'public.rooms', c, 'INSERT'))
+   from unnest(array['id', 'owner_id', 'title', 'city_id', 'neighborhood_id', 'price_month',
+                     'available_from', 'total_roommates', 'total_rooms']) as c)
+  and (select bool_and(has_column_privilege('authenticated', 'public.rooms', c, 'UPDATE'))
+       from unnest(array['title', 'price_month', 'status']) as c)
   and has_table_privilege('authenticated', 'public.rooms', 'DELETE')
   and has_table_privilege('authenticated', 'public.room_addresses', 'INSERT')
   and has_table_privilege('authenticated', 'public.room_addresses', 'UPDATE')
@@ -55,7 +67,7 @@ select roomly_test.ok(
   and has_table_privilege('authenticated', 'public.room_images', 'INSERT')
   and has_table_privilege('authenticated', 'public.room_images', 'UPDATE')
   and has_table_privilege('authenticated', 'public.room_images', 'DELETE'),
-  'RI0: authenticated conserva INSERT, UPDATE y DELETE: un rechazo es de la RLS, no del GRANT');
+  'RI0: authenticated conserva INSERT, UPDATE y DELETE de lo que usa el test: un rechazo es de la RLS, no del GRANT');
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'rooms')
@@ -119,11 +131,17 @@ set role authenticated;
 select roomly_test.login('15000000-0000-0000-0000-00000000000a');
 
 select roomly_test.expect_affected(
-  $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from, status)
+  $$insert into public.rooms (id, owner_id, title, city_id, neighborhood_id, price_month,
+                              available_from, total_roommates, total_rooms)
     select '15100000-0000-0000-0000-00000000000a', '15000000-0000-0000-0000-00000000000a',
-           'Habitación de A', c.id, 450, '2026-11-01', 'active'
+           'Habitación de A', c.id, '15300000-0000-0000-0000-000000000001', 450,
+           '2026-11-01', 2, 3
     from public.cities c where c.slug = 'barcelona'$$,
   1, 'RI1: un propietario activo crea su habitación');
+select roomly_test.expect_affected(
+  $$update public.rooms set status = 'active'
+    where id = '15100000-0000-0000-0000-00000000000a'$$,
+  1, 'RI1: y la publica');
 select roomly_test.expect_affected(
   $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
     select '15100000-0000-0000-0000-0000000000a2', '15000000-0000-0000-0000-00000000000a',
@@ -301,13 +319,19 @@ select roomly_test.ok(
 set role authenticated;
 select roomly_test.login('15000000-0000-0000-0000-00000000000d');
 select roomly_test.expect_affected(
-  $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from, status)
-    select r.id, '15000000-0000-0000-0000-00000000000d', r.title, c.id, 500, '2026-11-01', 'active'
+  $$insert into public.rooms (id, owner_id, title, city_id, neighborhood_id, price_month,
+                              available_from, total_roommates, total_rooms)
+    select r.id, '15000000-0000-0000-0000-00000000000d', r.title, c.id,
+           '15300000-0000-0000-0000-000000000001', 500, '2026-11-01', 1, 2
     from public.cities c,
          (values ('15100000-0000-0000-0000-00000000000d'::uuid, 'Habitación de D'),
                  ('15100000-0000-0000-0000-0000000000d2'::uuid, 'Segunda de D')) as r(id, title)
     where c.slug = 'barcelona'$$,
   2, 'RD0: antes de desactivarse, D crea dos habitaciones');
+select roomly_test.expect_affected(
+  $$update public.rooms set status = 'active'
+    where id in ('15100000-0000-0000-0000-00000000000d', '15100000-0000-0000-0000-0000000000d2')$$,
+  2, 'RD0: y las publica');
 select roomly_test.expect_affected(
   $$insert into public.room_addresses (room_id, address_exact)
     values ('15100000-0000-0000-0000-00000000000d', 'Carrer Exacte de D, 4')$$,
@@ -340,10 +364,12 @@ select roomly_test.expect_affected(
   $$update public.rooms set title = 'Reactivada', price_month = 1, status = 'paused'
     where id = '15100000-0000-0000-0000-00000000000d'$$,
   0, 'RD2: una cuenta desactivada NO edita su habitación (mismo JWT)');
-select roomly_test.expect_affected(
+-- Desde la 4.1 `deleted_at` no está en el GRANT de authenticated: el borrado
+-- lógico lo rechaza el GRANT (42501) a cualquier cliente, no solo a D.
+select roomly_test.expect_error(
   $$update public.rooms set deleted_at = now()
     where id = '15100000-0000-0000-0000-00000000000d'$$,
-  0, 'RD2: ni la retira con un borrado lógico');
+  '42501', 'RD2: ni la retira con un borrado lógico (desde la 4.1, fuera del GRANT)');
 select roomly_test.expect_affected(
   $$delete from public.rooms where id = '15100000-0000-0000-0000-00000000000d'$$,
   0, 'RD2: ni la borra');

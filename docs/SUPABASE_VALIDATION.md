@@ -37,6 +37,16 @@ verde en `roomly-validation-3`. Valida en real los servicios
 valida el runtime completo de Next.js**. Ver «Resultado: run 19, servicios
 del servidor (SVC/GC)».
 
+Estado (2026-10-16): **la Fase 4 no tiene validación real.** Las tres
+migraciones de la Fase 4 (4.0, 4.1 y la carga de barrios de R1) solo han
+corrido en local y en la CI. `roomly-validation-3` sigue con el esquema del
+run 16, y un run actual fallaría ya en P1 (ver «Aviso (Fase 4)»). Cómo
+validarlas en real lo decide el propietario (R8).
+
+Los resultados de los runs 13–19, más abajo, describen el esquema y las
+suites **de cada momento**. La configuración vigente está en «Cómo se
+ejecuta», «Preflight P0–P6» y «Matriz de pruebas».
+
 ## Resultado: run 19, servicios del servidor (SVC/GC) (2026-10-11)
 
 | Run | Id | Commit | Parámetros | Resultado |
@@ -520,20 +530,29 @@ Orden de jobs (cada uno solo corre si el anterior pasa):
    - URL y conexión de BD del mismo `PROJECT_REF`;
    - **marca de identidad leída del propio proyecto** (F1).
 2. **migrate** (solo si `apply_migrations`): `tests/supabase/apply-migrations.sh`.
-   - Aplica las 10 migraciones de `supabase/migrations/` en orden y después
-     `supabase/seed.sql`, todo en **una transacción**.
+   - Aplica las migraciones de `supabase/migrations/` en orden (13 desde la
+     Fase 4.1; 10 en el run 16) y después `supabase/seed.sql`, todo en **una
+     transacción**.
+   - Desde la Fase 4.1 (R1), la migración `20261016120000` crea Barcelona
+     (con los valores del seed) y sus barrios oficiales, y el seed ya no
+     falla al encontrarla (`on conflict (slug) do nothing`).
    - Se niega si `public.profiles` ya existe.
    - No usa `supabase db push`: el historial de migraciones de la CLI no se
      registra, algo aceptable en un proyecto desechable.
    - Cada migración nueva obliga a recrear un proyecto vacío (P1).
 3. **preflight**: `tests/supabase/preflight.sql` (P0–P6, solo lectura de
    catálogo, sin tablas temporales). **Si falla, no se ejecuta ninguna suite.**
-4. **sql-suite**: `tests/supabase/run-sql-suite.sh` ejecuta los 14 archivos
-   `tests/db/01`–`14` (305 aserciones) con los roles, dueños y `auth.uid()`
-   reales, sin shim. El aislamiento se explica abajo.
+4. **sql-suite**: `tests/supabase/run-sql-suite.sh` ejecuta los archivos de
+   `tests/db/` con los roles, dueños y `auth.uid()` reales, sin shim. Hoy son
+   18 (`01`–`18`, 651 aserciones); en los runs 16, 18 y 19 eran 14 (305). El
+   aislamiento se explica abajo.
 5. **api-suite**: `npm run test:supabase`
    (`tests/integration/supabase-validation.test.ts`).
-   - Prueba PR, CH, RO, RE y AU2 vía supabase-js/PostgREST con JWT reales.
+   - Prueba PR, CH, RO, RE, CRA, SVC, GC y AU2 vía supabase-js/PostgREST con
+     JWT reales.
+   - Desde la Fase 4.1, RO necesita los barrios oficiales de Barcelona (R1)
+     en el proyecto: sin ellos, falla al empezar con un mensaje que nombra la
+     migración `20261016120000`.
    - Lo primero que hace es ejecutar `tests/supabase/guard.sh`; sin la
      marca no crea ni borra nada.
 6. **auth-redirects**: build + `next start` con la clave pública, y
@@ -590,7 +609,8 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 - **Auto-test local:** `tests/supabase/sql-suite-selftest.sh` (78
   comprobaciones, en CI).
   - Ejecuta el `run-sql-suite.sh` real, con la guarda, contra un PostgreSQL
-    local con la marca, y obtiene las mismas aserciones que `run.sh` (265).
+    local con la marca, y obtiene las mismas aserciones que `run.sh` (651
+    desde la carga de barrios de R1; 265 cuando se escribió).
   - Comprueba el rollback de un bloque, la ausencia de fugas de rol o GUC
     entre archivos, 31 formas de control de transacción rechazadas, un
     WARNING, un fallo a mitad de test y las marcas anteriores
@@ -608,10 +628,10 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 | Check | Qué exige |
 |---|---|
 | P0 | Marca `roomly-validation-3` exacta |
-| P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y el seed (Barcelona activa) |
+| P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y Barcelona activa. Desde la Fase 4.1, además: las restricciones de `rooms` de `20261015120000`, validadas (`chk_rooms_features_catalog`, `chk_rooms_features_unique`, `chk_rooms_total_roommates`, `chk_rooms_total_rooms`, `chk_rooms_publishable` y `fk_rooms_neighborhood_city`); la FK compuesta comparada por columnas; el catálogo exacto de las 12 características (R6), y, con R1 (`20261016120000`), exactamente los 73 barrios oficiales de Barcelona, comprobados por número y por una huella md5 de «slug\|nombre» |
 | P2 | Mismo dueño para `is_conversation_participant` y `conversation_participants`, sin FORCE RLS, SECURITY DEFINER y `search_path` vacío |
 | P3 | RLS en las 18 tablas y **exactamente estas 44 políticas** (37 hasta la Fase 4.0), comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo). Desde la 4.0, además, cada política de escritura de `rooms`, `room_addresses` y `room_images` exige la cuenta activa (`deleted_at IS NULL`) |
-| P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE. Desde la Fase 3.1, en `compatibility_responses`: `anon` sin ningún privilegio de tabla ni de columna; `authenticated` solo con SELECT, sin INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES ni TRIGGER ni escritura de columna |
+| P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE. Desde la Fase 3.1, en `compatibility_responses`: `anon` sin ningún privilegio de tabla ni de columna; `authenticated` solo con SELECT, sin INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES ni TRIGGER ni escritura de columna. Desde la Fase 4.1, en `rooms`: `authenticated` sin INSERT ni UPDATE de tabla completa, con exactamente las columnas del GRANT (INSERT sin `status`, `deleted_at`, fechas ni `approx_*`; UPDATE además sin `id` ni `owner_id`), y con SELECT y DELETE; `anon` sin escrituras y con SELECT; `service_role`, tabla completa |
 | P5 | Equivalente SQL de los lints del Security Advisor |
 | P6 | **Exactamente 13 triggers activos** en `public` (12 hasta la Fase 3.1, que añade `trg_compatibility_responses_integrity`). **Exactamente 11 funciones propias** (10 hasta la Fase 3.1, que añade `enforce_compatibility_responses_integrity()`), con su SECURITY DEFINER y `search_path`. EXECUTE revocado donde las migraciones lo revocan |
 
@@ -655,26 +675,32 @@ Las 44 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
 Nadie actualizó el preflight entonces. Además solo contaba, y no
 comprobaba nada de la Fase 2.
 
-**Aviso (Fase 4.0):**
+**Aviso (Fase 4):**
 - Desde la Fase 4.0 (`20261013120000`), el esquema esperado tiene 44
   políticas, y P3 exige exactamente esas.
-- `roomly-validation-3` sigue con el esquema anterior (37 políticas): el
-  workflow no aplica migraciones a un esquema que ya existe.
-- Un run actual con `apply_migrations=false` fallaría en P3 y se omitirían
-  los jobs posteriores: `sql-suite`, que depende del preflight, y
-  `api-suite`, `auth-redirects` y `e2e-real`, que dependen de `sql-suite`.
-- El preflight es de solo lectura (solo consulta el catálogo): no modifica
-  el esquema ni los datos.
+- Desde la Fase 4.1, P1 exige además las restricciones de `rooms` de
+  `20261015120000` y los 73 barrios oficiales de `20261016120000`, y P4 el
+  GRANT por columnas de `rooms`.
+- `roomly-validation-3` sigue con el esquema del run 16 (37 políticas, sin
+  las migraciones de la Fase 4 ni barrios): el workflow no aplica
+  migraciones a un esquema que ya existe.
+- Un run actual con `apply_migrations=false` fallaría ya en P1 (P3 y P4
+  también fallarían) y se omitirían los jobs posteriores: `sql-suite`, que
+  depende del preflight, y `api-suite`, `auth-redirects` y `e2e-real`, que
+  dependen de `sql-suite`.
+- El preflight es de solo lectura (solo consulta el catálogo y los datos de
+  referencia): no modifica el esquema ni los datos.
 - Cómo validar en real las migraciones de la Fase 4 lo decide el
-  propietario (R8). No se ha lanzado ningún run.
+  propietario (R8). No se ha lanzado ningún run desde el 19.
 
 **Verificación sin red:**
 - `tests/unit/validation-infra.test.ts` deriva de las migraciones el
   conjunto final de políticas y triggers y lo compara con las listas del
   preflight.
-- `tests/supabase/preflight-selftest.sh` (50 comprobaciones, en CI; 44 hasta la Fase 4.0):
+- `tests/supabase/preflight-selftest.sh` (69 comprobaciones, en CI; 65 con
+  la 4.1 antes de R1, 50 con la 4.0, 44 antes):
   - con el esquema actual pasan P0–P6;
-  - cada una de 42 mutaciones falla en su check, y cada una se deshace
+  - cada una de 61 mutaciones falla en su check, y cada una se deshace
     (desde la Fase 3, también la marca `roomly-validation-2` en P0);
   - las mutaciones incluyen, entre otras, «misma cantidad, otra política
     (44 = 44)» y «vuelve `housing_preferences_own`»;
@@ -684,7 +710,14 @@ comprobaba nada de la Fase 2.
     a SECURITY DEFINER, y `authenticated` puede ejecutarla;
   - desde la Fase 4.0, otras 6 de habitaciones: vuelve `rooms_owner_write`,
     falta `room_addresses_select_own` y cuatro políticas de escritura sin la
-    comprobación de cuenta activa (o con ella solo en WITH CHECK).
+    comprobación de cuenta activa (o con ella solo en WITH CHECK);
+  - desde la Fase 4.1, otras 15: en P1, restricciones de `rooms` que faltan
+    o están sin validar, la FK sobre otras columnas y otro catálogo de
+    características; en P4, columnas de más o de menos en el GRANT de
+    `rooms`, el GRANT de tabla completa, `anon` con escrituras y
+    `service_role` sin la tabla completa;
+  - con R1, otras 4 en P1: falta un barrio oficial, uno renombrado, su slug
+    cambiado y un barrio de más en Barcelona.
 
 ## E2E: E1 local y E2 real, separados
 
@@ -802,10 +835,10 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P0–P6 | `tests/supabase/preflight.sql` | Ver la tabla de arriba |
-| SQL 01–14 | `tests/db/*` vía `run-sql-suite.sh` | Las 305 aserciones de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real en el run 16 (Fase 3): 305/305**. Desde la Fase 4.0 se añade `15` (habitaciones y cuentas desactivadas, 73 aserciones; 378 en total), **sin ejecutar en real** (R8) |
+| SQL 01–18 | `tests/db/*` vía `run-sql-suite.sh` | Las 651 aserciones actuales de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real hasta `14`: 305/305 en el run 16 (Fase 3), y en verde en los runs 18 y 19.** La Fase 4 añade `15` (habitaciones y cuentas desactivadas, 4.0, 75 aserciones), `16` (integridad y publicación, 4.1, 88), `17` (transiciones de `status`, R7, 160) y `18` (barrios oficiales, R1, 22), **sin ejecutar en real** (R8) |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
-| RO1–RO9 | api-suite | Propietario edita y pausa; no pone ni saca de `removed` (también vía upsert); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario |
+| RO1–RO9 | api-suite | Propietario crea un borrador, lo publica, lo edita y lo pausa; no pone ni saca de `removed` (desde la 4.1, el upsert de RO6 lo frena antes el GRANT); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario. Desde la 4.1, RO1 publica con un barrio oficial de Barcelona (R1) y la ocupación; **sin ejecutar en real con la 4.1** |
 | RE1–RE9 | api-suite | Reporte válido nace `pending`; ningún campo administrativo en el INSERT; no en nombre de otro; no autocierre; el denunciado no lo ve; el admin resuelve |
 | CRA1–CRA6 | api-suite (Fase 3.1) | `compatibility_responses` por PostgREST: B lee su fila y C no; ningún JWT escribe (INSERT, UPDATE de `completed_at` o de versión, DELETE → `42501`); `anon` no lee; service_role completa una vez y después no cambia la fecha (S4), no baja de versión (S3) y sube completando (S5); con la cuenta eliminada ni service_role escribe. **Ejecutada en Supabase real en el run 16 (Fase 3): 6/6** |
 | SVC1–SVC5 | api-suite (servicios del servidor) | `saveQuestionnaireAnswers` (`lib/services/compatibility.ts`) con el JWT real del usuario y service_role inyectado en `deps.adminClient`. SVC1: unas respuestas parciales de la v2 quedan como borrador de la versión 2, que se relee con la sesión del usuario. SVC2: con las 29 queda completado y se fija `completed_at`. SVC3: volver a guardarlo no cambia `completed_at`. SVC4: una fila v1 completada sube a la v2 en una sola escritura, con el UPDATE condicionado a la versión 1 (petición observada); se reutilizan las 21 respuestas comunes, desaparecen los ocho ids sustituidos y el trigger rechaza volver a la v1. SVC5: un id de la v1 o una respuesta fuera de escala → `validation`, sin pedir service_role ni escribir. **Ejecutada en Supabase real en el run 19: 6/6** (SVC1–SVC4 y los dos casos de SVC5) |
@@ -858,8 +891,9 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
 
 **Aserciones.**
 - **Éxito** es exactamente `error === null` (F4).
-- **Rechazos del trigger de moderación** (RO3, RO5, RO6): exigen SQLSTATE
-  `42501` **y** el mensaje propio del trigger, `room_moderation: …` (F5).
+- **Rechazos del trigger de moderación** (RO3 y RO5; también RO6 hasta la
+  Fase 4.1, que ahora espera el `42501` del GRANT): exigen SQLSTATE `42501`
+  **y** el mensaje propio del trigger, `room_moderation: …` (F5).
   PostgREST devuelve el mensaje de Postgres tal cual en `message`. Si en
   Supabase llegara distinto, el test falla de forma visible; nunca pasa en
   falso.
@@ -876,14 +910,22 @@ rooms y perfiles; solo al final `auth.admin.deleteUser`. Reglas:
   aislamiento: unos secrets coherentes de un proyecto con la marca
   `roomly-validation-2` no pasan la guarda, y migraciones, P0 y suite SQL
   abortan sin crear nada.
-- **`sql-suite-selftest.sh` (78) y `preflight-selftest.sh` (50 desde la Fase 4.0; antes 44):** ver
-  arriba. Desde la Fase 3.1, el primero cuenta los archivos de `tests/db` en
-  vez de fijar el número.
+- **`sql-suite-selftest.sh` (78) y `preflight-selftest.sh` (69 desde R1; 65
+  con la 4.1, 50 con la 4.0, antes 44):** ver arriba. Desde la Fase 3.1, el
+  primero cuenta los archivos de `tests/db` en vez de fijar el número.
 - **`migration-upgrade-selftest.sh` (Fase 3.1):** aplica las migraciones de
   la Fase 2, inserta datos (incluidas filas de `compatibility_responses` con
   los DEFAULT antiguos), aplica después las migraciones nuevas y comprueba
   que los datos se conservan y quedan sujetos al trigger. Es la actualización
-  incremental, solo en local.
+  incremental, solo en local. Desde la Fase 4, además:
+  - 4.0 y 4.1: las habitaciones anteriores se conservan, y la 4.1 se detiene
+    sin cambiar nada si alguna incumple sus reglas;
+  - R1: un barrio oficial que ya existía conserva su id; con barrios
+    incompatibles, la carga se detiene sin cambiar nada; aplicarla otra vez
+    no cambia nada;
+  - R1, instalación limpia: en otra base de datos, las migraciones solas
+    crean Barcelona y sus 73 barrios, el seed se aplica después sin duplicar
+    nada, y la carga repetida tampoco cambia nada.
 
 ## Pendiente de decisión o de ejecución (no lo hace Claude)
 
@@ -940,10 +982,27 @@ nuevo y vacío**:
      negaría.
    - Después de cada ventana del E2, el propietario cierra el registro a mano.
 
-Mientras tanto, en local: `test:db` (14 archivos), `test:infra` (incluida la
-actualización incremental), unitarios y E1.
+Mientras tanto, en local: `test:db` (14 archivos entonces; 18 desde la
+Fase 4.1), `test:infra` (incluida la actualización incremental), unitarios y
+E1.
 
 D6 = B: la app del workflow sigue sin service_role.
+
+### Fase 4: validación real pendiente (R8)
+
+Lo decide el propietario; no se ha lanzado ningún run. Lo que tendría que
+cubrir un run real de la Fase 4:
+- las tres migraciones de la Fase 4: `20261013120000` (4.0),
+  `20261015120000` (4.1) y `20261016120000` (R1, barrios oficiales);
+- el preflight vigente (P1 con las restricciones de `rooms` y los 73 barrios,
+  P3 con 44 políticas y P4 con el GRANT de `rooms`);
+- la suite SQL `01`–`18` y la api-suite RO con la 4.1.
+
+`roomly-validation-3` no tiene esas migraciones, y el workflow no las aplica
+sobre un esquema existente (`apply_migrations` se niega si `public.profiles`
+ya existe). En local, la actualización de un esquema existente la prueba
+`migration-upgrade-selftest.sh`, y la instalación limpia, `tests/db/run.sh`
+y ese mismo selftest.
 
 ---
 

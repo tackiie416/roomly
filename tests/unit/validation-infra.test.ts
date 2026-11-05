@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import {
+  ROOM_FEATURE_KEYS,
+  ROOM_PUBLICATION_REQUIRED_FIELDS,
+} from "@/lib/validation/rooms";
 
 // Fase 2.8 — coherencia de la infraestructura de validación, sin red:
 //   - identidad roomly-validation-3 en todos los puntos de entrada (Fase 3:
@@ -239,6 +244,212 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
     expect(sql).not.toMatch(
       /\b(create|alter|drop|insert|update|delete|grant|revoke)\s+(temporary|table|policy|function|trigger|into|on)\b/i
     );
+  });
+});
+
+describe("Fase 4.1: catálogo, GRANT y restricciones de rooms coherentes", () => {
+  const MIGRATION = "supabase/migrations/20261015120000_rooms_integrity_publication.sql";
+  const migration = read(MIGRATION).replace(/--.*$/gm, "");
+  const preflight = read("tests/supabase/preflight.sql");
+  const test16 = read("tests/db/16_rooms_publication.sql");
+  const keys = (text: string) =>
+    [...text.matchAll(/'([a-z_]+)'/g)].map(([, k]) => k).sort();
+  const catalog = [...ROOM_FEATURE_KEYS].sort();
+  const columnList = (text: string) =>
+    text
+      .split(",")
+      .map((column) => column.trim())
+      .sort();
+  const RESERVED_INSERT = [
+    "approx_lat",
+    "approx_lng",
+    "created_at",
+    "deleted_at",
+    "status",
+    "updated_at",
+  ];
+  const RESERVED_UPDATE = [
+    "approx_lat",
+    "approx_lng",
+    "created_at",
+    "deleted_at",
+    "id",
+    "owner_id",
+    "updated_at",
+  ];
+  const grantInsert = columnList(
+    migration.match(
+      /grant insert \(([\s\S]*?)\) on public\.rooms to authenticated/
+    )?.[1] ?? ""
+  );
+  const grantUpdate = columnList(
+    migration.match(
+      /grant update \(([\s\S]*?)\) on public\.rooms to authenticated/
+    )?.[1] ?? ""
+  );
+
+  it("el catálogo del código (ROOM_FEATURES) es el de la migración, P1 y tests/db/16", () => {
+    expect(catalog).toHaveLength(12);
+    const arrays = [...migration.matchAll(/array\[([\s\S]*?)\]::text\[\]/g)].map(
+      ([, a]) => a
+    );
+    expect(arrays).toHaveLength(2); // comprobación previa y chk_rooms_features_catalog
+    for (const array of arrays) expect(keys(array)).toEqual(catalog);
+    const unique = [
+      ...migration.matchAll(/array_positions\(features, '([a-z_]+)'\)/g),
+    ].map(([, k]) => k);
+    expect(unique.sort()).toEqual(catalog);
+    expect(
+      keys(preflight.match(/catalog is distinct from array\[([\s\S]*?)\]/)?.[1] ?? "")
+    ).toEqual(catalog);
+    const inTest = [...test16.matchAll(/unnest\(array\[([\s\S]*?)\]\) as k/g)].map(
+      ([, a]) => a
+    );
+    expect(inTest).toHaveLength(2);
+    for (const array of inTest) expect(keys(array)).toEqual(catalog);
+  });
+
+  it("toda columna de rooms está concedida o reservada al servidor, sin huecos", () => {
+    const table =
+      read("supabase/migrations/20260925120000_initial_schema.sql").match(
+        /create table rooms \(([\s\S]*?)\n\);/
+      )?.[1] ?? "";
+    const columns = [...table.matchAll(/^ {2}([a-z_]+) /gm)]
+      .map(([, c]) => c)
+      .filter((c) => c !== "constraint")
+      .sort();
+    expect(columns).toHaveLength(26);
+    expect([...grantInsert, ...RESERVED_INSERT].sort()).toEqual(columns);
+    expect([...grantUpdate, ...RESERVED_UPDATE].sort()).toEqual(columns);
+    expect(grantUpdate).toContain("status");
+    expect(grantInsert).not.toContain("status");
+  });
+
+  it("P4 y tests/db/16 esperan exactamente las columnas que concede la migración", () => {
+    const p4 =
+      preflight.match(/-- rooms \(20261015120000[\s\S]*?if array_length/)?.[0] ?? "";
+    expect(p4.match(/got_insert is distinct from '([^']+)'/)?.[1]).toBe(
+      grantInsert.join(",")
+    );
+    expect(p4.match(/got_update is distinct from '([^']+)'/)?.[1]).toBe(
+      grantUpdate.join(",")
+    );
+    const rs4 = [...test16.matchAll(/\n {4}= '([a-z_,]+)'/g)].map(([, list]) => list);
+    expect(rs4).toEqual([grantInsert.join(","), grantUpdate.join(",")]);
+  });
+
+  it("P1 exige exactamente las restricciones que añade la migración a rooms", () => {
+    const added = [
+      ...migration.matchAll(/alter table public\.rooms\s+add constraint ([a-z_]+)/g),
+    ]
+      .map(([, name]) => name)
+      .sort();
+    const p1 = preflight.match(/-- P1[\s\S]*?-- P2/)?.[0] ?? "";
+    const required = [
+      ...(p1.match(/from \(values ([\s\S]*?)\) as v\(conname\)/)?.[1] ?? "").matchAll(
+        /\('([a-z_]+)'\)/g
+      ),
+    ]
+      .map(([, name]) => name)
+      .sort();
+    expect(added).toHaveLength(6);
+    expect(required).toEqual(added);
+  });
+
+  it("los requisitos de publicación del código son los de chk_rooms_publishable", () => {
+    const check =
+      migration.match(
+        /add constraint chk_rooms_publishable\s+check \(([\s\S]*?)\n {2}\);/
+      )?.[1] ?? "";
+    expect(check).toMatch(/status <> 'active'/);
+    const required = [...check.matchAll(/([a-z_]+) is not null/g)].map(([, c]) => c);
+    expect(required).toEqual([...ROOM_PUBLICATION_REQUIRED_FIELDS]);
+  });
+});
+
+describe("Fase 4.1, R1: barrios oficiales de Barcelona coherentes", () => {
+  const MIGRATION = "supabase/migrations/20261016120000_barcelona_neighborhoods.sql";
+  const migration = read(MIGRATION);
+  const seed = read("supabase/seed.sql");
+  type Row = { code: string; slug: string; name: string };
+  const rows = (text: string, open: string, close: string): Row[] =>
+    [
+      ...text.matchAll(
+        new RegExp(`\\${open}'(\\d{2})', '([a-z0-9-]+)', '((?:[^']|'')*)'\\${close}`, "g")
+      ),
+    ].map(([, code, slug, name]) => ({ code, slug, name: name.replace(/''/g, "'") }));
+  const official = rows(migration, "[", "]");
+  /** La regla de la migración: minúsculas, sin acentos y «-» entre tramos. */
+  const slugify = (name: string) =>
+    name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  const fingerprint = createHash("md5")
+    .update(
+      [...official]
+        .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
+        .map((r) => `${r.slug}|${r.name}`)
+        .join("\n"),
+      "utf8"
+    )
+    .digest("hex");
+
+  it("la migración trae 73 barrios, códigos 01–73 y slugs derivados del nombre", () => {
+    expect(official).toHaveLength(73);
+    expect(official.map((r) => r.code)).toEqual(
+      Array.from({ length: 73 }, (_, i) => String(i + 1).padStart(2, "0"))
+    );
+    expect(new Set(official.map((r) => r.slug)).size).toBe(73);
+    expect(new Set(official.map((r) => r.name)).size).toBe(73);
+    for (const r of official) {
+      expect(r.slug).toBe(slugify(r.name));
+      expect(r.slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+    }
+  });
+
+  it("crea Barcelona con los mismos valores que el seed, y el seed no la duplica", () => {
+    const columns = "(name, slug, is_active, center_lat, center_lng)";
+    const barcelona = (text: string) =>
+      text.match(/\(\s*'Barcelona',\s*'barcelona',[^)]*\)/)?.[0].replace(/\s+/g, " ");
+    expect(migration).toContain(`insert into public.cities ${columns}`);
+    expect(seed).toContain(`insert into cities ${columns} values`);
+    expect(barcelona(migration)).toBeDefined();
+    expect(barcelona(migration)).toBe(barcelona(seed));
+    expect(seed).toMatch(
+      /\('Zaragoza', 'zaragoza', [^)]*\)\s*on conflict \(slug\) do nothing;/
+    );
+    expect(seed).not.toMatch(/insert into (public\.)?neighborhoods/);
+  });
+
+  it("es idempotente y no borra ni transforma barrios existentes", () => {
+    const sql = migration.replace(/--.*$/gm, "");
+    expect(sql).toMatch(/on conflict \(city_id, slug\) do nothing;/);
+    expect(sql).not.toMatch(/\b(delete|truncate|update)\b/i);
+    expect(sql).not.toMatch(/\b(create|alter|drop|grant|revoke)\b/i);
+    expect(sql).toMatch(
+      /errcode = '23514',\s+message = format\('neighborhoods_r1_precheck:/
+    );
+  });
+
+  it("tests/db/18 trae la misma lista que la migración", () => {
+    expect(rows(read("tests/db/18_neighborhoods_catalog.sql"), "(", ")")).toEqual(
+      official
+    );
+  });
+
+  it("P1 del preflight, tests/db/18 y el selftest de actualización exigen la huella de la migración", () => {
+    const preflight = read("tests/supabase/preflight.sql");
+    for (const file of [
+      "tests/supabase/preflight.sql",
+      "tests/db/18_neighborhoods_catalog.sql",
+      "tests/supabase/migration-upgrade-selftest.sh",
+    ]) {
+      expect(read(file)).toContain(`'${fingerprint}'`);
+    }
+    expect(preflight).toMatch(new RegExp(`n_barcelona <> ${official.length} or`));
   });
 });
 
