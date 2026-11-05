@@ -73,6 +73,7 @@ describe("identidad del proyecto P1: roomly-validation-3, comparación exacta", 
     // Solo los auto-tests la usan, como caso negativo que debe abortar.
     const negativeCases = new Set([
       "guard-selftest.sh",
+      "phase4-upgrade-selftest.sh",
       "preflight-selftest.sh",
       "sql-suite-selftest.sh",
     ]);
@@ -126,6 +127,7 @@ describe("identidad del proyecto P1: roomly-validation-3, comparación exacta", 
     expect(jobs.map((job) => job.trim().split(":")[0])).toEqual([
       "guard",
       "migrate",
+      "phase4-upgrade",
       "preflight",
       "sql-suite",
       "api-suite",
@@ -453,6 +455,476 @@ describe("Fase 4.1, R1: barrios oficiales de Barcelona coherentes", () => {
   });
 });
 
+// Ajuste aprobado por el propietario (integración del hotfix con la cadena de
+// la Fase 4): 20261014120000_public_profile_previews_write_lockdown.sql es un
+// hotfix de seguridad anterior a la cadena, no una de las tres migraciones
+// funcionales que fija R8. R8 no lo aplica (se aplica aparte, según
+// docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md). Se excluye SOLO por su nombre
+// exacto: cualquier otra migración, o el hotfix con otro nombre, vuelve a
+// contar y hace fallar la comprobación. Los pins y huellas de R8 no cambian.
+const R8_PHASE3_LAST = "20261007120000_compatibility_responses_hardening.sql";
+const R8_EXCLUDED_HOTFIX = "20261014120000_public_profile_previews_write_lockdown.sql";
+const R8_EXCLUDED_HOTFIX_SHA256 =
+  "eb53f35011ad63603129cf191536683a6015b40da79037545f47e8c224efdbb8";
+const R8_FUNCTIONAL = [
+  "20261013120000_rooms_deleted_account_writes.sql",
+  "20261015120000_rooms_integrity_publication.sql",
+  "20261016120000_barcelona_neighborhoods.sql",
+];
+
+/** Las 3 primeras migraciones posteriores a la Fase 3, sin el hotfix (solo por su nombre exacto). */
+function r8FunctionalAfterPhase3(migrations: string[]): string[] {
+  return migrations
+    .filter((f) => f > R8_PHASE3_LAST)
+    .filter((f) => f !== R8_EXCLUDED_HOTFIX)
+    .sort()
+    .slice(0, 3);
+}
+
+/** Problemas de orden, presencia o huella de las migraciones de R8 (vacío si todo cuadra). */
+function r8OrderProblems(
+  migrations: string[],
+  pinned: Array<{ file: string; hash: string }>,
+  hashOf: (file: string) => string
+): string[] {
+  const problems: string[] = [];
+  const after = migrations.filter((f) => f > R8_PHASE3_LAST).sort();
+  const functional = r8FunctionalAfterPhase3(migrations);
+  const pinnedFiles = pinned.map((p) => p.file);
+  if (JSON.stringify(pinnedFiles) !== JSON.stringify(functional)) {
+    problems.push(
+      `las 3 primeras migraciones funcionales posteriores a la Fase 3 son ${functional.join(", ")}; R8 fija ${pinnedFiles.join(", ")}`
+    );
+  }
+  if (JSON.stringify(pinnedFiles) !== JSON.stringify(R8_FUNCTIONAL)) {
+    problems.push(`R8 debe fijar exactamente ${R8_FUNCTIONAL.join(", ")}`);
+  }
+  const at = after.indexOf(R8_EXCLUDED_HOTFIX);
+  if (at === -1) {
+    problems.push(`falta el hotfix ${R8_EXCLUDED_HOTFIX}`);
+  } else if (after[at - 1] !== R8_FUNCTIONAL[0] || after[at + 1] !== R8_FUNCTIONAL[1]) {
+    problems.push("el hotfix no está justo entre 20261013120000 y 20261015120000");
+  }
+  for (const { file, hash } of pinned) {
+    if (!migrations.includes(file) || hashOf(file) !== hash)
+      problems.push(`huella distinta: ${file}`);
+  }
+  return problems;
+}
+
+describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", () => {
+  const SCRIPT = "tests/supabase/phase4-upgrade.sh";
+  const script = read(SCRIPT);
+  const workflow = read(".github/workflows/supabase-validation.yml");
+  const sha256 = (file: string) =>
+    createHash("sha256").update(readFileSync(file)).digest("hex");
+  /** Id de blob de git (sha1 de «blob <tamaño>\0<contenido>»), sin depender del historial. */
+  const gitBlob = (file: string) => {
+    const content = readFileSync(file);
+    return createHash("sha1")
+      .update(Buffer.concat([Buffer.from(`blob ${content.length}\0`), content]))
+      .digest("hex");
+  };
+  const pinned = [
+    ...script.matchAll(/^ {2}"([0-9]{14}_[a-z0-9_]+\.sql) ([0-9a-f]{64})"$/gm),
+  ].map(([, file, hash]) => ({ file, hash }));
+  const pinnedFile = (name: string) =>
+    script.match(
+      new RegExp(`^[A-Z0-9_]+="(tests/supabase/${name}) ([0-9a-f]{64})"$`, "m")
+    );
+  /** Cuerpo de una función de bash del script, hasta su `}` de cierre. */
+  const fn = (name: string) => {
+    const start = script.indexOf(`\n${name}() {\n`);
+    expect(start, name).toBeGreaterThan(-1);
+    return script.slice(start, script.indexOf("\n}\n", start));
+  };
+  const job = (name: string) => {
+    const start = workflow.indexOf(`\n  ${name}:\n`);
+    const next = workflow.slice(start + 1).search(/\n {2}[a-z0-9-]+:\n/);
+    return workflow.slice(start, next === -1 ? undefined : start + 1 + next);
+  };
+
+  it("fija exactamente las 3 primeras migraciones funcionales posteriores a la Fase 3, con su SHA-256 real", () => {
+    const migrations = readdirSync("supabase/migrations");
+    expect(
+      r8OrderProblems(migrations, pinned, (file) => sha256(`supabase/migrations/${file}`))
+    ).toEqual([]);
+    expect(pinned.map((p) => p.file)).toEqual(R8_FUNCTIONAL);
+    for (const { file, hash } of pinned) {
+      expect(sha256(`supabase/migrations/${file}`), file).toBe(hash);
+    }
+  });
+
+  it("el hotfix 20261014120000 sigue en la instalación, intacto, y R8 no lo aplica ni lo fija", () => {
+    expect(readdirSync("supabase/migrations")).toContain(R8_EXCLUDED_HOTFIX);
+    expect(sha256(`supabase/migrations/${R8_EXCLUDED_HOTFIX}`)).toBe(
+      R8_EXCLUDED_HOTFIX_SHA256
+    );
+    expect(script).not.toContain("20261014120000");
+    expect(pinned.map((p) => p.file)).not.toContain(R8_EXCLUDED_HOTFIX);
+  });
+
+  describe("comprobación de orden de R8 con el hotfix excluido por su nombre exacto", () => {
+    const real = readdirSync("supabase/migrations");
+    const hashOf = (file: string) => sha256(`supabase/migrations/${file}`);
+    const without = (name: string) => real.filter((f) => f !== name);
+
+    it("1. el hotfix no cuenta entre las tres migraciones funcionales", () => {
+      const after = real.filter((f) => f > R8_PHASE3_LAST).sort();
+      expect(after.slice(0, 3)).toContain(R8_EXCLUDED_HOTFIX);
+      expect(r8FunctionalAfterPhase3(real)).toEqual(R8_FUNCTIONAL);
+    });
+
+    it("2. las tres migraciones originales se reconocen exactamente, en su orden", () => {
+      expect(r8OrderProblems(real, pinned, hashOf)).toEqual([]);
+      expect(r8FunctionalAfterPhase3(real)).toEqual([
+        "20261013120000_rooms_deleted_account_writes.sql",
+        "20261015120000_rooms_integrity_publication.sql",
+        "20261016120000_barcelona_neighborhoods.sql",
+      ]);
+    });
+
+    it("3. si el hotfix cambia de nombre, la comprobación falla", () => {
+      for (const renamed of [
+        "20261014120000_public_profile_previews_write_lockdown_v2.sql",
+        "20261014120001_public_profile_previews_write_lockdown.sql",
+        "20261014120000_public_profile_previews.sql",
+      ]) {
+        const problems = r8OrderProblems(
+          [...without(R8_EXCLUDED_HOTFIX), renamed],
+          pinned,
+          hashOf
+        );
+        expect(problems, renamed).toContain(`falta el hotfix ${R8_EXCLUDED_HOTFIX}`);
+        expect(
+          problems.some((p) => p.startsWith("las 3 primeras")),
+          renamed
+        ).toBe(true);
+      }
+      expect(r8OrderProblems(without(R8_EXCLUDED_HOTFIX), pinned, hashOf)).toContain(
+        `falta el hotfix ${R8_EXCLUDED_HOTFIX}`
+      );
+    });
+
+    it("4. una segunda migración inesperada entre las de R8 hace fallar la comprobación", () => {
+      for (const extra of [
+        "20261013130000_otra.sql",
+        "20261014120001_public_profile_previews_write_lockdown.sql",
+        "20261015130000_otra.sql",
+      ]) {
+        expect(
+          r8OrderProblems([...real, extra], pinned, hashOf).some((p) =>
+            p.startsWith("las 3 primeras")
+          ),
+          extra
+        ).toBe(true);
+      }
+    });
+
+    it("5. alterar cualquiera de los tres pins (nombre o huella) sigue fallando", () => {
+      pinned.forEach((pin, i) => {
+        const otherHash = pinned.map((p, j) =>
+          j === i ? { ...p, hash: "0".repeat(64) } : p
+        );
+        expect(r8OrderProblems(real, otherHash, hashOf), pin.file).toContain(
+          `huella distinta: ${pin.file}`
+        );
+        const otherFile = pinned.map((p, j) =>
+          j === i ? { ...p, file: R8_EXCLUDED_HOTFIX } : p
+        );
+        expect(r8OrderProblems(real, otherFile, hashOf).length, pin.file).toBeGreaterThan(
+          0
+        );
+      });
+      expect(r8OrderProblems(real, pinned.slice(0, 2), hashOf).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("el preflight congelado es el del run 19 (blob 7155e796…) y los dos archivos de estado de partida llevan su SHA-256 real", () => {
+    const frozen = "tests/supabase/phase3-baseline-preflight.sql";
+    expect(gitBlob(frozen)).toBe("7155e79601220f896530d8f35fe314ee91ff203d");
+    for (const name of ["phase3-baseline-preflight.sql", "phase4-upgrade-baseline.sql"]) {
+      const [, file, hash] = pinnedFile(name) ?? [];
+      expect(file, name).toBe(`tests/supabase/${name}`);
+      expect(sha256(file), name).toBe(hash);
+    }
+  });
+
+  it("el preflight vigente está fijado con su SHA-256 real, aparte del congelado, y se comprueba antes de conectar", () => {
+    const [, file, hash] = pinnedFile("preflight.sql") ?? [];
+    expect(file).toBe("tests/supabase/preflight.sql");
+    expect(sha256(file)).toBe(hash);
+    expect(script).toMatch(
+      /^PHASE4_FINAL_PREFLIGHT="tests\/supabase\/preflight\.sql [0-9a-f]{64}"$/m
+    );
+    const [, , frozenHash] = pinnedFile("phase3-baseline-preflight.sql") ?? [];
+    expect(frozenHash).not.toBe(hash);
+    expect(script).toContain(
+      'pinned=("$PHASE3_BASELINE" "$PHASE4_BASELINE_CHECKS" "$PHASE4_FINAL_PREFLIGHT")'
+    );
+    expect(script.indexOf('check_pinned "${pinned[@]}"')).toBeLessThan(
+      script.indexOf('source "$ROOT/tests/supabase/guard.sh"')
+    );
+    // El flujo lee la copia verificada del archivo fijado, nunca el
+    // repositorio directamente ni una ruta aparte.
+    expect(script).toContain('body_parts+=("$(src_of "$PHASE4_FINAL_PREFLIGHT")")');
+    expect(script).not.toMatch(/cat "\$ROOT\//);
+    expect(script).not.toContain('cat "$ROOT/tests/supabase/preflight.sql"');
+  });
+
+  it("WARNING: client_min_messages = notice dentro de la transacción, R8-MSG al empezar y al final, y avisos de éxito obligatorios", () => {
+    const begin = script.indexOf('echo "begin;"');
+    const cmm = script.indexOf('echo "set local client_min_messages = notice;"');
+    expect(begin).toBeGreaterThan(-1);
+    expect(cmm).toBeGreaterThan(begin);
+    expect(cmm).toBeLessThan(script.indexOf('msg_check "al empezar"'));
+    // Cabecera (con R8-MSG al empezar), cuerpo común y final, en ese orden.
+    expect(fn("pass_head").indexOf('echo "begin;"')).toBeLessThan(
+      fn("pass_head").indexOf('msg_check "al empezar"')
+    );
+    expect(fn("build_pass")).toContain('concat_verified "$pass" "$head" "$BODY" "$foot"');
+    // En el cuerpo, el preflight congelado va primero y el vigente, el último.
+    const bodyOrder = [
+      'body_parts+=("$(src_of "$PHASE3_BASELINE")")',
+      'body_parts+=("$(src_of "$PHASE4_BASELINE_CHECKS")")',
+      'body_parts+=("$SRC/${entry% *}")',
+      'body_parts+=("$(src_of "$PHASE4_FINAL_PREFLIGHT")")',
+      'concat_verified "$BODY" "${body_parts[@]}"',
+    ].map((s) => script.indexOf(s));
+    expect(bodyOrder[0]).toBeGreaterThan(-1);
+    expect(bodyOrder).toEqual([...bodyOrder].sort((a, b) => a - b));
+    expect(fn("pass_foot").indexOf('msg_check "antes de ${ending}"')).toBeLessThan(
+      fn("pass_foot").indexOf('echo "${ending};"')
+    );
+    expect(script.indexOf('msg_check "antes de ${ending}"')).toBeLessThan(
+      script.indexOf('echo "${ending};"')
+    );
+    expect(script).toContain(
+      'EXPECTED_NOTICES=("ok - R8-MSG:" "ok - P6:" "ok - R8-BASE:" "ok - P6:" "ok - R8-MSG:")'
+    );
+    // Ningún archivo del flujo cambia client_min_messages: ocultaría WARNING.
+    const streamFiles = [
+      "tests/supabase/phase3-baseline-preflight.sql",
+      "tests/supabase/phase4-upgrade-baseline.sql",
+      "tests/supabase/preflight.sql",
+      ...pinned.map((p) => `supabase/migrations/${p.file}`),
+    ];
+    for (const file of streamFiles) {
+      expect(read(file), file).not.toMatch(/client_min_messages/i);
+    }
+  });
+
+  it("un fallo en la pasada con COMMIT no afirma que no se aplicó nada: pide el preflight antes de repetir", () => {
+    const afterCommit = script.slice(script.indexOf("run_pass commit"));
+    expect(afterCommit).toContain("apply NO CONFIRMADO");
+    expect(afterCommit).toContain("incierto");
+    expect(afterCommit).toContain("tests/supabase/run-preflight.sh");
+    expect(afterCommit).not.toMatch(/nada aplicado|se ha revertido/);
+    const runPass = script.slice(
+      script.indexOf("run_pass() {"),
+      script.indexOf("\n}\n", script.indexOf("run_pass() {"))
+    );
+    expect(runPass).not.toMatch(/nada aplicado|se ha revertido|no se ha aplicado/);
+  });
+
+  it("B1: el flujo se construye entero antes de conectar, desde copias verificadas, y psql lo lee de un archivo", () => {
+    const guardAt = script.indexOf('source "$ROOT/tests/supabase/guard.sh"');
+    for (const step of [
+      'source "$ROOT/tests/supabase/sql-suite-lib.sh"',
+      'stage_pinned "$entry"',
+      'concat_verified "$BODY" "${body_parts[@]}"',
+      "build_pass rollback",
+      "build_pass commit",
+    ]) {
+      expect(script.indexOf(step), step).toBeGreaterThan(-1);
+      expect(script.indexOf(step), step).toBeLessThan(guardAt);
+    }
+    const stage = fn("stage_pinned");
+    expect(stage).toContain('cp "$ROOT/$path" "$copy"');
+    expect(stage).toContain('[ "$(sha256sum "$copy" | cut -c1-64)" = "$expected" ]');
+    expect(stage).toContain('roomly_sql_transform "$copy"');
+    expect(stage).toContain('grep -q "roomly_file"');
+    const concat = fn("concat_verified");
+    expect(concat).toContain(
+      'cmp -s <(tail -c "+$((offset + 1))" "$out" | head -c "$size") "$part"'
+    );
+    expect(concat).toContain('[ "$(stat -c %s "$out")" -eq "$offset" ]');
+    // Un solo ROLLBACK o COMMIT por pasada, el penúltimo, y después su línea.
+    expect(fn("build_pass")).toContain("(commit|rollback)[[:space:]]*;");
+    expect(fn("pass_foot")).toContain('section "${ending} hecho"');
+    // psql lee el archivo de la pasada; nada se canaliza hacia psql.
+    expect(fn("run_pass")).toContain('<"$WORK/pass-${ending}.sql"');
+    expect(script).not.toMatch(/\|\s*psql\b/);
+  });
+
+  it("B2: el COMMIT solo cuenta si psql llega a la última línea del flujo; NO VÁLIDO exige esa línea", () => {
+    const runPass = fn("run_pass");
+    const marker = runPass.indexOf('grep -qxF "== R8 · ${ending} hecho" "$out"');
+    expect(marker).toBeGreaterThan(runPass.indexOf('if [ "$status" -ne 0 ]; then'));
+    expect(marker).toBeLessThan(runPass.indexOf('if [ "$warn" -ne 0 ]; then'));
+    expect(marker).toBeLessThan(runPass.indexOf('if [ "$seen" != "$expected" ]; then'));
+    const afterCommit = script.slice(script.indexOf("run_pass commit || status=$?"));
+    expect(afterCommit).toMatch(
+      /"\$status" -eq 1 \]; then\n {2}echo "RESULTADO: apply NO CONFIRMADO/
+    );
+    expect(afterCommit).toMatch(
+      /"\$status" -eq 2 \]; then\n {2}echo "RESULTADO: apply NO VÁLIDO: el COMMIT se ejecutó/
+    );
+  });
+
+  it("L1: una línea ERROR del servidor con psql terminado en 0 da resultado incierto (1), no válido ni NO VÁLIDO", () => {
+    const runPass = fn("run_pass");
+    const errorCheck = runPass.indexOf(
+      "if grep -qE '^(psql:<stdin>:[0-9]+: )?ERROR:  ' \"$out\"; then"
+    );
+    expect(errorCheck).toBeGreaterThan(runPass.indexOf('if [ "$status" -ne 0 ]; then'));
+    expect(errorCheck).toBeLessThan(runPass.indexOf('if [ "$warn" -ne 0 ]; then'));
+    expect(errorCheck).toBeLessThan(
+      runPass.indexOf('if [ "$seen" != "$expected" ]; then')
+    );
+    // Su rama devuelve 1 (incierto con COMMIT), nunca 2 (NO VÁLIDO: COMMIT ejecutado).
+    const branch = runPass.slice(errorCheck, runPass.indexOf("\n  fi\n", errorCheck));
+    expect(branch).toMatch(/\n {4}return 1$/);
+  });
+
+  it("B3: una señal durante la pasada con COMMIT da un resultado incierto; antes, nada confirmado", () => {
+    const guardAt = script.indexOf('source "$ROOT/tests/supabase/guard.sh"');
+    for (const [sig, num] of [
+      ["HUP", 1],
+      ["INT", 2],
+      ["TERM", 15],
+    ]) {
+      const trap = `trap 'on_signal ${sig} ${num}' ${sig}`;
+      expect(script).toContain(trap);
+      expect(script.indexOf(trap)).toBeLessThan(guardAt);
+    }
+    const [commitBranch, otherBranch] = fn("on_signal").split("\n  else\n");
+    expect(commitBranch).toContain('if [ "$STAGE" = "la pasada con COMMIT" ]; then');
+    expect(commitBranch).toContain("incierto");
+    expect(commitBranch).not.toMatch(/nada confirmado|nada aplicado/);
+    expect(otherBranch).toContain("nada confirmado");
+    // La etapa pasa a «con COMMIT» entre las dos pasadas, y ya no cambia.
+    const stageCommit = script.indexOf('STAGE="la pasada con COMMIT"');
+    expect(stageCommit).toBeGreaterThan(script.indexOf("run_pass rollback || status=$?"));
+    expect(stageCommit).toBeLessThan(script.indexOf("run_pass commit || status=$?"));
+    expect(script.slice(stageCommit + 1)).not.toContain('STAGE="');
+  });
+
+  it("B4–B5: las secciones de docs/SUPABASE_VALIDATION.md que cita el script existen y separan los procedimientos", () => {
+    const doc = read("docs/SUPABASE_VALIDATION.md");
+    const cited = new Set(
+      [
+        ...script.matchAll(
+          /«([^»]+)» en docs\/SUPABASE_VALIDATION\.md|docs\/SUPABASE_VALIDATION\.md, «([^»]+)»/g
+        ),
+      ].map((m) => m[1] ?? m[2])
+    );
+    expect([...cited].sort()).toEqual([
+      "Cambiar el SHA-256 del preflight vigente",
+      "Recuperación",
+    ]);
+    for (const name of cited) {
+      expect(doc, name).toMatch(new RegExp(`^#{3,4} ${name}$`, "m"));
+    }
+    const section = (name: string) => {
+      const start = doc.indexOf(`#### ${name}\n`);
+      const next = doc.slice(start + 1).search(/\n#{2,4} /);
+      return doc.slice(start, next === -1 ? undefined : start + 1 + next);
+    };
+    const recovery = section("Recuperación");
+    expect(recovery).toContain("phase4_upgrade=none");
+    expect(recovery).toContain(
+      "**Si el preflight pasa, siguen la suite SQL, la api-suite y AU3/AU5**"
+    );
+    expect(recovery).toContain("Que falte esa línea no demuestra que la transacción se");
+    expect(recovery).toContain("**no se repite `apply`**");
+    const pin = section("Cambiar el SHA-256 del preflight vigente");
+    for (const step of [
+      "roomly_sql_transform",
+      "PHASE3_BASELINE",
+      "phase4-upgrade-selftest.sh",
+      "una sola",
+    ]) {
+      expect(pin, step).toContain(step);
+    }
+  });
+
+  it("dry_run termina siempre en ROLLBACK; apply ensaya antes y exige la confirmación exacta", () => {
+    expect(script).toMatch(/^run_pass rollback \|\| status=\$\?$/m);
+    expect(script.indexOf("run_pass rollback")).toBeLessThan(
+      script.indexOf("run_pass commit")
+    );
+    const phrase = script.match(/^PHASE4_APPLY_PHRASE="([a-z0-9-]+)"$/m)?.[1];
+    expect(phrase).toBe("aplicar-fase4-en-roomly-validation-3");
+    expect(workflow).toContain(`escribe ${phrase}`);
+  });
+
+  it("no usa la CLI de Supabase, ni Netlify o Vercel, ni variables públicas", () => {
+    const code = script.replace(/^\s*#.*$/gm, "");
+    expect(code).not.toMatch(/supabase (db|link)|netlify|vercel|NEXT_PUBLIC_/i);
+  });
+
+  it("workflow: entrada phase4_upgrade (none, dry_run, apply; por defecto none) y confirmación aparte", () => {
+    const inputs = workflow.slice(
+      workflow.indexOf("    inputs:"),
+      workflow.indexOf("\npermissions:")
+    );
+    expect(inputs).toMatch(
+      /phase4_upgrade:\n[\s\S]*?type: choice\n {8}options:\n {10}- none\n {10}- dry_run\n {10}- apply\n {8}default: none\n/
+    );
+    expect(inputs).toMatch(
+      /confirm_phase4_upgrade:\n[\s\S]*?required: false\n {8}type: string\n {8}default: ""\n/
+    );
+  });
+
+  it("workflow: la guarda valida las entradas antes de leer secrets, y el job solo recibe la conexión de BD", () => {
+    const guard = job("guard");
+    expect(guard.indexOf("phase4-upgrade.sh --check-inputs")).toBeGreaterThan(-1);
+    expect(guard.indexOf("phase4-upgrade.sh --check-inputs")).toBeLessThan(
+      guard.indexOf("secrets.")
+    );
+    const upgrade = job("phase4-upgrade");
+    expect(upgrade).toContain("needs: guard");
+    expect(upgrade).toContain(`environment: ${MARKER}`);
+    expect([...upgrade.matchAll(/secrets\.([A-Z_]+)/g)].map((m) => m[1]).sort()).toEqual([
+      "SUPABASE_VALIDATION_DB_URL",
+      "SUPABASE_VALIDATION_PROJECT_REF",
+    ]);
+    expect(upgrade).toContain(
+      'run: bash tests/supabase/phase4-upgrade.sh "$PHASE4_UPGRADE"'
+    );
+  });
+
+  it("workflow: el job phase4-upgrade tiene timeout-minutes: 20 a nivel de job", () => {
+    const upgrade = job("phase4-upgrade");
+    expect(upgrade).toMatch(/\n {4}timeout-minutes: 20\n/);
+    expect([...upgrade.matchAll(/timeout-minutes:/g)]).toHaveLength(1);
+    expect(upgrade.indexOf("timeout-minutes: 20")).toBeLessThan(
+      upgrade.indexOf("    steps:")
+    );
+  });
+
+  it("workflow: dry_run no ejecuta suites, y ni migrate ni el E2 se combinan con la actualización", () => {
+    expect(job("preflight")).toContain("inputs.phase4_upgrade != 'dry_run'");
+    expect(job("preflight")).toContain(
+      "needs.phase4-upgrade.result == 'success' || needs.phase4-upgrade.result == 'skipped'"
+    );
+    for (const name of ["migrate", "e2e-real"]) {
+      expect(job(name), name).toContain(
+        "inputs.phase4_upgrade != 'dry_run' && inputs.phase4_upgrade != 'apply'"
+      );
+    }
+  });
+
+  it("su selftest corre en test:infra y en la CI", () => {
+    const infra = JSON.parse(read("package.json")).scripts["test:infra"] as string;
+    expect(infra).toContain("bash tests/supabase/phase4-upgrade-selftest.sh");
+    expect(read(".github/workflows/ci.yml")).toContain(
+      "- run: bash tests/supabase/phase4-upgrade-selftest.sh"
+    );
+  });
+});
+
 describe("E1 (local, simulado) y E2 (real, manual) separados", () => {
   const e1 = read("playwright.config.ts");
   const e2 = code("playwright.real.config.ts");
@@ -640,7 +1112,9 @@ describe("workflow manual: secrets por paso", () => {
     expect(e2eJob).toContain("needs: sql-suite");
     expect(e2eJob).toContain("inputs.run_e2e_real");
     expect(workflow).toMatch(/sql-suite:[\s\S]*?needs: preflight/);
-    expect(workflow).toMatch(/preflight:[\s\S]*?needs: \[guard, migrate\]/);
+    expect(workflow).toMatch(
+      /preflight:[\s\S]*?needs: \[guard, migrate, phase4-upgrade\]/
+    );
   });
 
   it("ninguna variable NEXT_PUBLIC_* lleva un secret privilegiado", () => {

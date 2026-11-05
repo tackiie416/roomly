@@ -15,6 +15,10 @@
 #   D2. Identificadores "..." y cadenas E'...' no desincronizan el análisis
 #      (regresión de la auditoría final de 2.8: `select 1 as "it's";` ocultaba
 #      un COMMIT posterior); los identificadores legítimos se aceptan.
+#   D3. Meta-comandos de psql a mitad de línea (\connect, \set, \!, \gset…),
+#      \' dentro de una cadena y $$ pegado a un nombre se rechazan antes de
+#      conectar; las barras invertidas de comentarios, cadenas, identificadores
+#      y cuerpos $$ se aceptan y no se ejecutan como meta-comandos.
 #   E. WARNING → la suite falla.
 #   F. Un test que falla a mitad no deja nada.
 #   G. Mutación: el test 11 sin la reescritura a SAVEPOINT rompe la suite.
@@ -263,6 +267,56 @@ select 'e' as e, 'type' as tipo, 'E' as "E";
 select roomly_test.ok(true, 'D2-ok: identificadores con comillas, guiones y $$ aceptados');
 SQL
 if suite "$WORK/d2-ok.sql"; then ok "D2-ok: identificadores legítimos aceptados y ejecutados"; else ko "D2-ok: falso positivo"; cat "$WORK/last.log"; fi
+
+echo "== D3. meta-comandos de psql en cualquier posición, y contextos ambiguos"
+# psql reconoce un meta-comando en cualquier punto de la línea fuera de
+# cadenas, identificadores, comentarios -- y cuerpos $$. Todos estos se
+# rechazan antes de conectar.
+while IFS='|' read -r label body; do
+  [ -z "$label" ] && continue
+  label="$(printf '%b' "$label")"
+  printf '%b\n' "$body" >"$WORK/d3.sql"
+  if roomly_sql_run_suite "$UNREACHABLE" "$WORK/d3.sql" >"$WORK/d.log" 2>&1; then
+    ko "D3: aceptado: $label"
+  elif grep -q "no supera la validación" "$WORK/d.log"; then
+    ok "D3: rechazado antes de conectar: $label"
+  else
+    ko "D3: $label falló, pero no en la validación"
+  fi
+done <<'CASES'
+\\connect a mitad de línea|select 1; \\connect postgres\nselect 2;
+\\set ON_ERROR_STOP 0 a mitad de línea|select 1; \\set ON_ERROR_STOP 0\nselect 2;
+\\! a mitad de línea|select 1; \\! echo x;
+\\gset al final de una consulta|select 1 as uno \\gset\nselect 2;
+meta-comando tras una cadena cerrada|select 'a' as x; \\echo y;
+meta-comando tras un identificador "..."|select 1 as "x"; \\! echo y;
+meta-comando tras un cuerpo $$|do $$ begin perform 1; end $$; \\! echo y;
+$$ pegado a un nombre: ocultaría un COMMIT|select 1 as x$$;\ncommit;\nselect 2 as y$$;
+$$ pegado a un nombre: ocultaría un meta-comando|select 1 as x$$;\n\\! echo y\nselect 2 as y$$;
+CASES
+# \' dentro de una cadena: el validador anterior también lo rechazaba, pero por
+# «cadena sin cerrar». Aquí se exige el motivo: la regla propia.
+cat >"$WORK/d3-quote.sql" <<'SQL'
+select 'a\'' as x;
+SQL
+roomly_sql_run_suite "$UNREACHABLE" "$WORK/d3-quote.sql" >"$WORK/d.log" 2>&1 && d3q=aceptado || d3q=rechazado
+check "D3: \\' dentro de una cadena, rechazado antes de conectar por ser ambiguo (standard_conforming_strings)" \
+  '[ "$d3q" = rechazado ] && grep -q "no supera la validación" "$WORK/d.log" && grep -q "barra invertida justo antes de una comilla" "$WORK/d.log"'
+# Control: las barras invertidas en comentarios, cadenas, identificadores y
+# cuerpos $$ son texto para psql. Se aceptan, se ejecutan, y ninguna se ejecuta
+# como meta-comando (un \echo ejecutado aparecería como línea «== D3-META…»).
+cat >"$WORK/d3-ok.sql" <<'SQL'
+-- comentario con \connect, \set ON_ERROR_STOP 0 y \echo == D3-META-COMENTARIO
+select '\echo == D3-META-CADENA' as cadena, regexp_replace('public.x', '^public\.', '') as sin_esquema;
+select 1 as "con\echo == D3-META-IDENT";
+do $$
+begin
+  perform '\echo == D3-META-DOLAR';
+end $$;
+select roomly_test.ok(true, 'D3-ok: barras invertidas en comentarios, cadenas, identificadores y cuerpos $$');
+SQL
+check "D3-ok: barras invertidas en literales y comentarios aceptadas, ejecutadas y nunca como meta-comando" \
+  'suite "$WORK/d3-ok.sql" && grep -q "ok - D3-ok" "$WORK/last.log" && ! grep -q "== D3-META" "$WORK/last.log"'
 
 echo "== E. WARNING → la suite falla"
 cat >"$WORK/e.sql" <<'SQL'

@@ -16,7 +16,8 @@
 #   - Cualquier otro control de transacción (COMMIT, END, ABORT, START
 #     TRANSACTION, SAVEPOINT, RELEASE, PREPARE, ROLLBACK TO..., un BEGIN o
 #     ROLLBACK que no esté solo en su línea, bloques sin cerrar o anidados) o
-#     un meta-comando de psql hace que la suite aborte ANTES de conectar.
+#     un meta-comando de psql, en cualquier posición de la línea, hace que la
+#     suite aborte ANTES de conectar.
 #   - Los WARNING se muestran y hacen fallar la suite (fallo cerrado).
 #
 # Requiere ROOMLY_VALIDATION_MARKER (lo define guard.sh).
@@ -32,6 +33,18 @@ ROOMLY_SQL_ROOT="$(cd "$ROOMLY_SQL_LIB_DIR/../.." && pwd)"
 # nada) y cuerpos $$...$$ (el único delimitador que usan los tests). Lo que
 # no sabe analizar con seguridad se rechaza: cualquier otro $tag$, `/* */` y
 # las cadenas E'...' (sus escapes \' desincronizarían el análisis).
+#
+# Meta-comandos: psql reconoce una barra invertida como meta-comando en
+# cualquier punto de la línea, no solo al principio, salvo dentro de cadenas,
+# identificadores "...", comentarios -- y cuerpos $$. Por eso se rechaza toda
+# barra invertida fuera de esos contextos (en SQL no tiene otro uso). Y como la
+# seguridad de esa regla depende de reconocer bien los contextos, se rechaza
+# también lo que podría leerse de dos maneras:
+#   - \' dentro de una cadena: con standard_conforming_strings desactivado, no
+#     cerraría la cadena;
+#   - $$ pegado a un nombre (x$$): para psql es parte del identificador, no el
+#     principio de un cuerpo $$.
+# Límite conocido: no analiza la interpolación de variables de psql (:nombre).
 roomly_sql_transform() {
   local file="$1"
   awk -v FILE="$(basename "$file")" -v Q="'" -v DQ='"' '
@@ -90,6 +103,8 @@ roomly_sql_transform() {
           continue
         }
         if (in_quote) {
+          if (c == "\\" && substr(line, i + 1, 1) == Q)
+            fail("barra invertida justo antes de una comilla dentro de una cadena (con standard_conforming_strings desactivado, la cadena no terminaría ahí)")
           if (c == Q) {
             if (substr(line, i + 1, 1) == Q) { i += 2; continue }
             in_quote = 0
@@ -107,7 +122,11 @@ roomly_sql_transform() {
           continue
         }
         if (two == "--") break
+        if (c == "\\")
+          fail("meta-comando de psql no permitido (barra invertida fuera de cadenas, identificadores, comentarios -- y cuerpos $$)")
         if (two == "/*") fail("comentario de bloque no soportado por el validador")
+        if (two == "$$" && i > 1 && substr(line, i - 1, 1) ~ /[A-Za-z0-9_$]/)
+          fail("$$ pegado a un nombre: psql lo leería como parte del identificador, no como un cuerpo $$")
         if (two == "$$") { in_dollar = 1; stmt = stmt " $$ "; i += 2; continue }
         if (c == "$" && match(substr(line, i), /^\$[A-Za-z_][A-Za-z_0-9]*\$/))
           fail("delimitador $tag$ no soportado por el validador")
