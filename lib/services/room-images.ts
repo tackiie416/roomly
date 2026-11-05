@@ -256,6 +256,31 @@ async function requestSignedUrls(paths: string[], ttl: number, deps: RoomImagesD
 }
 
 /**
+ * Las URL que Storage devuelve para una ruta pedida, sin error y no vacías.
+ * Cualquier otra entrada (otra ruta, un error de esa foto) se descarta.
+ */
+function acceptedSignedUrls(
+  data: NonNullable<Awaited<ReturnType<typeof requestSignedUrls>>>,
+  paths: string[]
+): Map<string, string> {
+  const requested = new Set(paths);
+  const urls = new Map<string, string>();
+  for (const item of data) {
+    if (
+      item &&
+      !item.error &&
+      typeof item.path === "string" &&
+      requested.has(item.path) &&
+      typeof item.signedUrl === "string" &&
+      item.signedUrl.length > 0
+    ) {
+      urls.set(item.path, item.signedUrl);
+    }
+  }
+  return urls;
+}
+
+/**
  * Firma, en una sola petición, las URL de unas filas que el cliente del
  * usuario ya ha leído (esa lectura es la autorización). Defensa en
  * profundidad: solo se firman rutas canónicas de esa habitación, y solo se
@@ -289,20 +314,7 @@ async function signImages(
   const data = await requestSignedUrls(paths, ttl, deps);
   if (!data) return unsigned(false);
 
-  const requested = new Set(paths);
-  const urls = new Map<string, string>();
-  for (const item of data) {
-    if (
-      item &&
-      !item.error &&
-      typeof item.path === "string" &&
-      requested.has(item.path) &&
-      typeof item.signedUrl === "string" &&
-      item.signedUrl.length > 0
-    ) {
-      urls.set(item.path, item.signedUrl);
-    }
-  }
+  const urls = acceptedSignedUrls(data, paths);
   return {
     images: rows.map((row) => {
       const url = urls.get(row.storage_path) ?? null;
@@ -459,6 +471,89 @@ export async function listRoomImages(
   const images = await readRoomImages(supabase, parsed.data);
   if (!images.ok) return images;
   return signedList(images.data, parsed.data, deps);
+}
+
+/** Portada de una habitación: su URL firmada y hasta cuándo vale como mínimo. */
+export type RoomCover = { url: string; expiresAt: string };
+
+export type RoomCovers = {
+  /** room_id → portada. Una habitación sin fotos, o cuya portada no se pudo firmar, no está. */
+  covers: Map<string, RoomCover>;
+  /** `false` si la petición de firma falló entera (ninguna portada lleva URL). */
+  signed: boolean;
+};
+
+/** Habitaciones por lote: una página de la búsqueda pública (20) y la de comprobación. */
+export const ROOM_COVERS_MAX_ROOMS = 21;
+
+const roomCoverIdsSchema = uuidSchema.array().max(ROOM_COVERS_MAX_ROOMS);
+
+type CoverRow = ImageRow & { room_id: string };
+
+/**
+ * Primera foto de cada habitación de una lista, con URL firmada (búsqueda
+ * pública, Fase 4.4). Un lote para toda la página, nunca una consulta por
+ * habitación:
+ *   1. Las habitaciones las ha leído antes el mismo cliente de quien pregunta
+ *      (en las páginas públicas, el de un visitante: lib/supabase/public.ts),
+ *      así que solo llegan aquí ids que la RLS de `rooms` deja ver.
+ *   2. Una lectura de `room_images` de esas habitaciones, con ese mismo
+ *      cliente: la RLS vuelve a aplicar R7 a cada foto
+ *      (`room_images_select_public`).
+ *   3. Una sola petición de firma (service_role), solo de las rutas
+ *      canónicas de las filas leídas, y con la validez configurada
+ *      (`signedUrlTtlSeconds`).
+ * La portada es la primera canónica por `position`, `created_at` e `id`, el
+ * orden de `listRoomImages`. Si la lectura falla, error; si la firma falla
+ * entera, `signed: false` y sin portadas (la página se muestra sin fotos).
+ */
+export async function listRoomCovers(
+  supabase: DbClient,
+  roomIds: unknown,
+  deps: RoomImagesDeps = DEFAULT_DEPS
+): Promise<ServiceResult<RoomCovers>> {
+  const parsed = roomCoverIdsSchema.safeParse(roomIds);
+  if (!parsed.success)
+    return fail("validation", { roomIds: ["Identificador no válido"] });
+  const ids = [...new Set(parsed.data)];
+  if (ids.length === 0) return ok({ covers: new Map(), signed: true });
+
+  const { data, error } = await supabase
+    .from("room_images")
+    .select("id, room_id, storage_path, position")
+    .in("room_id", ids)
+    .order("position")
+    .order("created_at")
+    .order("id");
+  if (error) return mapDbError(error);
+
+  const requested = new Set(ids);
+  const first = new Map<string, CoverRow>();
+  for (const row of (data ?? []) as CoverRow[]) {
+    if (
+      requested.has(row.room_id) &&
+      !first.has(row.room_id) &&
+      row.storage_path === roomImageStoragePath(row.room_id, row.id)
+    ) {
+      first.set(row.room_id, row);
+    }
+  }
+  if (first.size === 0) return ok({ covers: new Map(), signed: true });
+
+  const paths = [...first.values()].map((row) => row.storage_path);
+  const ttl = deps.signedUrlTtlSeconds;
+  // Antes de pedir la firma: la URL vale al menos hasta aquí.
+  const expiresAt = new Date(deps.now().getTime() + ttl * 1000).toISOString();
+  const signedData = await requestSignedUrls(paths, ttl, deps);
+  if (!signedData) return ok({ covers: new Map(), signed: false });
+
+  const urls = acceptedSignedUrls(signedData, paths);
+  const covers = new Map<string, RoomCover>();
+  for (const [roomId, row] of first) {
+    const url = urls.get(row.storage_path);
+    if (url) covers.set(roomId, { url, expiresAt });
+  }
+  return ok({ covers, signed: true });
 }
 
 /**

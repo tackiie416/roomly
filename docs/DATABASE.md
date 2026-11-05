@@ -25,7 +25,7 @@ Esto es lo que cambió:
 
 | Riesgo | Corrección |
 |---|---|
-| `profiles` era legible por cualquiera, incluso sin sesión — nombre, bio, fecha de nacimiento de cada usuario quedaban rascables por bots anónimos. | El SELECT completo ahora exige `auth.uid() is not null`. Para que las páginas SEO públicas (`/barcelona/habitaciones`) sigan siendo rastreables por Google sin sesión, se añadió la vista `public_profile_previews` (solo id, nombre, avatar, rol) con permiso explícito para `anon`. **Actualización (Fase 2.9, H4)**: ya no basta con tener sesión; cada usuario lee solo su perfil (ver "Fase 2.9 — H4"). **Actualización (hotfix `20261014120000`, 2026-10-31)**: con los privilegios por defecto de Supabase, anon y authenticated tenían también INSERT, UPDATE y DELETE sobre la vista, y por ella se escribía en `profiles` sin RLS. Desde el hotfix, PUBLIC, anon y authenticated no tienen ningún privilegio sobre ella (ver "Hotfix: `public_profile_previews` sin privilegios de clientes"). |
+| `profiles` era legible por cualquiera, incluso sin sesión — nombre, bio, fecha de nacimiento de cada usuario quedaban rascables por bots anónimos. | El SELECT completo ahora exige `auth.uid() is not null`. Para que las páginas SEO públicas (`/barcelona/habitaciones`) sigan siendo rastreables por Google sin sesión, se añadió la vista `public_profile_previews` (solo id, nombre, avatar, rol) con permiso explícito para `anon`. **Actualización (Fase 2.9, H4)**: ya no basta con tener sesión; cada usuario lee solo su perfil (ver "Fase 2.9 — H4"). **Actualización (sesión 71)**: el permiso de `anon` sobre la vista se retiró; con él (y con el de `authenticated`, que tenía todos los privilegios) se podía escribir en `profiles` a través de la vista. Las páginas públicas de habitaciones no usan la vista ni muestran identidad (ver "Fase 4.4"). **Actualización (hotfix `20261014120000`, 2026-10-31)**: con los privilegios por defecto de Supabase, anon y authenticated tenían también INSERT, UPDATE y DELETE sobre la vista, y por ella se escribía en `profiles` sin RLS. Desde el hotfix, PUBLIC, anon y authenticated no tienen ningún privilegio sobre ella (ver "Hotfix: `public_profile_previews` sin privilegios de clientes"). |
 | Nada impedía que un usuario (o un bot) enviara cientos de "me interesa" por minuto — vector de spam/acoso. | Trigger `enforce_interest_rate_limit` en `interests`: tope de 30 por usuario cada 24h a nivel de base de datos, como backstop además del check "amigable" que hará la UI. |
 | Sin una regla explícita, alguien podría añadir sin querer una política de INSERT en `matches` o `conversation_participants` y permitir que un cliente se "auto-matchee" o se cuele en una conversación ajena. | Se documenta explícitamente en el SQL que la ausencia de política de INSERT en `matches`/`conversations`/`conversation_participants` es intencional: esas filas solo las crea el servidor tras verificar interés mutuo. |
 | La dirección exacta de una habitación vivía en la misma tabla que el resto de campos públicos — un `SELECT *` mal escrito en cualquier punto del código la habría filtrado. | Se movió a `room_addresses`, tabla propia con su propia política RLS (solo el propietario). Es el único campo de todo el esquema cuya fuga tiene una consecuencia física (localizar dónde vive alguien), así que es el único que se protege a nivel de base de datos y no solo "acordándose" de proyectar las columnas correctas en el código. |
@@ -1034,6 +1034,88 @@ borrado de cuenta (H6, fuera del alcance actual). El futuro H6 tendrá que
 limpiar y verificar Storage antes de eliminar el perfil (`docs/SECURITY.md`,
 «Cascadas desde profiles y Auth»).
 
+## Fase 4.4 — fecha de publicación y lectura pública mínima (2026-10-31)
+
+Búsqueda y detalle públicos de habitaciones (R3 y R4, decididos por el
+propietario el 2026-10-31). Dos migraciones, **solo en local** (`test:db` e
+`test:infra`); ningún run las ha aplicado en Supabase real.
+
+### `20261031120000_rooms_published_at.sql`
+
+- **`rooms.published_at`** (`timestamptz`, sin DEFAULT): la fecha de la
+  última publicación. Ordena «Más recientes» (`published_at DESC, id DESC`),
+  no `updated_at` (cambia con cualquier edición) ni `created_at` (la creación
+  del borrador).
+- **Trigger `trg_rooms_published_at`** (BEFORE INSERT OR UPDATE, función
+  `set_room_published_at()`, sin EXECUTE para clientes):
+  - al insertar una activa, o al pasar a `active` desde cualquier otro estado
+    (borrador, pausada, alquilada o retirada), `clock_timestamp()`;
+  - en cualquier otra escritura conserva el valor anterior (al insertar sin
+    estar activa, NULL): una edición ordinaria no la cambia y nadie la fija a
+    mano, tampoco service_role ni el admin. Además, no está en el GRANT de
+    INSERT ni de UPDATE de authenticated;
+  - `clock_timestamp()` y no `now()`: dentro de una misma transacción (como
+    en la suite SQL remota, que ejecuta cada archivo en un solo
+    `BEGIN…ROLLBACK`), una re-publicación queda después de la anterior;
+  - los BEFORE se disparan por orden alfabético: primero
+    `trg_rooms_moderation` (H5; si rechaza el cambio de estado, este no llega
+    a ejecutarse), después este y al final `trg_rooms_updated_at`. R7 no
+    cambia.
+- **Histórico:** las activas anteriores reciben `created_at` como
+  aproximación documentada (su fecha real de publicación no se guardaba). El
+  relleno desactiva `trg_rooms_updated_at` solo durante la migración, así que
+  su `updated_at` no cambia. Las demás quedan sin fecha.
+- **`chk_rooms_published_at`**: `status <> 'active' or published_at is not
+  null`. La búsqueda no tiene que tratar nulos en ninguno de sus órdenes
+  (`price_month` y `available_from` ya son NOT NULL).
+- **Índice parcial `idx_rooms_public_recent`** sobre
+  `(city_id, published_at desc, id desc) where status = 'active' and
+  deleted_at is null`: el orden por defecto, que siempre filtra por ciudad.
+  Los otros órdenes no tienen índice propio (decisión de simplicidad: pocas
+  filas por ciudad en el MVP).
+- Quedan **15 triggers y 15 funciones** en `public`.
+
+### `20261031120100_public_read_minimum.sql`
+
+- **`rooms`**: anon pierde el SELECT de tabla, REFERENCES y TRIGGER, y
+  recibe SELECT solo de 20 columnas (las de los DTO públicos, sus filtros y
+  su orden). Fuera: `owner_id`, `approx_lat`, `approx_lng`, `status`,
+  `deleted_at`, `created_at` y `updated_at`. PUBLIC no tenía nada; se revoca
+  igualmente. authenticated no cambia.
+- **`room_images`**: `room_images_select` se divide en
+  `room_images_select_public` (todos los roles: `is_room_publicly_visible`)
+  y `room_images_select_own` (solo authenticated: las de sus habitaciones).
+  La antigua leía `rooms.owner_id` en una subconsulta, que se ejecuta con
+  los privilegios de quien consulta: sin SELECT en `owner_id`, anon no
+  habría podido leer ninguna foto. Misma semántica. Pasan a ser **42
+  políticas**.
+- **`public_profile_previews`**: anon y PUBLIC pierden todo y authenticated
+  se queda solo con SELECT. La vista (`security_invoker = false`, de una
+  sola tabla) se podía actualizar, y anon y authenticated tenían todos los
+  privilegios: un UPDATE sobre ella escribía en `profiles` sin RLS ni GRANT
+  por columnas (`docs/SECURITY.md`, «Fase 4.4»).
+- Sin cambios en tablas, columnas, funciones, triggers ni datos.
+- Nota: el comentario de la migración dice que lo de las condiciones sin
+  privilegio de columna está «comprobado en tests/db/22»; lo comprueba
+  `tests/db/23` (PR2). No se ha reescrito la migración commiteada.
+
+### Tests y R8
+
+- `tests/db/22_rooms_published_at.sql` (PA0–PA11) y
+  `tests/db/23_public_read_minimum.sql` (PR0–PR6).
+- Cuentas actualizadas en `10`, `13`, `14`, `15`, `16`, `19`, `20` y `21`
+  (42 políticas, 9 CHECK de `rooms`, tres políticas de lectura de
+  `room_images`, el SELECT por columnas de anon y la denegación de la vista
+  en `13`, PV8).
+- Preflight vigente (`tests/supabase/preflight.sql`): P1 (columna, CHECK e
+  índice), P3 (42 políticas y las dos de `room_images`), P4 (GRANT de anon y
+  la vista) y P6 (el trigger y su función), con sus mutaciones.
+  `migration-upgrade-selftest` añade UP5b (el relleno histórico).
+- Las copias congeladas de R8 (D3) y los pins de `phase4-upgrade.sh` no
+  cambian: estas migraciones no son parte de la actualización de la Fase 4
+  ya aplicada en el run 21. Su validación en real seguirá D2 y necesita su
+  propia autorización.
+
 ## Hotfix: `public_profile_previews` sin privilegios de clientes (2026-10-31)
 
 Migración `20261014120000_public_profile_previews_write_lockdown.sql`, **solo
@@ -1156,7 +1238,7 @@ Como `housing_preferences` solo la lee su propietario, mostrar ciudad o
 universidad en tarjetas de otros usuarios (Fase 3) necesitará una consulta,
 servicio o vista diseñada para ello; no se resuelve moviendo las columnas.
 
-**Habitaciones** — `rooms`, `room_images` (desde la Fase 4.2, solo la escribe el servidor; las fotos están en el bucket privado `room-images` de Storage y se sirven con URL firmadas), `room_addresses` (dirección exacta, aislada), `favorites`.
+**Habitaciones** — `rooms` (desde la Fase 4.4, con `published_at` y lectura de anon solo por 20 columnas), `room_images` (desde la Fase 4.2, solo la escribe el servidor; las fotos están en el bucket privado `room-images` de Storage y se sirven con URL firmadas), `room_addresses` (dirección exacta, aislada), `favorites`.
 
 **Interés y matching** — `interests` (unifica interés en persona e interés vía habitación), `matches` (creado solo desde el servidor).
 

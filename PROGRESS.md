@@ -263,6 +263,124 @@ fetch, workflows ni conexión a Supabase.
 
 ---
 
+## 2026-10-31 — Sesión 71: búsqueda y detalle públicos de habitaciones, 4.4 (Fase 4 EN CURSO; en commits locales sin publicar, en una rama nueva apilada sobre la del CRUD; PR #26, #27 y #28 sin fusionar)
+
+**Contexto.** El propietario decidió R3 y R4 (2026-10-31) y autorizó
+implementar la búsqueda y el detalle públicos en una rama local nueva,
+`feature/phase4-4-public-search`, apilada sobre la del CRUD
+(`feature/phase4-3-rooms-crud`, sin tocarla), desde `ce803ae`. Autorizado:
+la rama, código, tests, migraciones, documentación, suites locales y
+commits locales. No autorizado: push, PR, merge, workflows, Supabase, SQL o
+migraciones remotas, cambiar D2, D3 o fases posteriores, relevancia o
+compatibilidad.
+
+**Hallazgo grave (corregido en local).** La auditoría de anon encontró que
+la vista `public_profile_previews` (`20260925120100`, `security_invoker =
+false`, actualizable) tenía todos los privilegios para anon y
+authenticated. Un UPDATE sobre la vista escribe en `profiles` sin RLS ni
+GRANT por columnas: en local, un usuario autenticado se puso `role =
+'admin'` y anon cambió el nombre de otra persona. Está en `master` y,
+previsiblemente, en los proyectos de validación (no comprobado). La
+migración `20261031120100` lo corrige; aplicarla en real necesita
+autorización.
+
+**Qué se hizo**
+- Seguridad de anon (`20261031120100_public_read_minimum.sql`): anon pasa
+  de SELECT de tabla en `rooms` (26 columnas, REFERENCES y TRIGGER) a SELECT
+  de 20 columnas; PUBLIC sin nada; `room_images_select` se divide en
+  `_public` (R7) y `_own` (solo authenticated); la vista, sin anon ni
+  PUBLIC y con solo SELECT para authenticated. 42 políticas.
+- `published_at` (`20261031120000_rooms_published_at.sql`): trigger con
+  `clock_timestamp()` al publicar o re-publicar; las ediciones no la
+  cambian; histórico con `created_at`; `chk_rooms_published_at` e índice
+  parcial. 15 triggers y 15 funciones.
+- Servicio y validación: `lib/supabase/public.ts`,
+  `lib/validation/room-search.ts`, `lib/services/room-search.ts` y
+  `listRoomCovers` en `lib/services/room-images.ts`.
+- Páginas `/[city]/habitaciones` y `/[city]/habitaciones/[id]` y los
+  componentes `public-room-card.tsx` y `public-room-search-form.tsx`.
+- Aviso en el formulario de publicación sobre los datos de contacto y la
+  dirección exacta.
+- Tests de base de datos (`22`, `23` y cuentas de otros ocho archivos),
+  preflight vigente y sus mutaciones, UP5b, unitarios, estáticos y E1
+  (`public-rooms.spec.ts`), con el mock ampliado.
+- Documentación: `docs/ROADMAP.md` (4.4, R2, R3, R4, R8 y la corrección de
+  la ubicación aproximada y de «dos servicios» de D17), `docs/SECURITY.md`,
+  `docs/DATABASE.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`,
+  `ROOMLY_MASTER_SPEC.md` (notas en §11, §12, §13 y §34), `CLAUDE.md` y esta
+  entrada.
+
+**Commits locales** (sin publicar): `f6bb90c` (migraciones y tests de base
+de datos), `741e0e2` (servicio, validación y cliente público), `6b626fb`
+(páginas, aviso y tests de páginas), `99cb220` (mock y E1), `999dc26`
+(`noindex` en la búsqueda de una ciudad sin habitaciones) y el de la
+documentación.
+
+**Verificación** (en local, con el código final)
+- `npm run test`: 1536/1536 en 60 archivos.
+- `npm run test:db`: 886/886. `npm run test:infra`: 401/401.
+- `npm run build`: correcto; las dos rutas públicas son dinámicas.
+- E1: 55/55, orientativo (Chromium preinstalado).
+- `lint`, `typecheck` y `format:check`: en verde.
+- Mutaciones: sin cada migración fallan sus tests; firmar portada a portada
+  rompe la prueba de N+1; copiar la fila en la tarjeta rompe la lista
+  blanca.
+
+**Problemas encontrados**
+- En una ejecución de la suite SQL en modo remoto, PA6 falló: dentro de una
+  transacción `now()` no avanza. El trigger pasó a `clock_timestamp()`.
+- Un `role="status"` (atributo ARIA) hacía saltar el test estático que busca
+  `"status"`; el patrón lo excluye.
+- El comentario de `20261031120100` dice que las condiciones de una política
+  sobre la propia tabla no exigen privilegio de columna «comprobado en
+  tests/db/22». Lo comprueba `tests/db/23` (PR2). La migración ya está
+  commiteada y no se ha reescrito: corregir el comentario necesita la
+  confirmación del propietario.
+
+**Decisiones técnicas**
+- Las páginas públicas leen siempre con un cliente anónimo sin sesión, también
+  si hay sesión. Así R7 y el GRANT de anon los aplica la base de datos a
+  todo el mundo. Con el cliente de la sesión, la propietaria vería sus
+  borradores y el admin cualquier habitación, y solo un filtro de la
+  aplicación lo impediría. Es el cliente «normal» del visitante, sin
+  privilegios; para una persona autenticada difiere de la letra del encargo
+  («el cliente que corresponda al usuario autenticado») y se elige porque da
+  la garantía pedida («siempre las restricciones públicas, también a la
+  propietaria y al admin») en la base de datos.
+- `clock_timestamp()` en el trigger: la suite SQL remota ejecuta cada archivo
+  en una sola transacción, donde `now()` no avanza.
+- Un único `or=(and(...))` para la estancia y el cursor, en vez de varios
+  `or` (evita depender de cómo combina PostgREST parámetros repetidos).
+- Solo «Página siguiente» y «Volver a la primera página»: la página anterior
+  con keyset exige la consulta inversa.
+- Una ciudad activa sin habitaciones publicadas lleva `noindex` (§34: sin
+  páginas vacías indexadas).
+- Parámetros desconocidos rechazados, también `utm_*` y `fbclid`
+  (esquema estricto pedido); aceptarlos es una decisión de producto.
+
+**Qué queda / riesgos**
+- Sin validar en Supabase real, en la CI ni en un despliegue; el E2 no la
+  cubre. PostgREST real (el `or` anidado, la comparación de `uuid`) solo
+  está emulado.
+- Aplicar `20261031120100` en los proyectos reales (el fallo de la vista) y
+  revisar si se usó: necesita autorización.
+- Retirar también el SELECT de authenticated sobre la vista, o borrarla:
+  decisión pendiente (H4).
+- anon conserva los privilegios por defecto de Supabase en las demás tablas
+  (frenados por la RLS; TRUNCATE, REFERENCES y TRIGGER no los expone
+  PostgREST): revocarlos sería defensa en profundidad, pendiente de decisión.
+- Los textos libres no se filtran; solo hay un aviso.
+- El cursor no es una instantánea.
+- R8: las dos migraciones no tocan las copias congeladas (D3) ni los pins;
+  su validación en real seguirá D2, con autorización.
+- Publicar la rama, con su autorización.
+
+**Sin cambios:** la rama del CRUD, los PR existentes, D2, D3, los pins de R8
+y la configuración de Supabase. No hubo push, PR, merge, workflows ni
+conexión a Supabase.
+
+---
+
 ## 2026-10-31 — Sesión 70: atribución de los barrios en /explorar (Fase 4 EN CURSO; en commits locales sin publicar, en la rama del CRUD; PR #26, #27 y #28 sin fusionar)
 
 **Contexto.** La sesión 69 dejó como pendiente que `/explorar` muestra

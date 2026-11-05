@@ -278,6 +278,10 @@ barrio, precio, gastos incluidos/no, depósito, fecha disponible, duración
 mín/máx, nº compañeros, nº habitaciones, características, reglas,
 preferencias del propietario, descripción.
 
+**Nota de la sesión 71 (R2, alcance mínimo, 2026-10-15)**: en la Fase 4 la
+«dirección aproximada» pública es solo el barrio y la ciudad. La dirección
+exacta no se pide ni se guarda, y no hay coordenadas ni mapa públicos.
+
 **Corrección de una revisión posterior**: `pets_allowed`, `smoking_allowed`,
 `students_only` como columnas booleanas propias — faltaban como campos
 explícitos, solo existían como texto libre, y la sección 13 (búsqueda) los
@@ -288,6 +292,9 @@ pide como filtros.
 Nunca mostrar públicamente: dirección exacta, teléfono, email,
 documentación, información privada. Antes del contacto mutuo, solo zona,
 mapa aproximado, distancia aproximada a la universidad.
+
+**Nota de la sesión 71**: la Fase 4 muestra solo la zona (barrio y ciudad).
+El mapa y la distancia siguen pendientes de R2 (`docs/ROADMAP.md`).
 
 **Decisión de Claude, reforzada en revisión de seguridad**: la dirección
 exacta vive en `room_addresses`, tabla separada con su propia política
@@ -301,6 +308,19 @@ qué columnas proyectar en el código.
 Filtros: ciudad, barrio, precio máximo, fecha, duración, nº habitaciones,
 estudiantes, características, mascotas, fumadores. Orden: relevancia,
 compatibilidad, precio, distancia, fecha.
+
+**Implementado en la Fase 4.4** (sesión 71, en local; R3 y R4 del
+propietario, 2026-10-31):
+- Búsqueda pública en `/[ciudad]/habitaciones`, sin sesión ni identidad de
+  la propietaria, y detalle en `/[ciudad]/habitaciones/[id]`.
+- Filtros: ciudad (la de la ruta), barrios de esa ciudad, precio máximo,
+  fecha de entrada, meses de estancia, características (todas las
+  marcadas), mascotas y tabaco (sí, no o indiferente) y solo estudiantes.
+  «Nº habitaciones» se separa en dos filtros: dormitorios de la vivienda
+  (`total_rooms`) y personas con las que se convivirá (`total_roommates`).
+- Orden: más recientes (fecha de publicación), precio ascendente y
+  descendente, y disponibilidad más próxima. **Sin** relevancia,
+  compatibilidad ni distancia, por decisión del propietario.
 
 ## 14. Pantalla de matches
 
@@ -487,6 +507,13 @@ test definitivo..."). SEO técnico con páginas indexables
 **Decisión de Claude**: para que estas páginas sean rastreables sin
 sesión sin reabrir `profiles` completo al público, existe la vista
 `public_profile_previews` (solo nombre/avatar/rol).
+
+**Nota de la sesión 71**: `/[ciudad]/habitaciones` no muestra identidad de
+la propietaria (R4) y no usa esa vista. anon ya no tiene acceso a ella: con
+sus privilegios se podía escribir en `profiles` a través de la vista
+(`docs/SECURITY.md`, «Fase 4.4»). Las páginas son dinámicas (llevan URL
+firmadas de fotos), no ISR; solo las variantes sin parámetros de ciudades
+activas con habitaciones publicadas se indexan.
 
 ## 35-36. Analytics y métrica principal
 

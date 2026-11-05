@@ -58,8 +58,9 @@ insert into public.rooms (id, owner_id, title, city_id, neighborhood_id, price_m
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'room_images')
-  = array['room_images_admin_select:SELECT', 'room_images_select:SELECT'],
-  'IM0: room_images solo tiene sus 2 políticas de lectura (sin las de escritura de la 4.0)');
+  = array['room_images_admin_select:SELECT', 'room_images_select_own:SELECT',
+          'room_images_select_public:SELECT'],
+  'IM0: room_images solo tiene sus 3 políticas de lectura (sin las de escritura de la 4.0; la pública y la propia, separadas desde 20261031120100)');
 select roomly_test.ok(
   (select bool_and(not has_table_privilege(r, 'public.room_images', p))
    from unnest(array['anon', 'authenticated']) as r,

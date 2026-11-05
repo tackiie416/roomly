@@ -26,6 +26,9 @@
 #     bucket incoherente o ausente, con políticas en storage.objects o de
 #     escritura en storage.buckets, sin la RLS de storage.objects o de
 #     storage.buckets, o cuando no se puede comprobar (L6_N2).
+#   - Fase 4.4 (sesión 71): las habitaciones activas anteriores reciben
+#     `created_at` como fecha de publicación aproximada, sin cambiar su
+#     `updated_at`; un borrador, ninguna.
 #   - Fase 4.1, R1 (barrios oficiales de Barcelona):
 #     - en una instalación existente, un barrio oficial que ya estaba se
 #       conserva con su id y se añaden los que faltan;
@@ -385,8 +388,16 @@ select roomly_test.expect_error(
   '23514', 'UP4: la fila antigua de una cuenta eliminada ya no se puede escribir');
 reset role;
 select roomly_test.ok(
-  (select count(*) = 41 from pg_policies where schemaname = 'public'),
-  'UP5: 41 políticas (37 hasta la 4.0; 44 hasta la 4.2; 42 hasta 20261030120000)');
+  (select count(*) = 42 from pg_policies where schemaname = 'public'),
+  'UP5: 42 políticas (37 hasta la 4.0; 44 hasta la 4.2; 42 hasta 20261030120000; 41 hasta 20261031120100)');
+select roomly_test.ok(
+  (select published_at = created_at and updated_at = created_at
+   from public.rooms where id = 'f1000000-0000-0000-0000-00000000000a')
+  and (select published_at = created_at and updated_at = created_at
+       from public.rooms where id = 'f1000000-0000-0000-0000-0000000000c2')
+  and (select published_at is null
+       from public.rooms where id = 'f1000000-0000-0000-0000-00000000000c'),
+  'UP5b: 20261031120000: las activas anteriores reciben created_at como fecha de publicación aproximada, sin cambiar su updated_at; el borrador, ninguna');
 select roomly_test.ok(
   (select count(*) = 3 from public.rooms
    where id in ('f1000000-0000-0000-0000-00000000000a', 'f1000000-0000-0000-0000-00000000000c',

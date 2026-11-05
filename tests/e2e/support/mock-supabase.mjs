@@ -182,7 +182,33 @@ const ROOM_DEFAULTS = {
   roommate_preferences: null,
   status: "draft",
   deleted_at: null,
+  // 20261031120000: la pone el trigger trg_rooms_published_at.
+  published_at: null,
 };
+// GRANT de anon sobre rooms (20261031120100): solo las columnas públicas.
+// tests/unit/room-search-static.test.ts comprueba que coinciden con la migración.
+const ANON_ROOM_COLUMNS = [
+  "id",
+  "title",
+  "description",
+  "city_id",
+  "neighborhood_id",
+  "price_month",
+  "expenses_included",
+  "deposit_amount",
+  "available_from",
+  "min_stay_months",
+  "max_stay_months",
+  "total_roommates",
+  "total_rooms",
+  "features",
+  "pets_allowed",
+  "smoking_allowed",
+  "students_only",
+  "house_rules",
+  "roommate_preferences",
+  "published_at",
+];
 
 let state;
 function reset() {
@@ -395,10 +421,44 @@ function parseSelect(url) {
     });
   return columns;
 }
-/** ¿Cumple `value` el filtro PostgREST `raw` (eq., neq., is.null, not.is.null, in.())? */
+/**
+ * Compara como PostgreSQL un valor de la fila con el texto de un filtro: los
+ * números como números y el resto como texto (fechas ISO, marcas de tiempo
+ * del mismo formato y UUID en minúsculas ordenan igual como texto). `null` si
+ * el valor es nulo: en SQL, cualquier comparación con NULL no se cumple.
+ */
+function compareValue(value, text) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return value - Number(text);
+  const a = String(value);
+  return a < text ? -1 : a > text ? 1 : 0;
+}
+const unquote = (text) =>
+  text.startsWith('"') && text.endsWith('"') ? text.slice(1, -1) : text;
+
+/** ¿Cumple `value` el filtro PostgREST `raw` (eq., neq., lt/lte/gt/gte., is.null, not.is.null, in.(), cs.{})? */
 function matches(value, raw, column) {
-  if (raw.startsWith("eq."))
-    return value !== null && value !== undefined && String(value) === raw.slice(3);
+  for (const [op, test] of [
+    ["lt.", (c) => c < 0],
+    ["lte.", (c) => c <= 0],
+    ["gt.", (c) => c > 0],
+    ["gte.", (c) => c >= 0],
+  ]) {
+    if (raw.startsWith(op)) {
+      const cmp = compareValue(value, unquote(raw.slice(op.length)));
+      return cmp !== null && test(cmp);
+    }
+  }
+  if (raw.startsWith("cs.{") && raw.endsWith("}")) {
+    // `features @> {a,b}`: el array tiene todos los valores pedidos.
+    const wanted = raw.slice(4, -1).split(",").filter(Boolean).map(unquote);
+    return Array.isArray(value) && wanted.every((item) => value.includes(item));
+  }
+  if (raw.startsWith("eq.")) {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "number") return value === Number(unquote(raw.slice(3)));
+    return String(value) === unquote(raw.slice(3));
+  }
   if (raw.startsWith("neq."))
     return value !== null && value !== undefined && String(value) !== raw.slice(4);
   if (raw === "is.null") return value === null || value === undefined;
@@ -415,12 +475,75 @@ function matches(value, raw, column) {
     code: "E1FLT",
   });
 }
+/** Separa por comas de primer nivel (respeta paréntesis y comillas dobles). */
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0;
+  let quoted = false;
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === '"') quoted = !quoted;
+    else if (!quoted && char === "(") depth += 1;
+    else if (!quoted && char === ")") depth -= 1;
+    else if (!quoted && depth === 0 && char === ",") {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+/**
+ * Árbol lógico de PostgREST (`or=(...)`, `and=(...)`): `and(...)`, `or(...)`
+ * o una condición `columna.op.valor`. Devuelve la función que lo evalúa y
+ * anota en `columns` las columnas que usa (para el GRANT de anon).
+ */
+function parseLogic(kind, inner, columns) {
+  const children = splitTopLevel(inner).map((part) => {
+    const nested = /^(and|or)\((.*)\)$/s.exec(part);
+    if (nested) return parseLogic(nested[1], nested[2], columns);
+    const dot = part.indexOf(".");
+    if (dot <= 0)
+      throw Object.assign(new Error(`condición no soportada: ${part}`), {
+        status: 400,
+        code: "E1FLT",
+      });
+    const column = part.slice(0, dot);
+    const raw = part.slice(dot + 1);
+    columns.push(column);
+    return (row) => matches(row[column], raw, column);
+  });
+  return kind === "and"
+    ? (row) => children.every((test) => test(row))
+    : (row) => children.some((test) => test(row));
+}
+/** Columnas que lee, filtra u ordena una petición (para el GRANT por columnas de anon). */
+function requestColumns(url) {
+  const columns = [...(parseSelect(url) ?? ["*"])];
+  for (const [key, raw] of url.searchParams) {
+    if (key === "select" || key === "limit") continue;
+    if (key === "order") {
+      for (const entry of raw.split(",")) columns.push(entry.split(".")[0]);
+    } else if (key === "or" || key === "and") {
+      parseLogic(key, raw.slice(1, -1), columns);
+    } else {
+      columns.push(key);
+    }
+  }
+  return columns;
+}
 function applyFilters(rows, url) {
   let out = rows;
   for (const [column, raw] of url.searchParams) {
     if (["select", "order", "limit", "columns"].includes(column)) continue;
     // Filtros sobre recursos embebidos: los aplica quien hace el embed.
     if (column.includes(".")) continue;
+    if (column === "or" || column === "and") {
+      const test = parseLogic(column, raw.slice(1, -1), []);
+      out = out.filter(test);
+      continue;
+    }
     out = out.filter((row) => matches(row[column], raw, column));
   }
   // order=col[.asc|.desc][,col2...]: cada columna, en orden, como texto.
@@ -432,12 +555,17 @@ function applyFilters(rows, url) {
     });
     out = [...out].sort((a, b) => {
       for (const { column, sign } of keys) {
-        const cmp = String(a[column]).localeCompare(String(b[column]));
+        const cmp =
+          typeof a[column] === "number" && typeof b[column] === "number"
+            ? a[column] - b[column]
+            : String(a[column]).localeCompare(String(b[column]));
         if (cmp !== 0) return sign * cmp;
       }
       return 0;
     });
   }
+  const limit = url.searchParams.get("limit");
+  if (limit !== null) out = out.slice(0, Number(limit));
   return out;
 }
 const project = (row, columns) =>
@@ -808,6 +936,7 @@ function roomConstraints(row) {
       row.total_rooms === null)
   )
     throw check("chk_rooms_publishable");
+  if (row.status === "active" && !row.published_at) throw check("chk_rooms_published_at");
   const fk = (name) =>
     new DbError(
       409,
@@ -883,6 +1012,12 @@ function handleUserRooms(req, res, url, body, uid, columns) {
     const updated = targets.map((room) => {
       const next = { ...room, ...body, updated_at: now };
       roomModeration(room, next, uid);
+      // trg_rooms_published_at (20261031120000): fecha nueva al pasar a
+      // active; en cualquier otra escritura, la que tenía.
+      next.published_at =
+        next.status === "active" && room.status !== "active"
+          ? new Date().toISOString()
+          : room.published_at;
       roomConstraints(next);
       return next;
     });
@@ -1086,6 +1221,25 @@ function handleRest(req, res, url, body, uid, isService) {
   if (table.startsWith("rpc/"))
     // Solo service_role tiene EXECUTE de las funciones que usa la app.
     throw new DbError(403, "42501", `permission denied for function ${table.slice(4)}`);
+  if (!uid && table === "rooms") {
+    // anon (20261031120100): SELECT solo de las 20 columnas públicas; leer,
+    // filtrar u ordenar por cualquier otra (o `select=*`) es 42501. Filas:
+    // rooms_select_active_public (R7). Ninguna escritura.
+    if (req.method !== "GET") throw denied(table);
+    if (requestColumns(url).some((column) => !ANON_ROOM_COLUMNS.includes(column)))
+      throw denied(table);
+    const visible = [...state.rooms.values()].filter((room) => roomVisibleTo(room, null));
+    return respondRows(req, res, applyFilters(visible, url), columns);
+  }
+  if (!uid && table === "room_images") {
+    // room_images_select_public: fotos de habitaciones públicas (R7).
+    if (req.method !== "GET") throw denied(table);
+    const visible = [...state.images.values()].filter((image) => {
+      const room = state.rooms.get(image.room_id);
+      return room && roomVisibleTo(room, null);
+    });
+    return respondRows(req, res, sortImages(applyFilters(visible, url)), columns);
+  }
   if (!uid) throw denied(table); // anon: sin privilegios útiles en estas tablas
 
   if (table === "compatibility_responses") {
@@ -1304,7 +1458,12 @@ function handleTest(req, res, url) {
       // Habitación de una usuaria con perfil (datos de servidor). Parámetros:
       // email, title, status (draft por defecto), photos (número de fotos ya
       // subidas, con su objeto) y complete=1 (barrio, compañeros y
-      // dormitorios: lo que exige la publicación).
+      // dormitorios: lo que exige la publicación). Para la búsqueda pública
+      // (sesión 71), opcionales: price, available_from, neighborhood (slug),
+      // features (lista con comas), pets, smoking y students (1 o 0),
+      // min_stay, max_stay, roommates, bedrooms, description, house_rules,
+      // roommate_preferences y published_at (si es active y no se indica,
+      // ahora, como el trigger).
       const user = findUser(email);
       if (!user || !state.profiles.get(user.id))
         return send(res, 404, { error: "sin perfil" });
@@ -1312,22 +1471,39 @@ function handleTest(req, res, url) {
       const id = randomUUID();
       const complete = q.get("complete") === "1";
       const now = new Date().toISOString();
+      const status = q.get("status") ?? "draft";
+      const int = (key, fallback) => (q.has(key) ? Number(q.get(key)) : fallback);
+      const flag = (key, column) => (q.has(key) ? { [column]: q.get(key) === "1" } : {});
+      const hood = q.has("neighborhood")
+        ? REFERENCE.neighborhoods.find((n) => n.slug === q.get("neighborhood"))
+        : REFERENCE.neighborhoods[0];
+      const text = (key) => (q.has(key) ? { [key]: q.get(key) } : {});
       state.rooms.set(id, {
         ...ROOM_DEFAULTS,
         id,
         owner_id: user.id,
         title: q.get("title") ?? "Habitación E1",
-        status: q.get("status") ?? "draft",
+        status,
         city_id: BCN,
-        price_month: 450,
-        available_from: "2026-11-01",
+        price_month: int("price", 450),
+        available_from: q.get("available_from") ?? "2026-11-01",
         ...(complete
           ? {
-              neighborhood_id: REFERENCE.neighborhoods[0].id,
-              total_roommates: 2,
-              total_rooms: 3,
+              neighborhood_id: hood.id,
+              total_roommates: int("roommates", 2),
+              total_rooms: int("bedrooms", 3),
             }
           : {}),
+        features: q.get("features") ? q.get("features").split(",") : [],
+        min_stay_months: int("min_stay", null),
+        max_stay_months: int("max_stay", null),
+        ...flag("pets", "pets_allowed"),
+        ...flag("smoking", "smoking_allowed"),
+        ...flag("students", "students_only"),
+        ...text("description"),
+        ...text("house_rules"),
+        ...text("roommate_preferences"),
+        published_at: status === "active" ? (q.get("published_at") ?? now) : null,
         created_at: now,
         updated_at: now,
       });

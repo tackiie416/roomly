@@ -89,9 +89,14 @@ select roomly_test.ok(
           and qual like '%deleted_at IS NULL%'
    from pg_policies
    where schemaname = 'public' and tablename = 'rooms' and policyname = 'rooms_select_active_public')
-  and (select qual like '%is_room_publicly_visible(room_id)%' and qual like '%auth.uid()%'
+  -- Desde 20261031120100 (sesión 71), la de las fotos se divide en la pública
+  -- (solo la función) y la de las propias (solo authenticated).
+  and (select qual = 'is_room_publicly_visible(room_id)'
        from pg_policies
-       where schemaname = 'public' and tablename = 'room_images' and policyname = 'room_images_select'),
+       where schemaname = 'public' and tablename = 'room_images' and policyname = 'room_images_select_public')
+  and (select qual like '%auth.uid()%' and array_to_string(roles, ',') = 'authenticated'
+       from pg_policies
+       where schemaname = 'public' and tablename = 'room_images' and policyname = 'room_images_select_own'),
   'VR0: la lectura pública de habitaciones y de fotos pasa por la función');
 select roomly_test.ok(
   (select cmd = 'SELECT' and array_to_string(roles, ',') = 'authenticated' and qual = 'is_admin()'
@@ -239,16 +244,18 @@ reset role;
 -- ------------------------------------------------------------
 -- 6. Controles: la lectura pública depende de la condición nueva
 -- ------------------------------------------------------------
--- Con la política de antes de la 4.2, anon volvería a ver R2.
+-- Con la condición de antes de la 4.2 (sin mirar la cuenta), anon volvería
+-- a ver R2. Desde 20261031120100 anon no lee rooms.status ni owner_id: la foto
+-- pública de control se decide con la visibilidad de su habitación (rooms.id
+-- bajo la RLS de control), que es lo que hacía la política anterior para anon.
 begin;
 drop policy "rooms_select_active_public" on public.rooms;
 create policy "rooms_select_active_public" on public.rooms
   for select using (status = 'active' and deleted_at is null);
-drop policy "room_images_select" on public.room_images;
-create policy "room_images_select" on public.room_images
+drop policy "room_images_select_public" on public.room_images;
+create policy "room_images_select_public" on public.room_images
   for select using (exists (select 1 from public.rooms r
-                            where r.id = room_images.room_id
-                              and (r.status = 'active' or r.owner_id = auth.uid())));
+                            where r.id = room_images.room_id));
 set role anon;
 select roomly_test.login(null);
 select roomly_test.expect_rows(
@@ -269,6 +276,6 @@ rollback;
 reset role;
 select roomly_test.ok(
   has_function_privilege('anon', 'public.is_room_publicly_visible(uuid)', 'EXECUTE')
-  and (select count(*) = 41 from pg_policies where schemaname = 'public'),
-  'VR6: los controles se deshicieron: anon conserva EXECUTE y siguen 41 políticas');
+  and (select count(*) = 42 from pg_policies where schemaname = 'public'),
+  'VR6: los controles se deshicieron: anon conserva EXECUTE y siguen 42 políticas');
 drop view r7_rooms, r7_images;

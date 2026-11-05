@@ -17,7 +17,18 @@ export type Call = {
   payload?: Record<string, unknown>;
   columns?: string;
   filters: Array<{
-    kind: "eq" | "neq" | "is" | "in" | "not";
+    kind:
+      | "eq"
+      | "neq"
+      | "is"
+      | "in"
+      | "not"
+      | "lt"
+      | "lte"
+      | "gt"
+      | "gte"
+      | "contains"
+      | "or";
     column: string;
     value: unknown;
     operator?: string;
@@ -27,6 +38,8 @@ export type Call = {
    * `ascending: false`): el orden completo de la consulta, no solo el último.
    */
   order?: string[];
+  /** `limit()`, si se llamó. */
+  limit?: number;
   terminal: "single" | "maybeSingle" | "await";
 };
 
@@ -100,6 +113,35 @@ export function createFakeSupabase(options: {
       },
       in(column: string, value: unknown[]) {
         call.filters.push({ kind: "in", column, value });
+        return chain;
+      },
+      lt(column: string, value: unknown) {
+        call.filters.push({ kind: "lt", column, value });
+        return chain;
+      },
+      lte(column: string, value: unknown) {
+        call.filters.push({ kind: "lte", column, value });
+        return chain;
+      },
+      gt(column: string, value: unknown) {
+        call.filters.push({ kind: "gt", column, value });
+        return chain;
+      },
+      gte(column: string, value: unknown) {
+        call.filters.push({ kind: "gte", column, value });
+        return chain;
+      },
+      contains(column: string, value: unknown) {
+        call.filters.push({ kind: "contains", column, value });
+        return chain;
+      },
+      // El texto del filtro tal cual (sin columna): lo que va entre `or=(` y `)`.
+      or(value: string) {
+        call.filters.push({ kind: "or", column: "", value });
+        return chain;
+      },
+      limit(count: number) {
+        call.limit = count;
         return chain;
       },
       order(column: string, options?: { ascending?: boolean }) {
