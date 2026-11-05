@@ -190,7 +190,8 @@ select roomly_test.ok(
   'PR4: ninguna política de lectura que se aplique a anon lee owner_id de otra tabla');
 
 -- ------------------------------------------------------------
--- 5. public_profile_previews: ni anon ni PUBLIC; nadie escribe por ella
+-- 5. public_profile_previews: ni anon ni PUBLIC (sesión 71), ni authenticated
+--    (hotfix 20261014120000); nadie escribe por ella
 -- ------------------------------------------------------------
 select roomly_test.ok(
   not exists (
@@ -202,11 +203,10 @@ select roomly_test.ok(
     where c.oid = 'public.public_profile_previews'::regclass and a.grantee = 0),
   'PR5: anon y PUBLIC no tienen ningún privilegio sobre public_profile_previews');
 select roomly_test.ok(
-  has_table_privilege('authenticated', 'public.public_profile_previews', 'SELECT')
-  and not exists (
-    select 1 from unnest(array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p
+  not exists (
+    select 1 from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p
     where has_table_privilege('authenticated', 'public.public_profile_previews', p)),
-  'PR5: authenticated solo conserva SELECT (H4, decisión pendiente)');
+  'PR5: authenticated tampoco tiene ningún privilegio (hotfix 20261014120000)');
 set role anon;
 select roomly_test.login(null);
 select roomly_test.expect_error(
@@ -228,9 +228,9 @@ select roomly_test.expect_error(
 select roomly_test.expect_error(
   $$delete from public.public_profile_previews where id = '23000000-0000-0000-0000-00000000000a'$$,
   '42501', 'PR5: ni borra el perfil de otra persona');
-select roomly_test.expect_rows(
+select roomly_test.expect_error(
   $$select 1 from public.public_profile_previews where id = '23000000-0000-0000-0000-00000000000a'$$,
-  1, 'PR5: authenticated sigue leyendo la vista');
+  '42501', 'PR5: authenticated tampoco lee la vista (hotfix 20261014120000)');
 reset role;
 select roomly_test.ok(
   (select role = 'user' and full_name = 'PR U' from public.profiles
