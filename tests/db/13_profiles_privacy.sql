@@ -1,9 +1,9 @@
 -- Fase 2.9 — H4: privacidad de `profiles` (20261004120100_profiles_privacy.sql).
 -- Debe fallar si un usuario autenticado vuelve a poder leer el perfil (y su
 -- `date_of_birth`) de otra persona, si pierde el acceso a su propio perfil,
--- si un admin activo deja de leerlos todos, si anon lee alguno (tampoco por la
--- vista, desde 20261031120100), o si la vista deja de funcionar para
--- authenticated o empieza a exponer `date_of_birth`.
+-- si un admin activo deja de leerlos todos, si anon lee alguno, o si la vista
+-- pública empieza a exponer `date_of_birth` o vuelve a ser legible por anon o
+-- authenticated (hotfix 20261014120000; la escritura, en tests/db/24).
 --
 -- A y B: cuentas activas. C: cuenta eliminada. E: admin activo. F: admin con
 -- la cuenta eliminada (no es admin: `is_admin()` exige `deleted_at` nulo).
@@ -94,31 +94,40 @@ select roomly_test.expect_rows(
   0, 'PV7: anon no lee ningún perfil');
 
 -- ------------------------------------------------------------
--- 8–9. La vista sigue funcionando para authenticated y no expone
--- date_of_birth. Desde 20261031120100 (sesión 71, decisión del propietario
--- para la búsqueda pública) anon ya no la lee: antes, PV8 comprobaba que sí.
+-- 8–9. La vista pública no expone date_of_birth y, desde el hotfix
+-- 20261014120000, ningún cliente la lee.
 -- ------------------------------------------------------------
+-- Antes del hotfix, PV8 comprobaba que anon y authenticated leían la vista
+-- (H4: «datos públicos de otros»). Con `security_invoker = false` y los
+-- privilegios por defecto de Supabase, esa misma vista permitía escribir en
+-- profiles sin RLS; ningún código de la app la usa, así que el hotfix quita
+-- también la lectura y PV8 pasa a exigir el rechazo (tests/db/24 prueba la
+-- escritura). PV9 sigue: la columna no existe (42703, antes de los permisos).
 select roomly_test.expect_error(
   $$select 1 from public.public_profile_previews
     where id = 'd0000000-0000-0000-0000-00000000000b'$$,
-  '42501', 'PV8: anon no lee public_profile_previews (desde 20261031120100)');
+  '42501', 'PV8: anon ya no lee public_profile_previews (hotfix 20261014120000)');
 select roomly_test.expect_error(
   $$select date_of_birth from public.public_profile_previews$$,
   '42703', 'PV9: public_profile_previews no tiene date_of_birth (anon)');
 set role authenticated;
 select roomly_test.login('d0000000-0000-0000-0000-00000000000a');
-select roomly_test.expect_rows(
+select roomly_test.expect_error(
   $$select 1 from public.public_profile_previews
-    where id = 'd0000000-0000-0000-0000-00000000000b' and full_name = 'Privacidad B'$$,
-  1, 'PV8: A lee el nombre de B en public_profile_previews (la vía para datos de otros)');
-select roomly_test.expect_rows(
-  $$select 1 from public.public_profile_previews
-    where id = 'd0000000-0000-0000-0000-00000000000c'$$,
-  0, 'PV8: la vista sigue sin mostrar cuentas eliminadas');
+    where id = 'd0000000-0000-0000-0000-00000000000b'$$,
+  '42501', 'PV8: A tampoco lee public_profile_previews (hotfix 20261014120000)');
 select roomly_test.expect_error(
   $$select date_of_birth from public.public_profile_previews$$,
   '42703', 'PV9: public_profile_previews no tiene date_of_birth (authenticated)');
 reset role;
+select roomly_test.expect_rows(
+  $$select 1 from public.public_profile_previews
+    where id = 'd0000000-0000-0000-0000-00000000000b' and full_name = 'Privacidad B'$$,
+  1, 'PV8: la definición de la vista no cambia (su dueño ve a B)');
+select roomly_test.expect_rows(
+  $$select 1 from public.public_profile_previews
+    where id = 'd0000000-0000-0000-0000-00000000000c'$$,
+  0, 'PV8: la vista sigue sin mostrar cuentas eliminadas');
 select roomly_test.ok(
   (select array_agg(column_name::text order by column_name)
           = array['avatar_url', 'full_name', 'id', 'role']

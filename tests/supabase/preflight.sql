@@ -443,6 +443,7 @@ do $$
 declare
   failures text[] := '{}';
   col text;
+  grantee text;
 begin
   -- profiles: role y deleted_at fuera de INSERT y UPDATE para authenticated
   foreach col in array array['role', 'deleted_at'] loop
@@ -709,6 +710,22 @@ begin
   ) then
     failures := failures || 'PUBLIC puede ejecutar is_room_publicly_visible'::text;
   end if;
+  -- public_profile_previews (hotfix 20261014120000): PUBLIC, anon y
+  -- authenticated sin ningún privilegio, ni de tabla ni de columna. Es
+  -- `security_invoker = false` y actualizable: escribir por ella se saltaba
+  -- la RLS y el GRANT por columnas de profiles.
+  foreach grantee in array array['public', 'anon', 'authenticated'] loop
+    foreach col in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] loop
+      if has_table_privilege(grantee, 'public.public_profile_previews', col) then
+        failures := failures || format('%s tiene %s en public_profile_previews', grantee, col);
+      end if;
+    end loop;
+    foreach col in array array['SELECT', 'INSERT', 'UPDATE', 'REFERENCES'] loop
+      if has_any_column_privilege(grantee, 'public.public_profile_previews', col) then
+        failures := failures || format('%s tiene %s de columna en public_profile_previews', grantee, col);
+      end if;
+    end loop;
+  end loop;
 
   -- public_profile_previews (20261031120100, sesión 71): ni anon ni PUBLIC;
   -- authenticated solo SELECT. Es `security_invoker = false` y actualizable:
@@ -731,7 +748,7 @@ begin
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms y public_profile_previews sin anon ni escritura)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms y public_profile_previews sin privilegios de clientes)';
 end $$;
 
 -- ============================================================
@@ -741,6 +758,7 @@ end $$;
 do $$
 declare
   definer_views text;
+  unsafe_views text;
   mutable_fns text;
   rls_no_policy text;
 begin
@@ -753,6 +771,31 @@ begin
     and c.relname <> 'public_profile_previews';
   if definer_views is not null then
     raise exception 'FALLO P5: vistas SECURITY DEFINER no esperadas: %', definer_views;
+  end if;
+
+  -- Guardas generales de vistas (sesión 73, tras el hotfix 20261014120000),
+  -- por privilegios EFECTIVOS (directos, heredados o de PUBLIC), de tabla o
+  -- de columna, para PUBLIC, anon y authenticated:
+  --   - ninguna vista ni vista materializada les da INSERT, UPDATE, DELETE
+  --     ni TRUNCATE, aunque sea security_invoker = true (no se da por hecho
+  --     que la RLS de la tabla de debajo lo cubre);
+  --   - una vista security_invoker = false (también la aprobada) o una vista
+  --     materializada (sin RLS) no les da ningún privilegio, ni SELECT.
+  select string_agg(distinct format('%s (%s: %s)', c.relname, r.rol, p.priv), ', ')
+    into unsafe_views
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  cross join unnest(array['public', 'anon', 'authenticated']) r(rol)
+  cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p(priv)
+  where n.nspname = 'public' and c.relkind in ('v', 'm')
+    and (has_table_privilege(r.rol, c.oid, p.priv)
+         or (p.priv in ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
+             and has_any_column_privilege(r.rol, c.oid, p.priv)))
+    and (p.priv in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')
+         or c.relkind = 'm'
+         or not coalesce((select bool_or(opt ~* '^security_invoker=(true|on|yes|1)$')
+                          from unnest(c.reloptions) opt), false));
+  if unsafe_views is not null then
+    raise exception 'FALLO P5: vistas con privilegios de clientes indebidos: %', unsafe_views;
   end if;
 
   -- function_search_path_mutable: toda función PROPIA de public debe fijar
@@ -779,7 +822,7 @@ begin
     raise exception 'FALLO P5: tablas con RLS y sin políticas: %', rls_no_policy;
   end if;
 
-  raise notice 'P5 info - vista SECURITY DEFINER conocida y aceptada por ahora: public_profile_previews (H3)';
+  raise notice 'P5 info - vista SECURITY DEFINER conocida y aceptada por ahora: public_profile_previews (H3), sin privilegios de clientes desde el hotfix 20261014120000 (P4)';
   raise notice 'ok - P5: sin lints de seguridad inesperados';
 end $$;
 
