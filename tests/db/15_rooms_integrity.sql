@@ -14,10 +14,20 @@
 -- en el INSERT de authenticated) y, para estar `active`, necesita barrio y
 -- ocupación: el test crea borradores completos y los publica con un UPDATE.
 --
+-- Desde la 4.2 (20261024120000) las fotos solo las escribe el servidor
+-- (service_role), con la ruta canónica room_id/id.webp: ningún cliente tiene
+-- INSERT, UPDATE ni DELETE en room_images (el detalle, en tests/db/19). Aquí
+-- se comprueba que eso también vale para la propietaria con la cuenta activa,
+-- para otro usuario y para una cuenta desactivada, y que el servidor tampoco
+-- añade fotos a una habitación retirada o de una cuenta desactivada. Y con R7
+-- (tests/db/20), la habitación activa de una cuenta desactivada ya no es
+-- pública (RL1).
+--
 -- Por qué las negativas fallan por permisos y no por otra cosa:
 --   - authenticated tiene INSERT, UPDATE y DELETE sobre las columnas que usa
---     este test en las tres tablas (RI0; en `rooms`, por columnas desde la
---     4.1), así que su 42501 al insertar es la política (RLS), no el GRANT.
+--     este test en rooms y room_addresses (RI0; en `rooms`, por columnas desde
+--     la 4.1), así que su 42501 al insertar es la política (RLS), no el GRANT.
+--     En room_images, desde la 4.2, el 42501 es del GRANT (RI0 lo comprueba);
 --     anon no tiene INSERT en `rooms` desde la 4.1: su 42501 (RI3) es del
 --     GRANT, y antes lo era de la RLS; en los dos casos anon no escribe;
 --   - cada INSERT rechazado se repite después con los mismos datos y entra
@@ -60,20 +70,25 @@ select roomly_test.ok(
                      'available_from', 'total_roommates', 'total_rooms']) as c)
   and (select bool_and(has_column_privilege('authenticated', 'public.rooms', c, 'UPDATE'))
        from unnest(array['title', 'price_month', 'status']) as c)
-  and has_table_privilege('authenticated', 'public.rooms', 'DELETE')
   and has_table_privilege('authenticated', 'public.room_addresses', 'INSERT')
   and has_table_privilege('authenticated', 'public.room_addresses', 'UPDATE')
-  and has_table_privilege('authenticated', 'public.room_addresses', 'DELETE')
-  and has_table_privilege('authenticated', 'public.room_images', 'INSERT')
-  and has_table_privilege('authenticated', 'public.room_images', 'UPDATE')
-  and has_table_privilege('authenticated', 'public.room_images', 'DELETE'),
-  'RI0: authenticated conserva INSERT, UPDATE y DELETE de lo que usa el test: un rechazo es de la RLS, no del GRANT');
+  and has_table_privilege('authenticated', 'public.room_addresses', 'DELETE'),
+  'RI0: authenticated conserva INSERT y UPDATE de lo que usa el test en rooms, y los tres en room_addresses: un rechazo es de la RLS, no del GRANT');
+select roomly_test.ok(
+  not has_table_privilege('authenticated', 'public.rooms', 'DELETE'),
+  'RI0: desde 20261030120000, authenticated no borra rooms: lo hace el servidor (tests/db/21)');
+select roomly_test.ok(
+  has_table_privilege('authenticated', 'public.room_images', 'SELECT')
+  and not has_table_privilege('authenticated', 'public.room_images', 'INSERT')
+  and not has_table_privilege('authenticated', 'public.room_images', 'UPDATE')
+  and not has_table_privilege('authenticated', 'public.room_images', 'DELETE'),
+  'RI0: desde la 4.2, en room_images authenticated solo lee: sus rechazos al escribir son del GRANT');
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'rooms')
-  = array['rooms_admin_all:ALL', 'rooms_delete_own:DELETE', 'rooms_insert_own:INSERT',
+  = array['rooms_admin_all:ALL', 'rooms_insert_own:INSERT',
           'rooms_select_active_public:SELECT', 'rooms_select_own:SELECT', 'rooms_update_own:UPDATE'],
-  'RI0: rooms tiene sus 6 políticas (sin rooms_owner_write)');
+  'RI0: rooms tiene sus 5 políticas (sin rooms_owner_write; sin rooms_delete_own desde 20261030120000)');
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'room_addresses')
@@ -83,9 +98,8 @@ select roomly_test.ok(
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'room_images')
-  = array['room_images_delete_own:DELETE', 'room_images_insert_own:INSERT',
-          'room_images_select:SELECT', 'room_images_update_own:UPDATE'],
-  'RI0: room_images tiene sus 4 políticas (sin room_images_owner_write)');
+  = array['room_images_admin_select:SELECT', 'room_images_select:SELECT'],
+  'RI0: room_images tiene sus 2 políticas de lectura (desde la 4.2, sin las de escritura)');
 select roomly_test.ok(
   not exists (
     select 1 from pg_policies
@@ -122,7 +136,7 @@ select roomly_test.ok(
        from pg_policies
        where schemaname = 'public' and tablename = 'room_addresses'
          and policyname = 'room_addresses_select_own'),
-  'RI0: la lectura no mira la cuenta: ninguna política SELECT consulta profiles');
+  'RI0: la lectura propia no mira la cuenta: ninguna política SELECT consulta profiles (R7 lo hace dentro de is_room_publicly_visible, solo para la pública)');
 
 -- ------------------------------------------------------------
 -- 1. Un propietario activo escribe con normalidad.
@@ -160,21 +174,43 @@ select roomly_test.expect_affected(
   $$update public.room_addresses set address_exact = 'Carrer Exacte de A, 1, 2º'
     where room_id = '15100000-0000-0000-0000-00000000000a'$$,
   1, 'RI1: la corrige');
+-- Las fotos, desde la 4.2, solo las escribe el servidor.
+select roomly_test.expect_error(
+  $$insert into public.room_images (id, room_id, storage_path, position) values
+      ('15200000-0000-0000-0000-00000000000a', '15100000-0000-0000-0000-00000000000a',
+       '15100000-0000-0000-0000-00000000000a/15200000-0000-0000-0000-00000000000a.webp', 0)$$,
+  '42501', 'RI1: pero ya no añade fotos desde el cliente (4.2)');
+reset role;
+set role service_role;
 select roomly_test.expect_affected(
   $$insert into public.room_images (id, room_id, storage_path, position) values
-      ('15200000-0000-0000-0000-00000000000a', '15100000-0000-0000-0000-00000000000a', 'rooms/a/1.jpg', 0),
-      ('15200000-0000-0000-0000-0000000000a2', '15100000-0000-0000-0000-00000000000a', 'rooms/a/2.jpg', 1)$$,
-  2, 'RI1: añade dos imágenes');
+      ('15200000-0000-0000-0000-00000000000a', '15100000-0000-0000-0000-00000000000a',
+       '15100000-0000-0000-0000-00000000000a/15200000-0000-0000-0000-00000000000a.webp', 0),
+      ('15200000-0000-0000-0000-0000000000a2', '15100000-0000-0000-0000-00000000000a',
+       '15100000-0000-0000-0000-00000000000a/15200000-0000-0000-0000-0000000000a2.webp', 1)$$,
+  2, 'RI1: el servidor le añade dos fotos (los mismos datos: el rechazo era del GRANT)');
 select roomly_test.expect_affected(
   $$update public.room_images set position = 5
     where id = '15200000-0000-0000-0000-0000000000a2'$$,
-  1, 'RI1: reordena una imagen');
+  1, 'RI1: reordena una');
 select roomly_test.expect_affected(
   $$delete from public.room_images where id = '15200000-0000-0000-0000-0000000000a2'$$,
-  1, 'RI1: borra una imagen');
-select roomly_test.expect_affected(
+  1, 'RI1: y borra otra');
+reset role;
+set role authenticated;
+select roomly_test.login('15000000-0000-0000-0000-00000000000a');
+-- Desde 20261030120000 el borrado lo hace el servidor (tests/db/21).
+select roomly_test.expect_denied(
   $$delete from public.rooms where id = '15100000-0000-0000-0000-0000000000a2'$$,
-  1, 'RI1: borra su borrador');
+  'RI1: ya no borra su borrador desde el cliente (sin DELETE)');
+reset role;
+set role service_role;
+select roomly_test.ok(
+  public.delete_own_room('15100000-0000-0000-0000-0000000000a2', '15000000-0000-0000-0000-00000000000a') = '{}',
+  'RI1: el servidor borra su borrador (sin fotos)');
+reset role;
+set role authenticated;
+select roomly_test.login('15000000-0000-0000-0000-00000000000a');
 select roomly_test.expect_affected(
   $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
     select '15100000-0000-0000-0000-0000000000a3', '15000000-0000-0000-0000-00000000000a',
@@ -196,9 +232,9 @@ select roomly_test.expect_affected(
   $$update public.rooms set title = 'Suplantada', price_month = 1
     where id = '15100000-0000-0000-0000-00000000000a'$$,
   0, 'RI2: aun viéndola, B NO edita la habitación de A');
-select roomly_test.expect_affected(
+select roomly_test.expect_denied(
   $$delete from public.rooms where id = '15100000-0000-0000-0000-00000000000a'$$,
-  0, 'RI2: ni la borra');
+  'RI2: ni la borra (desde 20261030120000, ningún cliente tiene DELETE)');
 select roomly_test.expect_error(
   $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
     select '15100000-0000-0000-0000-0000000000b1', '15000000-0000-0000-0000-00000000000a',
@@ -208,24 +244,25 @@ select roomly_test.expect_error(
 select roomly_test.expect_rows(
   $$select 1 from public.room_images where id = '15200000-0000-0000-0000-00000000000a'$$,
   1, 'RI2: B ve la imagen de la habitación activa de A');
-select roomly_test.expect_affected(
+select roomly_test.expect_error(
   $$update public.room_images set storage_path = 'rooms/b/suplantada.jpg'
     where id = '15200000-0000-0000-0000-00000000000a'$$,
-  0, 'RI2: aun viéndola, B NO cambia la imagen de A');
-select roomly_test.expect_affected(
+  '42501', 'RI2: aun viéndola, B NO cambia la imagen de A (desde la 4.2, sin UPDATE)');
+select roomly_test.expect_error(
   $$delete from public.room_images where id = '15200000-0000-0000-0000-00000000000a'$$,
-  0, 'RI2: ni la borra');
+  '42501', 'RI2: ni la borra');
 select roomly_test.expect_error(
   $$insert into public.room_images (id, room_id, storage_path, position)
-    values ('15200000-0000-0000-0000-0000000000b1', '15100000-0000-0000-0000-00000000000a', 'rooms/b/1.jpg', 9)$$,
+    values ('15200000-0000-0000-0000-0000000000b1', '15100000-0000-0000-0000-00000000000a',
+            '15100000-0000-0000-0000-00000000000a/15200000-0000-0000-0000-0000000000b1.webp', 2)$$,
   '42501', 'RI2: ni añade imágenes a la habitación de A');
 select roomly_test.expect_error(
   $$insert into public.room_addresses (room_id, address_exact)
     values ('15100000-0000-0000-0000-0000000000a3', 'Dirección inventada por B')$$,
   '42501', 'RI2: ni pone la dirección del borrador de A');
 
--- Control: los mismos INSERT entran si los hace la dueña, así que los
--- rechazos de B no venían de los datos.
+-- Control: los mismos INSERT entran si los hace la dueña (la foto, el
+-- servidor), así que los rechazos de B no venían de los datos.
 select roomly_test.login('15000000-0000-0000-0000-00000000000a');
 select roomly_test.expect_affected(
   $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
@@ -234,13 +271,18 @@ select roomly_test.expect_affected(
     from public.cities c where c.slug = 'barcelona'$$,
   1, 'RI2-control: A sí crea esa habitación');
 select roomly_test.expect_affected(
-  $$insert into public.room_images (id, room_id, storage_path, position)
-    values ('15200000-0000-0000-0000-0000000000b1', '15100000-0000-0000-0000-00000000000a', 'rooms/b/1.jpg', 9)$$,
-  1, 'RI2-control: esa imagen');
-select roomly_test.expect_affected(
   $$insert into public.room_addresses (room_id, address_exact)
     values ('15100000-0000-0000-0000-0000000000a3', 'Dirección inventada por B')$$,
   1, 'RI2-control: y esa dirección');
+reset role;
+set role service_role;
+select roomly_test.expect_affected(
+  $$insert into public.room_images (id, room_id, storage_path, position)
+    values ('15200000-0000-0000-0000-0000000000b1', '15100000-0000-0000-0000-00000000000a',
+            '15100000-0000-0000-0000-00000000000a/15200000-0000-0000-0000-0000000000b1.webp', 2)$$,
+  1, 'RI2-control: y esa imagen, como servidor');
+reset role;
+set role authenticated;
 select roomly_test.login('15000000-0000-0000-0000-00000000000b');
 
 -- La dirección exacta: ni B ni anon la leen, aunque conozcan el room_id.
@@ -308,7 +350,7 @@ select roomly_test.ok(
    from public.rooms where id = '15100000-0000-0000-0000-00000000000a')
   and (select address_exact = 'Carrer Exacte de A, 1, 2º'
        from public.room_addresses where room_id = '15100000-0000-0000-0000-00000000000a')
-  and (select storage_path = 'rooms/a/1.jpg'
+  and (select storage_path = '15100000-0000-0000-0000-00000000000a/15200000-0000-0000-0000-00000000000a.webp'
        from public.room_images where id = '15200000-0000-0000-0000-00000000000a'),
   'RI4: la habitación, la dirección y la imagen de A siguen intactas');
 
@@ -336,10 +378,13 @@ select roomly_test.expect_affected(
   $$insert into public.room_addresses (room_id, address_exact)
     values ('15100000-0000-0000-0000-00000000000d', 'Carrer Exacte de D, 4')$$,
   1, 'RD0: con dirección (la segunda, sin ella)');
+reset role;
+set role service_role;
 select roomly_test.expect_affected(
   $$insert into public.room_images (id, room_id, storage_path, position)
-    values ('15200000-0000-0000-0000-00000000000d', '15100000-0000-0000-0000-00000000000d', 'rooms/d/1.jpg', 0)$$,
-  1, 'RD0: y una imagen');
+    values ('15200000-0000-0000-0000-00000000000d', '15100000-0000-0000-0000-00000000000d',
+            '15100000-0000-0000-0000-00000000000d/15200000-0000-0000-0000-00000000000d.webp', 0)$$,
+  1, 'RD0: y el servidor le añade una imagen');
 
 reset role;
 update public.profiles set deleted_at = now()
@@ -370,9 +415,9 @@ select roomly_test.expect_error(
   $$update public.rooms set deleted_at = now()
     where id = '15100000-0000-0000-0000-00000000000d'$$,
   '42501', 'RD2: ni la retira con un borrado lógico (desde la 4.1, fuera del GRANT)');
-select roomly_test.expect_affected(
+select roomly_test.expect_denied(
   $$delete from public.rooms where id = '15100000-0000-0000-0000-00000000000d'$$,
-  0, 'RD2: ni la borra');
+  'RD2: ni la borra (sin DELETE; y el servidor tampoco, por account_deleted: tests/db/21)');
 select roomly_test.expect_error(
   $$insert into public.rooms (id, owner_id, title, city_id, price_month, available_from)
     select '15100000-0000-0000-0000-0000000000d3', '15000000-0000-0000-0000-00000000000d',
@@ -393,16 +438,17 @@ select roomly_test.expect_error(
     values ('15100000-0000-0000-0000-0000000000d2', 'Carrer Exacte de D, 6')$$,
   '42501', 'RD3: ni crea la de su segunda habitación');
 
-select roomly_test.expect_affected(
+select roomly_test.expect_error(
   $$update public.room_images set position = 3
     where id = '15200000-0000-0000-0000-00000000000d'$$,
-  0, 'RD4: NO reordena su imagen');
-select roomly_test.expect_affected(
+  '42501', 'RD4: NO reordena su imagen (desde la 4.2, ningún cliente)');
+select roomly_test.expect_error(
   $$delete from public.room_images where id = '15200000-0000-0000-0000-00000000000d'$$,
-  0, 'RD4: ni la borra');
+  '42501', 'RD4: ni la borra');
 select roomly_test.expect_error(
   $$insert into public.room_images (id, room_id, storage_path, position)
-    values ('15200000-0000-0000-0000-0000000000d2', '15100000-0000-0000-0000-00000000000d', 'rooms/d/2.jpg', 1)$$,
+    values ('15200000-0000-0000-0000-0000000000d2', '15100000-0000-0000-0000-00000000000d',
+            '15100000-0000-0000-0000-00000000000d/15200000-0000-0000-0000-0000000000d2.webp', 1)$$,
   '42501', 'RD4: ni añade otra');
 
 reset role;
@@ -457,17 +503,25 @@ select roomly_test.expect_affected(
   $$insert into public.room_addresses (room_id, address_exact)
     values ('15100000-0000-0000-0000-0000000000d2', 'Carrer Exacte de D, 6')$$,
   1, 'RX2: y la dirección que D no pudo crear');
-select roomly_test.expect_affected(
+-- La foto no: desde la 4.2, el trigger de room_images frena también al
+-- servidor (la habitación está retirada desde RX1, y la cuenta, desactivada).
+select roomly_test.expect_error_prefix(
   $$insert into public.room_images (id, room_id, storage_path, position)
-    values ('15200000-0000-0000-0000-0000000000d2', '15100000-0000-0000-0000-00000000000d', 'rooms/d/2.jpg', 1)$$,
-  1, 'RX2: y la imagen que D no pudo añadir');
+    values ('15200000-0000-0000-0000-0000000000d2', '15100000-0000-0000-0000-00000000000d',
+            '15100000-0000-0000-0000-00000000000d/15200000-0000-0000-0000-0000000000d2.webp', 1)$$,
+  '23514', 'room_not_writable:', 'RX2: pero no la imagen que D no pudo añadir: la habitación está retirada (4.2)');
 select roomly_test.expect_affected(
   $$update public.rooms set status = 'paused'
     where id = '15100000-0000-0000-0000-00000000000d'$$,
   1, 'RX3: service_role sigue escribiendo habitaciones de una cuenta desactivada');
+select roomly_test.expect_error_prefix(
+  $$insert into public.room_images (id, room_id, storage_path, position)
+    values ('15200000-0000-0000-0000-0000000000d2', '15100000-0000-0000-0000-00000000000d',
+            '15100000-0000-0000-0000-00000000000d/15200000-0000-0000-0000-0000000000d2.webp', 1)$$,
+  '23514', 'account_deleted:', 'RX3: ni ya pausada: la cuenta de D está desactivada (4.2)');
 select roomly_test.expect_affected(
-  $$delete from public.room_images where id = '15200000-0000-0000-0000-0000000000d2'$$,
-  1, 'RX3: y borrando sus imágenes');
+  $$delete from public.room_images where id = '15200000-0000-0000-0000-00000000000d'$$,
+  1, 'RX3: pero sí borra sus imágenes');
 
 -- ------------------------------------------------------------
 -- 5. Lectura sin cambios.
@@ -477,7 +531,12 @@ set role anon;
 select roomly_test.login(null);
 select roomly_test.expect_rows(
   $$select 1 from public.rooms where id = '15100000-0000-0000-0000-0000000000d2'$$,
-  1, 'RL1: una habitación activa de una cuenta desactivada sigue siendo pública (ocultarla es R7, pendiente)');
+  0, 'RL1: desde la 4.2 (R7), una habitación activa de una cuenta desactivada ya no es pública');
+reset role;
+select roomly_test.ok(
+  (select status = 'active' and deleted_at is null
+   from public.rooms where id = '15100000-0000-0000-0000-0000000000d2'),
+  'RL1: sin cambiar sus datos: sigue activa');
 reset role;
 set role authenticated;
 select roomly_test.login('15000000-0000-0000-0000-00000000000b');
@@ -495,7 +554,9 @@ select roomly_test.expect_rows(
 -- 6. Control negativo: con la condición de antes de la 4.0 (solo propiedad),
 --    D volvería a escribir. Se añade de forma temporal, una por tabla, y se
 --    deshace: las aserciones de 0 filas y de 42501 de arriba dependen de la
---    comprobación de cuenta activa, no de otra cosa.
+--    comprobación de cuenta activa, no de otra cosa. (room_images ya no
+--    entra: desde la 4.2 su barrera es el GRANT y el trigger, que tests/db/19
+--    controla por separado.)
 -- ------------------------------------------------------------
 reset role;
 begin;
@@ -506,10 +567,6 @@ create policy "zz_test_addresses_delete_sin_cuenta" on public.room_addresses
   for delete to authenticated
   using (exists (select 1 from public.rooms r
                  where r.id = room_addresses.room_id and r.owner_id = auth.uid()));
-create policy "zz_test_images_insert_sin_cuenta" on public.room_images
-  for insert to authenticated
-  with check (exists (select 1 from public.rooms r
-                      where r.id = room_images.room_id and r.owner_id = auth.uid()));
 set role authenticated;
 select roomly_test.login('15000000-0000-0000-0000-00000000000d');
 select roomly_test.expect_affected(
@@ -519,11 +576,7 @@ select roomly_test.expect_affected(
 select roomly_test.expect_affected(
   $$delete from public.room_addresses
     where room_id = '15100000-0000-0000-0000-0000000000d2'$$,
-  1, 'RI9: a borrar su dirección');
-select roomly_test.expect_affected(
-  $$insert into public.room_images (id, room_id, storage_path, position)
-    values ('15200000-0000-0000-0000-0000000000d3', '15100000-0000-0000-0000-0000000000d2', 'rooms/d/3.jpg', 0)$$,
-  1, 'RI9: y a añadir imágenes');
+  1, 'RI9: y a borrar su dirección');
 rollback;
 reset role;
 
@@ -535,11 +588,9 @@ select roomly_test.ok(
   (select title = 'Segunda de D' from public.rooms
    where id = '15100000-0000-0000-0000-0000000000d2')
   and exists (select 1 from public.room_addresses
-              where room_id = '15100000-0000-0000-0000-0000000000d2')
-  and not exists (select 1 from public.room_images
-                  where id = '15200000-0000-0000-0000-0000000000d3'),
+              where room_id = '15100000-0000-0000-0000-0000000000d2'),
   'RI9: y lo que hicieron se deshizo');
 select roomly_test.ok(
-  (select count(*) = 14 from pg_policies
+  (select count(*) = 11 from pg_policies
    where schemaname = 'public' and tablename in ('rooms', 'room_addresses', 'room_images')),
-  'RI9: rooms, room_addresses y room_images siguen con sus 14 políticas');
+  'RI9: rooms, room_addresses y room_images siguen con sus 11 políticas (14 hasta la 4.2; 12 hasta quitar rooms_delete_own)');

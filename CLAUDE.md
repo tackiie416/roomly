@@ -269,9 +269,57 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - R7 sobre `status`: opción A del propietario (la propietaria lo cambia
       entre `draft`, `active`, `paused` y `rented`; `removed` es del admin),
       fijada por `tests/db/17`.
-  - Siguen pendientes R3, R4, R5, la visibilidad de R7 y el resto de R2. De
-    R8 quedan los pendientes posteriores al run 21 (abajo). Cada subfase
-    necesita su autorización (`docs/ROADMAP.md`, Fase 4).
+  - Siguen pendientes R3, R4 y el resto de R2. R5 y la visibilidad de R7
+    están en la 4.2, solo en local (abajo). De R8 quedan los pendientes
+    posteriores al run 21 (abajo). Cada subfase necesita su autorización
+    (`docs/ROADMAP.md`, Fase 4).
+  - **4.2 (fotos en Storage, limpieza de metadatos y R7): reconstruida en
+    local el 2026-10-29**, en la rama `feature/phase4-2-rebuild` (desde
+    `9391015`, la punta del PR #27), con commits locales **sin publicar**. La
+    implementación original se perdió con el contenedor sin haberse
+    publicado (`PROGRESS.md`, sesión 63).
+    - Migraciones `20261024120000` (R7, `room_images` solo del servidor,
+      ruta `room_id/id.webp`, 8 fotos, bucket) y `20261025120000` (bucket
+      privado, L6_N2): 42 políticas, 14 triggers y 13 funciones (41 y 14
+      funciones desde `20261030120000`, sesión 65, abajo);
+    - `lib/services/room-images.ts` (tercer servicio con service_role, URL
+      firmadas de 600 s), `lib/images/sanitize-room-image.ts` (sharp 0.35.5,
+      N1 y L3) y `lib/validation/room-images.ts`;
+    - R8 comprueba su llegada con la copia congelada
+      `tests/supabase/phase4-final-preflight.sql`: el preflight vigente ya es
+      el de la 4.2 y **fallaría contra `roomly-validation-3`**, que sigue en
+      la 4.1;
+    - **cierre local (sesión 64, autorizado por el propietario)**, también en
+      commits locales sin publicar:
+      - dependencias: sharp 0.35.5, next 16.4.3 y zod 4.6.7, entre otras;
+        `npm audit` sin alertas (`docs/SECURITY.md`, «Dependencias»);
+      - Server Actions `app/actions/room-images.ts` (subir y quitar fotos) y
+        `app/actions/rooms.ts` (borrar una habitación), y
+        `serverActions.bodySizeLimit` de 5 MB en `next.config.ts`;
+      - borrado seguro de habitaciones: `lib/services/rooms.ts` y
+        `removeDeletedRoomObjects`, que limpia y verifica Storage. Si quedan
+        objetos, el resultado lo dice;
+      - interfaz mínima: `/habitaciones/[id]/fotos`, `/habitaciones/[id]/borrar`
+        y `/habitaciones/borrada`. Sin CRUD de habitaciones;
+    - **endurecimiento del borrado (sesión 65, autorizado por el
+      propietario)**, también en commits locales sin publicar:
+      - migración `20261030120000`: los clientes ya no pueden borrar `rooms`
+        (sin DELETE ni TRUNCATE, sin `rooms_delete_own`). La app borra con
+        `delete_own_room` (SECURITY INVOKER, solo service_role), que
+        comprueba la cuenta y la propiedad, bloquea la habitación, valida las
+        rutas y las devuelve. `lib/services/rooms.ts` es el cuarto servicio
+        con service_role, solo para esa función;
+      - la cascada desde `profiles` y `auth.users` sigue sin limpiar Storage
+        (no hay borrado de cuenta, H6): riesgo residual aceptado por el
+        propietario el 2026-10-30. La conciliación la detecta, pero no borra;
+      - el cuerpo real de una subida de 4 MiB, medido en local con la Server
+        Action: 4 195 232 bytes. Se conserva la subida por Server Action.
+        **No está comprobado en Vercel ni en Netlify**;
+    - en local: `test` 1302, `test:db` 812, `test:infra` 377 y E1 41/41
+      (orientativo). **Sin validar en Supabase real, con la API de Storage
+      real ni en la CI**, ni en un despliegue;
+    - publicar la rama y validarla (D2, en un proyecto aislado) necesitan la
+      decisión o la autorización del propietario.
   - R8 (decisión del 2026-10-17: antes de decidir el merge del PR #26): la
     herramienta `tests/supabase/phase4-upgrade.sh` (entrada `phase4_upgrade`
     del workflow, `dry_run` y `apply`), probada en local, se ejecutó contra
@@ -390,7 +438,7 @@ npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (v
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
 npm run test:e2e:real         # E2: alta real contra roomly-validation-3 (solo desde el workflow manual)
-npm run test:infra            # auto-tests de guarda, runner SQL, preflight, actualización, R8, propuesta de privilegios por defecto y runbook del incidente, contra PostgreSQL local
+npm run test:infra            # auto-tests de guarda, runner SQL, preflight, actualización, R8, conciliación de fotos (4.2), propuesta de privilegios por defecto y runbook del incidente, contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
 ```
@@ -508,10 +556,15 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
     bloqueo de cuentas eliminadas **también a service_role**: el bloqueo
     RLS de cuentas eliminadas no le afecta, por BYPASSRLS.
   - No reabras la escritura de `authenticated`.
-- **service_role solo en dos servicios** (Fase 3, D17):
-  `lib/services/matching.ts` (lectura cruzada de candidatos, columnas
-  explícitas, `CandidateDTO` con lista blanca) y
-  `lib/services/compatibility.ts` (escritura del test).
+- **service_role solo en cuatro servicios** (Fase 3, D17; ampliada en la 4.2
+  y en la sesión 65): `lib/services/matching.ts` (lectura cruzada de
+  candidatos, columnas explícitas, `CandidateDTO` con lista blanca),
+  `lib/services/compatibility.ts` (escritura del test), desde la 4.2
+  `lib/services/room-images.ts` (escritura de fotos en Storage y en
+  `room_images`, y firma de URL de las filas que el usuario acaba de leer) y,
+  desde la sesión 65, `lib/services/rooms.ts` (solo
+  `rpc("delete_own_room")`, después de comprobar la sesión, la cuenta y la
+  propiedad con el cliente del usuario).
   - `tests/unit/admin-client-usage.test.ts` falla si otro archivo lo usa.
   - El estado propio se lee siempre con el cliente del usuario.
   - Las respuestas y `categoryScores` nunca salen del servidor.
@@ -533,6 +586,36 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
     el trigger de moderación (H5) y `chk_rooms_publishable`.
   - No lo reviertas ni añadas una operación privilegiada para `status` sin
     una decisión explícita (afecta a D17).
+- `room_images` y Storage (Fase 4.2, solo en local): ningún cliente escribe
+  fotos (sin políticas de escritura ni GRANT en `room_images`, y ninguna
+  política en `storage.objects`). El bucket `room-images` es privado y las
+  fotos se sirven con URL firmadas. El trigger `trg_room_images_integrity`
+  aplica la ruta, el límite de 8, las habitaciones retiradas o eliminadas y
+  las cuentas desactivadas **también a service_role**. No abras la escritura
+  de clientes ni hagas público el bucket sin una decisión explícita.
+  - Borrado de habitaciones (sesiones 64 y 65): desde `20261030120000`,
+    `anon`, `authenticated` y PUBLIC no tienen DELETE ni TRUNCATE sobre
+    `rooms`. La app solo borra con `deleteOwnRoom` → `delete_own_room`
+    (EXECUTE solo de service_role, SECURITY INVOKER), que comprueba la cuenta
+    y la propiedad con la habitación bloqueada y devuelve las rutas de sus
+    fotos. `removeDeletedRoomObjects` borra solo esas rutas, si son
+    canónicas y la habitación ya no existe, y nunca informa de una limpieza
+    completa sin verificarla. No devuelvas DELETE a los clientes ni hagas la
+    función SECURITY DEFINER o llamable por ellos sin una decisión explícita
+    (`docs/SECURITY.md`, «Borrado de habitaciones»).
+  - La cascada desde `profiles` (borrar una cuenta en Auth, o un perfil como
+    admin o service_role) borra habitaciones y filas de fotos sin limpiar
+    Storage. Es un **riesgo residual aceptado** por el propietario
+    (2026-10-30), una limitación conocida y no una protección: la
+    conciliación detecta los objetos huérfanos, pero es de solo lectura y no
+    los borra. No añadas triggers que llamen a Storage desde PostgreSQL ni
+    amplíes `service_role` para este caso.
+  - Si algún día se implementa el borrado de cuenta (H6), tendrá que limpiar
+    y verificar los objetos de Storage de las habitaciones de la cuenta
+    **antes** de eliminar el perfil o de dejar que se produzca la cascada
+    (`docs/SECURITY.md`, «Cascadas desde profiles y Auth»). Esto es un
+    requisito de diseño, no una autorización: H6 sigue fuera del alcance
+    actual y necesita su propia decisión.
 - Las políticas del chat usan `public.is_conversation_participant()`
   (`SECURITY DEFINER`, sin parámetro de usuario). Nunca escribas una
   subconsulta de RLS con columnas sin cualificar: Postgres resuelve el
@@ -561,7 +644,12 @@ en `roomly-validation-3`, runs 16 y 18. Los servicios del servidor (SVC/GC)
 se validaron en el run 19, sin el runtime completo de Next.js
 (`docs/SUPABASE_VALIDATION.md`). Las migraciones de la Fase 4 se aplicaron
 en ese mismo proyecto con R8 en el run 21 (`apply`), seguido del preflight,
-la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. E2E: E1
+la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. La 4.2 (`tests/db/19`,
+`20`, `21`, `concurrency_room_images.sh` y `concurrency_room_delete.sh`, el
+preflight de la 4.2 y la conciliación) solo se ha probado en local, y el
+tamaño de la subida, con E1 (`upload-size.spec.ts`); sus Server Actions, la interfaz y
+el borrado, con tests unitarios y E1 (`room-photos.spec.ts`, contra el
+Storage simulado del mock). E2E: E1
 (`npm run test:e2e`, Supabase simulado; desde el PR #19 incluye D1 sobre el
 build de E1) corre en local y
 en CI; el entorno cloud de Claude Code no puede descargar el navegador de
@@ -601,8 +689,11 @@ candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta
 api-suite (D6 = B), y desde el run 19 también los servicios
 `saveQuestionnaireAnswers` y `getCandidates` (SVC/GC). El runtime completo
 de Next.js con la clave real no está validado.
-Todavía no hay habitaciones, intereses («Me interesa», Fase 5), «Ver
-perfil» de terceros, chat ni admin real.
+Todavía no hay CRUD de habitaciones (crearlas y editarlas), intereses («Me
+interesa», Fase 5), «Ver perfil» de terceros, chat ni admin real. De la 4.2,
+en local y sin publicar: la gestión de fotos de una habitación propia y su
+borrado seguro, solo desde el servidor (sesiones 64 y 65), sin validar en
+real.
 
 ## Funcionalidades pendientes
 
@@ -637,3 +728,21 @@ borrado de cuenta (H6).
   antes del primer despliegue.
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.
+- Fase 4.2 (reconstruida en local, sin publicar): cuándo se publica la rama
+  y cómo se valida (D2, un proyecto aislado); y la documentación de los runs
+  23 y 24, que estaba en el stash perdido y no se ha recuperado
+  (`PROGRESS.md`, sesión 63).
+  - Estrategia de publicación definida por el propietario (2026-10-30),
+    **sin ejecutar** (`PROGRESS.md`, sesión 67):
+    - rama remota nueva `feature/phase4-2-rebuild`;
+    - PR apilado contra `claude/phase4-r8-upgrade-tool` (el PR #27), no
+      contra `master`, para que su diff tenga solo los commits de la 4.2 y
+      no los 16 heredados de los PR #26 y #27.
+  - El push, la rama remota y el PR necesitan una autorización separada.
+- Desde la sesión 65 (el DELETE directo de `rooms` ya está cerrado, con
+  `20261030120000`):
+  - repetir en un despliegue (staging) la medición del cuerpo de una subida
+    de 4 MiB: en local son 4 195 232 bytes. El límite de Vercel o Netlify no
+    se ha podido consultar ni comprobar. Si fuera menor, bajar
+    `ROOM_IMAGE_MAX_BYTES` (R5) o cambiar de modelo de subida
+    (`docs/SECURITY.md`, «Tamaño real de la subida»).

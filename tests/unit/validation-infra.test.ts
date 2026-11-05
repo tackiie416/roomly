@@ -6,6 +6,13 @@ import {
   ROOM_FEATURE_KEYS,
   ROOM_PUBLICATION_REQUIRED_FIELDS,
 } from "@/lib/validation/rooms";
+import {
+  ROOM_IMAGE_MAX_COUNT,
+  ROOM_IMAGE_STORED_TYPE,
+  ROOM_IMAGES_BUCKET,
+  ROOM_IMAGES_BUCKET_MAX_BYTES,
+  roomImageStoragePath,
+} from "@/lib/validation/room-images";
 
 // Fase 2.8 — coherencia de la infraestructura de validación, sin red:
 //   - identidad roomly-validation-3 en todos los puntos de entrada (Fase 3:
@@ -170,15 +177,15 @@ function preflightValues(block: RegExp) {
 describe("preflight.sql: lista exacta derivada de las migraciones", () => {
   const derived = fromMigrations();
 
-  it("44 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
+  it("41 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
     const expected = preflightValues(
       /-- P3[\s\S]*?with expected\(tablename, policyname, cmd\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.policies.size).toBe(44);
+    expect(derived.policies.size).toBe(41);
     expect([...expected].sort()).toEqual([...derived.policies].sort());
   });
 
-  it("rooms, room_addresses y room_images: las políticas por comando de 20261013120000, sin las antiguas FOR ALL", () => {
+  it("rooms, room_addresses y room_images: las políticas por comando de 20261013120000, sin las antiguas FOR ALL, room_images solo de lectura desde 20261024120000 y rooms sin rooms_delete_own desde 20261030120000", () => {
     const rooms = [...derived.policies].filter((p) =>
       /^room(s|_addresses|_images)\./.test(p)
     );
@@ -187,17 +194,66 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
       "room_addresses.room_addresses_insert_own",
       "room_addresses.room_addresses_select_own",
       "room_addresses.room_addresses_update_own",
-      "room_images.room_images_delete_own",
-      "room_images.room_images_insert_own",
+      "room_images.room_images_admin_select",
       "room_images.room_images_select",
-      "room_images.room_images_update_own",
       "rooms.rooms_admin_all",
-      "rooms.rooms_delete_own",
       "rooms.rooms_insert_own",
       "rooms.rooms_select_active_public",
       "rooms.rooms_select_own",
       "rooms.rooms_update_own",
     ]);
+  });
+
+  it("20261030120000: sin borrado directo de clientes y delete_own_room solo para service_role, SECURITY INVOKER", () => {
+    const migration = read(
+      "supabase/migrations/20261030120000_rooms_delete_server_only.sql"
+    );
+    const code = migration.replace(/--.*$/gm, "");
+    expect(code).toContain(
+      "revoke delete, truncate on public.rooms from public, anon, authenticated;"
+    );
+    expect(code).toContain('drop policy "rooms_delete_own" on public.rooms;');
+    expect(code).toMatch(
+      /create function public\.delete_own_room\(p_room_id uuid, p_user_id uuid\)\s+returns text\[\]\s+language plpgsql\s+set search_path = ''/
+    );
+    expect(code.toLowerCase()).not.toContain("security definer");
+    expect(code).toContain(
+      "revoke all on function public.delete_own_room(uuid, uuid)\n  from public, anon, authenticated;"
+    );
+    expect(code).toContain(
+      "grant execute on function public.delete_own_room(uuid, uuid) to service_role;"
+    );
+    // Cuenta activa, propietaria, bloqueo y rutas canónicas, en este orden.
+    const order = [
+      "room_delete_invalid:",
+      "room_delete_isolation:",
+      "p.deleted_at is null",
+      "for share;",
+      "r.owner_id = p_user_id",
+      "for update;",
+      "room_delete_path_invalid:",
+      "delete from public.rooms r",
+    ].map((needle) => code.indexOf(needle));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Ninguna migración posterior vuelve a dar DELETE de rooms a un cliente.
+    const later = readdirSync("supabase/migrations")
+      .filter((name) => name > "20261030120000_rooms_delete_server_only.sql")
+      .map((name) => read(`supabase/migrations/${name}`));
+    for (const sql of later) {
+      expect(sql).not.toMatch(
+        /grant[^;]*\b(delete|truncate|all)\b[^;]*on (table )?public\.rooms/i
+      );
+    }
+    // El preflight vigente lo comprueba (P1, P4 y P6).
+    const preflight = read("tests/supabase/preflight.sql");
+    expect(preflight).toContain("to_regprocedure('public.delete_own_room(uuid, uuid)')");
+    expect(preflight).toContain(
+      "authenticated puede borrar rooms directamente (DELETE o TRUNCATE)"
+    );
+    expect(preflight).toContain(
+      "('delete_own_room(uuid,uuid)', false, 'search_path=\"\"')"
+    );
   });
 
   it("P3 comprueba que las escrituras de habitaciones exigen cuenta activa", () => {
@@ -227,11 +283,11 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
     expect(cr).toEqual(["compatibility_responses.compatibility_responses_select_own"]);
   });
 
-  it("13 triggers, los mismos que crean las migraciones", () => {
+  it("14 triggers, los mismos que crean las migraciones", () => {
     const expected = preflightValues(
       /-- P6[\s\S]*?with expected\(tablename, tgname, fn\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.triggers.size).toBe(13);
+    expect(derived.triggers.size).toBe(14);
     expect([...expected].sort()).toEqual([...derived.triggers].sort());
   });
 
@@ -455,6 +511,129 @@ describe("Fase 4.1, R1: barrios oficiales de Barcelona coherentes", () => {
   });
 });
 
+describe("Fase 4.2: fotos, R7 y Storage coherentes entre código, migración y preflight", () => {
+  const MIGRATION =
+    "supabase/migrations/20261024120000_room_images_storage_visibility.sql";
+  const migration = read(MIGRATION).replace(/--.*$/gm, "");
+  const preflight = read("tests/supabase/preflight.sql");
+  const p1 = preflight.match(/-- P1[\s\S]*?-- P2/)?.[0] ?? "";
+
+  it("el límite de fotos del trigger y de la comprobación previa es ROOM_IMAGE_MAX_COUNT", () => {
+    expect(ROOM_IMAGE_MAX_COUNT).toBe(8);
+    expect(migration).toContain(`if n_images >= ${ROOM_IMAGE_MAX_COUNT} then`);
+    expect(migration).toContain(`having count(*) > ${ROOM_IMAGE_MAX_COUNT}`);
+    expect(migration).toMatch(/for no key update;/);
+  });
+
+  it("el bucket (nombre, 5 MiB, image/webp) es el mismo en el código, la migración y P1", () => {
+    const insert =
+      migration.match(
+        /insert into storage\.buckets[\s\S]*?on conflict \(id\) do nothing;/
+      )?.[0] ?? "";
+    expect(insert).toContain(
+      `('${ROOM_IMAGES_BUCKET}', '${ROOM_IMAGES_BUCKET}', true, ${ROOM_IMAGES_BUCKET_MAX_BYTES}, array['${ROOM_IMAGE_STORED_TYPE}'])`
+    );
+    expect(p1).toContain(
+      `b.id = '${ROOM_IMAGES_BUCKET}' and b.name = '${ROOM_IMAGES_BUCKET}'`
+    );
+    expect(p1).toContain(`b.file_size_limit = ${ROOM_IMAGES_BUCKET_MAX_BYTES}`);
+    expect(p1).toContain(
+      `b.allowed_mime_types = array['${ROOM_IMAGE_STORED_TYPE}']::text[]`
+    );
+  });
+
+  it("la ruta del código es la que exige chk_room_images_storage_path", () => {
+    expect(migration).toMatch(
+      /add constraint chk_room_images_storage_path\s+check \(storage_path = room_id::text \|\| '\/' \|\| id::text \|\| '\.webp'\);/
+    );
+    expect(roomImageStoragePath("r", "i")).toBe("r/i.webp");
+  });
+
+  it("P1 exige exactamente las restricciones que añade la migración a room_images", () => {
+    const added = [
+      ...migration.matchAll(
+        /alter table public\.room_images\s+add constraint ([a-z_]+)/g
+      ),
+    ]
+      .map(([, name]) => name)
+      .sort();
+    const required = [...p1.matchAll(/\('(chk_room_images_[a-z_]+)',/g)]
+      .map(([, name]) => name)
+      .sort();
+    expect(added).toEqual(["chk_room_images_position", "chk_room_images_storage_path"]);
+    expect(required).toEqual(added);
+  });
+
+  it("ninguna política de la migración toca storage.objects, y room_images no tiene escritura de clientes", () => {
+    expect(migration).not.toMatch(/create policy[^;]*on storage\./i);
+    expect(migration).toMatch(
+      /revoke insert, update, delete, truncate, references, trigger\s+on public\.room_images from anon, authenticated;/
+    );
+    expect(migration).not.toMatch(/grant [^;]*on public\.room_images/i);
+  });
+});
+
+describe("Fase 4.2, D1: bucket privado (20261025120000) aditivo, idempotente y con L6_N2", () => {
+  const MIGRATION = "supabase/migrations/20261025120000_room_images_private_bucket.sql";
+  const sql = read(MIGRATION).replace(/--.*$/gm, "");
+  const preflight = read("tests/supabase/preflight.sql");
+  const p1 = preflight.match(/-- P1[\s\S]*?-- P2/)?.[0] ?? "";
+  const p3 = preflight.match(/-- P3[\s\S]*?-- P4/)?.[0] ?? "";
+
+  it("es aditiva: no crea ni borra tablas, políticas, triggers ni funciones, ni toca la 20261024120000", () => {
+    expect(sql).not.toMatch(/\b(create|drop|alter)\s+(table|policy|trigger|function)\b/i);
+    expect(sql).not.toMatch(/\b(grant|revoke)\b/i);
+    expect(sql).not.toMatch(/\bdelete\s+from\b/i);
+    // Solo un UPDATE, del bucket, y solo si todavía es público.
+    expect([...sql.matchAll(/\bupdate\s+([a-z_.]+)/gi)].map(([, t]) => t)).toEqual([
+      "storage.buckets",
+    ]);
+    expect(sql).toMatch(
+      /update storage\.buckets\s+set public = false, updated_at = now\(\)\s+where id = 'room-images' and public;/
+    );
+  });
+
+  it("comprueba el bucket con los mismos valores que el código y P1", () => {
+    expect(sql).toContain(
+      `bucket.file_size_limit is not distinct from ${ROOM_IMAGES_BUCKET_MAX_BYTES}`
+    );
+    expect(sql).toContain(
+      `bucket.allowed_mime_types is not distinct from array['${ROOM_IMAGE_STORED_TYPE}']::text[]`
+    );
+    expect(sql).toContain(`where b.id = '${ROOM_IMAGES_BUCKET}'`);
+    expect(p1).toContain("b.public is false");
+  });
+
+  it("L6_N2: RLS de las dos tablas, ninguna política en objects ni de escritura en buckets, y «no se puede comprobar»", () => {
+    for (const table of ["objects", "buckets"]) {
+      expect(sql, table).toMatch(
+        new RegExp(
+          `if not coalesce\\(\\(select c\\.relrowsecurity from pg_catalog\\.pg_class c\\s+where c\\.oid = 'storage\\.${table}'::regclass\\), false\\) then`
+        )
+      );
+      expect(p3, table).toContain(`FALLO P3: storage.${table} no tiene la RLS activa`);
+    }
+    expect(sql).toMatch(/where p\.schemaname = 'storage' and p\.tablename = 'objects';/);
+    expect(sql).toMatch(
+      /where p\.schemaname = 'storage' and p\.tablename = 'buckets' and p\.cmd <> 'SELECT';/
+    );
+    expect(sql).toContain("no se puede comprobar %s: tiene la RLS activa");
+    expect(sql).toContain("exception when insufficient_privilege then");
+    expect(p1).toContain("FALLO P1: no se puede comprobar %");
+    // Todos los rechazos llevan el mismo código y un prefijo estable.
+    const raises = [
+      ...sql.matchAll(
+        /raise exception using\s+errcode = '(\d{5})',\s+message = (?:format\()?\s*'([a-z_]+):/g
+      ),
+    ];
+    expect(raises.length).toBeGreaterThanOrEqual(11);
+    expect(new Set(raises.map(([, code]) => code))).toEqual(new Set(["55000"]));
+    expect(new Set(raises.map(([, , prefix]) => prefix))).toEqual(
+      new Set(["room_images_private_precheck", "room_images_private_postcheck"])
+    );
+  });
+});
+
 // Ajuste aprobado por el propietario (integración del hotfix con la cadena de
 // la Fase 4): 20261014120000_public_profile_previews_write_lockdown.sql es un
 // hotfix de seguridad anterior a la cadena, no una de las tres migraciones
@@ -650,15 +829,19 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     }
   });
 
-  it("el preflight vigente está fijado con su SHA-256 real, aparte del congelado, y se comprueba antes de conectar", () => {
-    const [, file, hash] = pinnedFile("preflight.sql") ?? [];
-    expect(file).toBe("tests/supabase/preflight.sql");
-    expect(sha256(file)).toBe(hash);
+  it("el preflight de llegada es la copia congelada de la 4.1 (blob 7f28f5d9…), fijada con su SHA-256 real, aparte del de la Fase 3, y se comprueba antes de conectar", () => {
+    const frozen = "tests/supabase/phase4-final-preflight.sql";
+    const [, file, hash] = pinnedFile("phase4-final-preflight.sql") ?? [];
+    expect(file).toBe(frozen);
+    // Literales: la copia es la del run 21 y no cambia aunque cambie el pin.
+    expect(hash).toBe("38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec");
+    expect(sha256(frozen)).toBe(hash);
+    expect(gitBlob(frozen)).toBe("7f28f5d90cfd8b9f55d12c85db0a6bf3a1a9a4ec");
     expect(script).toMatch(
-      /^PHASE4_FINAL_PREFLIGHT="tests\/supabase\/preflight\.sql [0-9a-f]{64}"$/m
+      /^PHASE4_FINAL_PREFLIGHT="tests\/supabase\/phase4-final-preflight\.sql [0-9a-f]{64}"$/m
     );
-    const [, , frozenHash] = pinnedFile("phase3-baseline-preflight.sql") ?? [];
-    expect(frozenHash).not.toBe(hash);
+    const [, , baselineHash] = pinnedFile("phase3-baseline-preflight.sql") ?? [];
+    expect(baselineHash).not.toBe(hash);
     expect(script).toContain(
       'pinned=("$PHASE3_BASELINE" "$PHASE4_BASELINE_CHECKS" "$PHASE4_FINAL_PREFLIGHT")'
     );
@@ -672,6 +855,36 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     expect(script).not.toContain('cat "$ROOT/tests/supabase/preflight.sql"');
   });
 
+  it("R8 no lee el preflight vigente: ni pin, ni ruta en el código, ni run-preflight.sh", () => {
+    // Desde la 4.2, tests/supabase/preflight.sql describe la 4.2: si R8 lo
+    // leyera, fallaría en P1 aunque la actualización fuera correcta.
+    expect(pinnedFile("preflight.sql")).toBeNull();
+    const code = script
+      .split("\n")
+      .filter((line) => !/^\s*#/.test(line))
+      .join("\n");
+    expect(code).not.toContain("tests/supabase/preflight.sql");
+    expect(code).not.toContain("run-preflight.sh");
+    expect(code).not.toMatch(/[\s"/]preflight\.sql\b/);
+    expect(
+      [...code.matchAll(/^[A-Z0-9_]+="tests\/supabase\/([^ "]+) [0-9a-f]{64}"$/gm)]
+        .map((m) => m[1])
+        .sort()
+    ).toEqual([
+      "phase3-baseline-preflight.sql",
+      "phase4-final-preflight.sql",
+      "phase4-upgrade-baseline.sql",
+    ]);
+    // El selftest lo comprueba en ejecución: el vigente cambiado sin tocar el
+    // script, sin él, y sin la copia congelada.
+    const selftest = read("tests/supabase/phase4-upgrade-selftest.sh");
+    for (const id of ["g18.log", "g19.log", "g20.log"]) {
+      expect(selftest, id).toContain(id);
+    }
+    expect(selftest).toContain("outcome dry_run_correcto b.log g18.log");
+    expect(selftest).toMatch(/outcome no_ejecutada [^"]* g19\.log"/);
+  });
+
   it("WARNING: client_min_messages = notice dentro de la transacción, R8-MSG al empezar y al final, y avisos de éxito obligatorios", () => {
     const begin = script.indexOf('echo "begin;"');
     const cmm = script.indexOf('echo "set local client_min_messages = notice;"');
@@ -683,7 +896,7 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
       fn("pass_head").indexOf('msg_check "al empezar"')
     );
     expect(fn("build_pass")).toContain('concat_verified "$pass" "$head" "$BODY" "$foot"');
-    // En el cuerpo, el preflight congelado va primero y el vigente, el último.
+    // En el cuerpo, el preflight congelado va primero y el de llegada, el último.
     const bodyOrder = [
       'body_parts+=("$(src_of "$PHASE3_BASELINE")")',
       'body_parts+=("$(src_of "$PHASE4_BASELINE_CHECKS")")',
@@ -706,7 +919,7 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     const streamFiles = [
       "tests/supabase/phase3-baseline-preflight.sql",
       "tests/supabase/phase4-upgrade-baseline.sql",
-      "tests/supabase/preflight.sql",
+      "tests/supabase/phase4-final-preflight.sql",
       ...pinned.map((p) => `supabase/migrations/${p.file}`),
     ];
     for (const file of streamFiles) {
@@ -714,11 +927,12 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     }
   });
 
-  it("un fallo en la pasada con COMMIT no afirma que no se aplicó nada: pide el preflight antes de repetir", () => {
+  it("un fallo en la pasada con COMMIT no afirma que no se aplicó nada: pide el preflight de llegada antes de repetir", () => {
     const afterCommit = script.slice(script.indexOf("run_pass commit"));
     expect(afterCommit).toContain("apply NO CONFIRMADO");
     expect(afterCommit).toContain("incierto");
-    expect(afterCommit).toContain("tests/supabase/run-preflight.sh");
+    expect(afterCommit).toContain("tests/supabase/phase4-final-preflight.sql");
+    expect(afterCommit).not.toContain("run-preflight.sh");
     expect(afterCommit).not.toMatch(/nada aplicado|se ha revertido/);
     const runPass = script.slice(
       script.indexOf("run_pass() {"),
@@ -820,7 +1034,7 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
       ].map((m) => m[1] ?? m[2])
     );
     expect([...cited].sort()).toEqual([
-      "Cambiar el SHA-256 del preflight vigente",
+      "Copia congelada del preflight de la 4.1",
       "Recuperación",
     ]);
     for (const name of cited) {
@@ -838,15 +1052,53 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     );
     expect(recovery).toContain("Que falte esa línea no demuestra que la transacción se");
     expect(recovery).toContain("**no se repite `apply`**");
-    const pin = section("Cambiar el SHA-256 del preflight vigente");
+    const pin = section("Copia congelada del preflight de la 4.1");
     for (const step of [
       "roomly_sql_transform",
       "PHASE3_BASELINE",
       "phase4-upgrade-selftest.sh",
       "una sola",
+      "38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec",
+      "7f28f5d90cfd8b9f55d12c85db0a6bf3a1a9a4ec",
+      "Nunca R8",
+      "Nunca se rebaja la comprobación",
     ]) {
       expect(pin, step).toContain(step);
     }
+    expect(doc).not.toContain("#### Cambiar el SHA-256 del preflight vigente");
+  });
+
+  it("L5: los resultados inciertos y la recuperación remiten a la copia congelada, no al preflight vigente", () => {
+    const results = script
+      .split("\n")
+      .filter((line) => line.includes('echo "RESULTADO:'));
+    expect(results.length).toBeGreaterThan(0);
+    for (const line of results) {
+      expect(line).not.toContain("run-preflight.sh");
+    }
+    for (const kind of ["apply NO CONFIRMADO", "apply NO VÁLIDO"]) {
+      const line = results.find((l) => l.includes(`RESULTADO: ${kind}`)) ?? "";
+      expect(line, kind).toContain(
+        "la copia congelada tests/supabase/phase4-final-preflight.sql"
+      );
+      expect(line, kind).toContain("«Recuperación» en docs/SUPABASE_VALIDATION.md");
+    }
+    expect(script).toContain(
+      'add_line "$(section "preflight de llegada (copia congelada de la 4.1) sobre el resultado")"'
+    );
+    expect(script).not.toMatch(/section "preflight vigente/);
+    const doc = read("docs/SUPABASE_VALIDATION.md");
+    const start = doc.indexOf("#### Recuperación\n");
+    const recovery = doc.slice(start, doc.indexOf("\n#### ", start + 1));
+    expect(recovery).toContain(
+      "4. **El preflight de llegada** (`tests/supabase/phase4-final-preflight.sql`"
+    );
+    expect(recovery).toContain("default_transaction_read_only=on");
+    expect(recovery).toContain("-f tests/supabase/phase4-final-preflight.sql");
+    expect(recovery).not.toContain(
+      "**La validación normal** (`phase4_upgrade=none`), sabiendo"
+    );
+    expect(recovery).toContain("**no confirma** el estado de llegada de R8");
   });
 
   it("dry_run termina siempre en ROLLBACK; apply ensaya antes y exige la confirmación exacta", () => {
@@ -1127,6 +1379,81 @@ describe("workflow manual: secrets por paso", () => {
           /SERVICE_ROLE|DB_URL|MAILBOX|PASSWORD/
         );
       }
+    }
+  });
+});
+
+describe("Fase 4.2 (D3): conciliación de las fotos, solo lectura", () => {
+  const sql = read("tests/supabase/room-images-reconcile.sql").replace(/--.*$/gm, "");
+  const tool = read("tests/supabase/room-images-reconcile.sh");
+  const toolCode = tool
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+
+  it("el SQL solo lee: ni escrituras, ni DDL, ni control de transacciones, ni funciones con efectos", () => {
+    expect(sql).not.toMatch(
+      /\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|copy|vacuum|reindex|cluster|lock|call|comment|refresh|security\s+label|import|listen|notify)\b/i
+    );
+    // Ni control de transacciones (el `begin` de un bloque DO no lo es) ni
+    // cambios de sesión: la transacción la abre y la cierra el script.
+    expect(sql).not.toMatch(
+      /^\s*(begin|start\s+transaction|commit|end|rollback|abort|savepoint|release)\s*;/im
+    );
+    expect(sql).not.toMatch(
+      /\bset\s+(role|session|transaction|local)\b|set_config\s*\(/i
+    );
+    expect(sql).not.toMatch(
+      /\b(nextval|setval|pg_terminate_backend|pg_cancel_backend|lo_\w+|dblink|pg_advisory\w*)\s*\(/i
+    );
+    expect(sql).not.toMatch(/^\s*\\/m);
+    // Lee storage.objects y room_images, y nada de Storage fuera del bucket.
+    expect(sql).toContain("where o.bucket_id = 'room-images'");
+    expect(sql).toMatch(/RECONCILE NO VERIFICABLE/);
+  });
+
+  it("el script lo envuelve en una transacción READ ONLY que termina en ROLLBACK, con la sesión en solo lectura", () => {
+    expect(toolCode).toContain(
+      'echo "begin transaction isolation level repeatable read read only;"'
+    );
+    expect(toolCode).toContain('echo "rollback;"');
+    expect(toolCode).not.toMatch(/\bcommit\b/i);
+    expect(toolCode).toContain(
+      'export PGOPTIONS="${PGOPTIONS:-} -c default_transaction_read_only=on"'
+    );
+  });
+
+  it("no hay ningún modo de aplicación, reparación ni borrado, ni usa la API de Storage", () => {
+    expect(toolCode).not.toMatch(/--(apply|fix|repair|delete|remove|clean|purge)\b/i);
+    expect(toolCode).not.toMatch(
+      /\b(remove|createAdminClient|service_role|storage\.from|curl|SUPABASE_SERVICE_ROLE_KEY)\b/
+    );
+    const options = [...toolCode.matchAll(/^\s{4}(--[a-z-]+)\)/gm)].map((m) => m[1]);
+    expect(options).toEqual(["--min-age-hours", "--as-of"]);
+  });
+
+  it("nunca imprime la URL de la base de datos ni los errores de conexión de psql", () => {
+    expect(toolCode).not.toMatch(/echo[^\n]*DB_URL/);
+    expect(toolCode).toContain('roomly_sql_filter_output "$WORK/error.log"');
+    expect(toolCode).toContain('>"$WORK/report.tsv" 2>"$WORK/error.log"');
+  });
+
+  it("umbral de 24 h por defecto, configurable y validado antes de conectar", () => {
+    expect(toolCode).toMatch(/^MIN_AGE_HOURS=24$/m);
+    expect(toolCode).toMatch(/-lt 1 \] \|\| \[ "\$MIN_AGE_HOURS" -gt 8760 \]/);
+    expect(sql).toContain("make_interval(hours => :min_age_hours)");
+  });
+
+  it("cada selftest de tests/supabase está en test:infra y en la CI", () => {
+    const pkg = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
+    const ci = read(".github/workflows/ci.yml");
+    const selftests = readdirSync("tests/supabase").filter((f) =>
+      f.endsWith("-selftest.sh")
+    );
+    expect(selftests).toContain("room-images-reconcile-selftest.sh");
+    for (const file of selftests) {
+      expect(pkg.scripts["test:infra"], file).toContain(`bash tests/supabase/${file}`);
+      expect(ci, file).toContain(`- run: bash tests/supabase/${file}`);
     }
   });
 });

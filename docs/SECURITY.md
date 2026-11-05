@@ -711,6 +711,184 @@ columnas; las dos capas son independientes, como en `profiles` y
   api-suite. El E2 no se ejecutó (`docs/SUPABASE_VALIDATION.md`, «Resultado:
   run 21»).
 
+## Fase 4.2 — fotos de habitaciones: Storage, limpieza, URL firmadas y R7 (2026-10-24 y 2026-10-25; reconstruida el 2026-10-29)
+
+Migraciones `20261024120000_room_images_storage_visibility.sql` y
+`20261025120000_room_images_private_bucket.sql`, servicio
+`lib/services/room-images.ts` y sanitizador
+`lib/images/sanitize-room-image.ts`. La implementación original se perdió
+sin publicarse; esta es una reconstrucción desde su diseño documentado
+(`PROGRESS.md`, sesión 63). **Probada solo en local: sin validar en Supabase
+real ni con la API de Storage real.**
+
+**Principio** (D17 ampliada y D1):
+> Ningún cliente escribe fotos: ni en `room_images` (sin políticas de
+> escritura ni GRANT) ni en `storage.objects` (sin ninguna política). Solo el
+> servidor, con service_role, después de comprobar con el cliente del usuario
+> la sesión, la cuenta activa, la propiedad y el estado de la habitación, y
+> de limpiar la imagen. Las fotos se sirven con URL firmadas de 10 minutos,
+> que el servidor solo emite para las filas que el cliente de quien pregunta
+> acaba de leer: la autorización es la de la RLS.
+
+**service_role, en cuatro servicios** (D17, `tests/unit/admin-client-usage.test.ts`):
+`matching.ts`, `compatibility.ts`, desde la 4.2 `room-images.ts` y, desde la
+sesión 65 (D17 ampliada el 2026-10-30), `rooms.ts`.
+- `room-images.ts` es el único que usa la API de Storage, el único que emite
+  URL de fotos (nunca públicas) y el único que importa el sanitizador; sharp
+  solo lo importa el sanitizador.
+- `rooms.ts` usa el cliente admin una sola vez, para
+  `rpc("delete_own_room")`, después de comprobar con el cliente del usuario
+  la sesión, la cuenta activa y la propiedad. Ni tablas ni Storage con ese
+  cliente (ver «Borrado de habitaciones»).
+
+**Base de datos** (detalle en `docs/DATABASE.md`, «Fase 4.2»):
+- `room_images`: anon y authenticated solo leen. Ruta canónica
+  `room_id/id.webp` (CHECK), posición ≥ 0 y un trigger para todos los roles,
+  también service_role: solo cambia la posición; ni habitación retirada o
+  eliminada ni cuenta desactivada; 8 fotos como mucho, también con subidas
+  simultáneas (bloqueo de la fila de la habitación).
+- Bucket `room-images`: privado, solo `image/webp` y 5 MiB, sin ninguna
+  política en `storage.objects` y ninguna de escritura en `storage.buckets`,
+  con la RLS activa en las dos. Ni anon, ni la propietaria, ni un admin lo
+  vuelven público (`tests/db/19`, ST1).
+- Las migraciones se detienen sin cambiar nada si el estado no es el
+  esperado, y distinguen «no se puede comprobar» (falta Storage, sin permiso
+  o una RLS que podría ocultar filas al rol) de una comprobación negativa
+  (L6_N2). No borran ni cambian políticas preexistentes: dicen cuáles hay.
+
+**Limpieza de la imagen** (EXIF con GPS, marca y modelo, XMP, IPTC, ICC y
+comentarios). Se vuelve a codificar desde los píxeles a WebP de calidad 80,
+con la orientación aplicada y a 2048 px de lado mayor como mucho, sin pedir
+ningún metadato, y la salida se vuelve a leer y se rechaza si le quedara
+alguno. Se decide por el contenido, no por el tipo declarado:
+- **N1:** antes de llamar a sharp, el formato se reconoce por la firma de los
+  primeros bytes (JPEG, PNG con `IHDR` o WebP con su bloque); lo demás (SVG,
+  GIF, HEIC/AVIF, TIFF, BMP…) no llega a ningún decodificador de libvips. El
+  tipo declarado tiene que coincidir con la firma (`type_mismatch`), y sharp
+  tiene que leer el mismo formato que la firma;
+- también rechaza imágenes animadas, archivos vacíos, dañados o truncados
+  (`failOn: "warning"`), más de 4 MiB a la entrada o a la salida y más de
+  40 MP;
+- **L3:** no cambia la configuración global de sharp (caché, concurrencia ni
+  cargadores), que es del proceso entero;
+- no guarda el original ni su nombre, que puede tener datos personales, y no
+  registra nada.
+
+Lo prueban `room-image-sanitize` (imágenes generadas con GPS, XMP e ICC),
+`room-image-signature` (sharp espiado: no se llama sin firma aceptada) y
+`room-image-sharp-globals`, con controles que los hacen fallar.
+
+**URL firmadas** (D1). TTL de 600 s (`ROOM_IMAGE_SIGNED_URL_TTL_SECONDS`) y
+`Cache-Control` de 600 s en los objetos, para que ninguna caché guarde una
+foto más de lo que vale su URL. `expiresAt` se calcula antes de pedir la
+firma. Solo se firman rutas canónicas de esa habitación y solo se aceptan las
+URL de rutas pedidas. Sin caché de URL en el servidor: cada lectura vuelve a
+leer y a firmar. Si la firma falla (también con una excepción), la lista da
+`unknown` y una subida ya guardada sigue siendo un éxito, sin URL. Nunca se
+devuelve ni se registra una URL pública o firmada.
+
+**Objetos huérfanos y logs** (M2). El objeto se sube antes de la fila, y
+solo se borra tras un rechazo definitivo de la base de datos (SQLSTATE de las
+clases 22, 23, 42 y P0) con la fila comprobada como ausente (con el cliente
+del usuario, por id, habitación y ruta exactos). Un resultado ambiguo (sin
+código, `PGRST…`, conexión, cancelación…) conserva el objeto y avisa. Hay
+cinco avisos (`room_image_upload_unconfirmed`,
+`room_image_orphan_after_insert`, `room_image_insert_unconfirmed`,
+`room_image_insert_unverified` y `room_image_orphan_after_delete`), con solo
+el evento y la ruta: nunca el usuario, el nombre del archivo, el contenido,
+una URL ni el mensaje de Storage. Al borrar una foto, primero la fila y
+después el objeto, y solo el de la ruta canónica de esa fila.
+
+**Conciliación de solo lectura** (D3 de la 4.2; no confundir con la
+congelación de D3 de R8): `tests/supabase/room-images-reconcile.sh` compara
+los metadatos del bucket con `room_images` y clasifica las diferencias, sin
+ningún modo de aplicación y en solo lectura en tres niveles. No comprueba
+que el archivo exista físicamente en Storage. Ejecutarlo contra un proyecto
+remoto necesita autorización: lee todas las rutas de las fotos.
+
+**R7: visibilidad.** Las habitaciones activas de una cuenta desactivada y sus
+fotos dejan de ser públicas (`is_room_publicly_visible`, SECURITY DEFINER con
+`search_path` vacío, EXECUTE solo para anon y authenticated). Se oculta al
+leer, sin cambiar datos. La propietaria sigue viendo lo suyo, y el admin
+activo lee las fotos ocultas con `room_images_admin_select`, que no las hace
+públicas ni se aplica a usuarios normales o a un admin desactivado
+(`tests/db/20`).
+
+**Server Actions, interfaz y borrado de habitaciones** (sesión 64, en
+local). Detalle en «Borrado de habitaciones», abajo.
+- `app/actions/room-images.ts` (`uploadRoomPhoto` y `deleteRoomPhoto`) y
+  `app/actions/rooms.ts` (`deleteRoom`) son orquestación fina. Del navegador
+  solo llegan `roomId` y la foto, o `roomId` e `imageId`: ninguna ruta,
+  posición, propietario ni nombre de archivo (el esquema `strict` y la
+  propia acción rechazan cualquier otra clave).
+- Antes de cualquier operación privilegiada, en este orden: el guard
+  (`requireActiveProfile`: sesión y cuenta activa) y el servicio, con el
+  cliente del usuario (sesión, cuenta, propiedad, estado de la habitación y 8
+  fotos). Una foto de más de 4 MiB se rechaza por su tamaño en la acción y en
+  el servicio, sin leer sus bytes; la firma y la limpieza van después. Los
+  tests comprueban que en esos rechazos no se crea el cliente admin ni se
+  toca Storage.
+- `next.config.ts`: `experimental.serverActions.bodySizeLimit = "5mb"` (por
+  defecto, 1 MB). Next.js lo aplica al cuerpo crudo mientras lo lee y vale
+  para **todas** las Server Actions: no se puede fijar por acción. Por
+  encima, Next.js 16.4.3 no ejecuta la acción y responde 500, no 413
+  (medido en la sesión 65; ver «Tamaño real de la subida», abajo). Las demás validan sus campos con esquemas `strict` y longitudes
+  máximas, así que el riesgo añadido es solo que un cuerpo de hasta 5 MB se
+  lea antes de rechazarse. `proxy.ts` copia el cuerpo hasta
+  `proxyClientMaxBodySize` (10 MB por defecto, sin cambiar).
+- La interfaz (`/habitaciones/[id]/fotos`, `/habitaciones/[id]/borrar` y
+  `/habitaciones/borrada`) muestra las fotos solo con las URL firmadas del
+  servicio, con `<img>` y `referrerPolicy="no-referrer"`. No usa
+  `next/image`: pasaría las URL firmadas por `/_next/image`, que las guardaría
+  en caché más de lo que valen y exigiría `images.remotePatterns`. Solo la
+  propietaria con la cuenta activa ve los controles de escritura; un admin
+  activo solo mira; cualquier otra persona recibe 404, aunque la habitación
+  sea pública. Una cuenta desactivada va a `/cuenta-desactivada` antes de
+  leer nada. `/habitaciones` está en las rutas protegidas del proxy.
+
+**Riesgos residuales:**
+- Una URL firmada filtrada sirve hasta que caduca (como mucho 10 minutos), y
+  no se puede revocar antes.
+- Por RPC, anon puede preguntar si una habitación es pública, igual que con
+  un SELECT. El Security Advisor de Supabase puede avisar de una función
+  SECURITY DEFINER ejecutable por anon: está aceptado, sin comprobar.
+- La firma de los bytes es un filtro previo, no valida el archivo entero:
+  libvips elige su cargador por el contenido (por eso se exige que coincida
+  con la firma).
+- Desde la sesión 65 una habitación solo se borra por el servidor, que limpia
+  Storage. **Riesgo residual aceptado por el propietario (2026-10-30):** la
+  cascada desde `profiles` (borrar la cuenta en Auth, o un perfil como admin)
+  se lleva las filas de `room_images`, y los objetos quedan huérfanos,
+  inaccesibles porque el bucket es privado y no hay filas que firmar. La
+  conciliación los detecta, comprobado con la cascada real
+  (`room-images-reconcile-selftest.sh`), pero no los borra. Es una
+  limitación conocida, no una protección implementada. Ver «Cascadas desde
+  profiles y Auth», abajo.
+- Tras un resultado ambiguo del INSERT puede quedar un objeto sin fila: lo
+  detecta la conciliación, y borrarlo es otra decisión.
+- `sharp` es una dependencia directa y exacta (decisión del propietario).
+  Desde la sesión 64 está en 0.35.5, que corrige GHSA-wq5f-xc86-pv6w
+  (librsvg 2.63.2). Ver «Dependencias», abajo.
+
+**Sin validar:**
+- en Supabase real: `roomly-validation-3` sigue en la 4.1. Aplicar la 4.2
+  necesita su propia herramienta y su autorización, o un proyecto aislado
+  nuevo (D2, `docs/SUPABASE_VALIDATION.md`);
+- la API de Storage real (subida con service_role, URL firmadas, listado y
+  escritura denegados con el JWT de un usuario), con el CDN de Supabase: en
+  local solo hay las tablas del shim;
+- si el rol `postgres` de Supabase puede ver todas las filas de
+  `storage.buckets` y `storage.objects` (dueño o BYPASSRLS). Si no, las
+  migraciones y el preflight se detienen con «no se puede comprobar»;
+- si los triggers propios de Storage en Supabase (por ejemplo, contra el
+  borrado directo de objetos) cambian lo que espera `tests/db/19`;
+- el límite del cuerpo de las peticiones del alojamiento en un despliegue de
+  ROOMLY: la subida de 4 MiB se ha medido en local (4 195 232 bytes), no en
+  Vercel ni en Netlify (ver «Subida de archivos»);
+- las Server Actions y la interfaz con el runtime de Next.js desplegado y la
+  API de Storage real: en local, solo los tests unitarios y E1, contra el
+  Storage simulado del mock.
+
 ## Fase 2.9 — H4: privacidad de `profiles` (2026-10-04)
 
 Migración incremental `20261004120100_profiles_privacy.sql` (decisión D2,
@@ -1033,13 +1211,219 @@ verdad (Upstash Redis, barato) — se añade cuando haga falta, no antes.
 
 ## Subida de archivos (Supabase Storage)
 
-- Bucket de **lectura pública** para fotos de habitación y avatares
-  (nada sensible en una foto).
-- **Escritura** restringida por política de Storage: solo a rutas
-  prefijadas con el `auth.uid()` de quien sube.
-- Límite de tamaño y whitelist de tipo MIME (solo imágenes), validado
-  tanto en la configuración del bucket como en Zod antes de iniciar la
-  subida.
+Desde la Fase 4.2 (fotos de habitaciones; ver la sección de la 4.2, arriba),
+el diseño inicial cambia:
+- el bucket `room-images` es **privado**: las fotos se sirven con URL
+  firmadas de 10 minutos que emite el servidor tras comprobar la RLS (D1).
+  Una foto puede revelar datos de una persona (su casa, su barrio, y antes de
+  limpiarla, la ubicación GPS), y ocultar una habitación (R7) tiene que
+  ocultar también sus fotos;
+- **ningún cliente escribe** en Storage: ni rutas prefijadas con su
+  `auth.uid()` ni ninguna otra. Sube el servidor, con service_role, después de
+  limpiar la imagen (sin EXIF ni GPS) y con la ruta `room_id/id.webp`;
+- límites en las dos capas: 4 MiB y JPEG, PNG o WebP en la aplicación (Zod y
+  el sanitizador, que decide por el contenido), y 5 MiB e `image/webp` en el
+  bucket, que se aplican también a service_role;
+- el cuerpo de la Server Action, hasta 5 MB (`serverActions.bodySizeLimit`,
+  sesión 64).
+
+**Tamaño real de la subida (sesión 65, medido en local).** El alojamiento
+aplica su propio límite al cuerpo de las peticiones, y puede ser menor que el
+de Next.js. `tests/e2e/local/upload-size.spec.ts` lo mide con la Server
+Action real (build de producción) y un navegador real. Un proxy HTTP local,
+entre los dos, cuenta los bytes del cuerpo tal como llegan por la red.
+- Con un JPEG válido de 4 194 304 bytes exactos (4 MiB), el cuerpo es:
+  - con JavaScript, 4 195 232 bytes (928 de boundary, cabeceras de las partes
+    y campos de la Server Action);
+  - sin JavaScript, 4 195 116 bytes;
+  - en los dos casos, el `Content-Length` coincide con los bytes contados.
+- Frente al umbral de comparación de 4 500 000 bytes (4,5 MB decimales), el
+  margen con JavaScript es de 304 768 bytes, un 6,77 % (sin JavaScript, 304
+  884). El nombre del archivo de la prueba tiene 12 bytes: uno largo, de
+  hasta 255, lo reduciría como mucho en unos 243 bytes más.
+- La referencia de 4,5 MB es la que indicó el propietario para Vercel
+  Functions y para Netlify Functions (6 MB de cuerpo, que en binario van en
+  base64: unos 4,5 MB efectivos). **No se ha comprobado aquí**: el entorno no
+  tiene acceso de red a vercel.com ni a docs.netlify.com, no hay
+  configuración de ninguna de las dos en el repositorio, y no se ha
+  desplegado nada.
+- **Conclusión:** la subida por Server Action cabe con margen en esa
+  referencia, así que se conserva el diseño. No hace falta la subida directa
+  a un bucket temporal con URL firmada.
+- Antes del primer despliegue hay que repetir la medición contra el
+  despliegue (staging), con el límite vigente de la plataforma.
+- Por encima de los límites:
+  - más de 4 MiB, hasta 5 MB: la acción lo rechaza con el mensaje de 4 MB
+    antes de leer la habitación y sin service_role ni Storage. Next.js ya ha
+    leído el cuerpo para construir el `FormData`, pero la acción no lee los
+    bytes de la foto (`room-images-actions`, `TrackedFile`);
+  - más de 5 MB: Next.js 16.4.3 corta el cuerpo al pasar de
+    `bodySizeLimit` y no ejecuta la acción, pero en las acciones con `fetch`
+    responde **500, no 413** (un TODO de su `action-handler.js`). La interfaz
+    muestra el error genérico, sin detalles, y no se guarda nada;
+  - un 413 **simulado**: lo genera el proxy local de la prueba a partir de
+    4 500 000 bytes, no Next.js ni una plataforma desplegada. Solo prueba la
+    interfaz si algo delante de la app corta la petición: la acción no se
+    ejecuta, se muestra el error genérico y no se guarda nada. Qué responde
+    de verdad Vercel o Netlify, y con qué límite, no se ha comprobado;
+  - con JavaScript, el formulario avisa antes de enviar una foto de más de
+    4 MB: el 413 y el 500 solo los ve un cliente manipulado o una subida sin
+    JavaScript. Sin JavaScript, el navegador mostraría la respuesta de lo que
+    haya delante de la app, que la app no controla.
+- Los cinco casos de `upload-size.spec.ts` pasan en local (E1, con el
+  Chromium preinstalado: orientativo).
+
+## Borrado de habitaciones (Fase 4.2, sesiones 64 y 65)
+
+**Rutas que pueden borrar una habitación** (inventario del 2026-10-30):
+- la app: solo `deleteRoom` → `deleteOwnRoom` (`lib/services/rooms.ts`) →
+  `delete_own_room` (`20261030120000`). Ningún archivo de `app/` ni `lib/`
+  borra `rooms` con DELETE, y `tests/unit/admin-client-usage.test.ts` lo fija;
+- el DELETE directo por PostgREST: **cerrado desde la sesión 65**.
+  - `anon`, `authenticated` y PUBLIC no tienen DELETE ni TRUNCATE sobre
+    `rooms`. Tampoco un admin desde el cliente: el GRANT es por rol de
+    Postgres, y `rooms_admin_all` sigue sirviendo para leer y moderar con
+    UPDATE.
+  - Se eliminó `rooms_delete_own` (41 políticas).
+  - Lo prueban `tests/db/21` (DS0–DS2), el preflight (P3 y P4) y sus
+    mutaciones;
+- service_role directamente: `service_role` conserva DELETE sobre `rooms`,
+  pero ningún código de la app lo usa. Solo lo hace la limpieza de la
+  api-suite (`tests/integration/`), con sus propios usuarios de prueba;
+- la cascada desde `profiles` (ver «Cascadas desde profiles y Auth», abajo):
+  no limpia Storage.
+
+**La operación privilegiada: `public.delete_own_room(p_room_id, p_user_id)`**
+(`20261030120000`).
+- SECURITY INVOKER, `search_path` vacío, VOLATILE.
+  - EXECUTE solo para service_role. Se revoca expresamente a PUBLIC, anon y
+    authenticated, porque los privilegios por defecto de Supabase se lo
+    darían.
+  - Se ejecuta con los privilegios de service_role (DELETE y BYPASSRLS). Si
+    authenticated la pudiera llamar, el DELETE fallaría igual por falta de
+    privilegio.
+  - No hace falta SECURITY DEFINER.
+- En una sola transacción, y abortando sin borrar nada si algo falla:
+  1. los dos parámetros, no nulos (`room_delete_invalid:`, 22004);
+  2. READ COMMITTED (`room_delete_isolation:`, P0001). En REPEATABLE READ,
+     la lectura de las fotos usaría la instantánea del principio y podría no
+     ver una foto confirmada mientras se esperaba el bloqueo;
+  3. la cuenta activa, con el criterio vigente: el perfil existe y no tiene
+     `deleted_at` (decisión B, 4.0). Se bloquea con FOR SHARE: una
+     desactivación simultánea espera, o el borrado la ve
+     (`account_deleted:`, 42501);
+  4. la habitación es de ese usuario, y se bloquea con FOR UPDATE hasta el
+     final (`room_not_found:`, P0002). El bloqueo choca con el FOR NO KEY
+     UPDATE del trigger de las fotos y con el FOR KEY SHARE de su FK;
+  5. las rutas, de las filas reales de `room_images`, ordenadas como el
+     listado. Todas tienen que ser `room_id/id.webp` con dos UUID en
+     minúsculas (`room_delete_path_invalid:`, 23514). El CHECK de la 4.2 ya lo
+     impide; esto es una defensa más;
+  6. el DELETE, filtrando por `id` y `owner_id`, y exactamente una fila. La
+     cascada se lleva `room_images`, `room_addresses` y `favorites`.
+     `interests`, `matches` y `reports` la referencian sin cascada: con
+     alguna, falla por FK (23503) y no se borra nada;
+  7. devuelve las rutas (un array vacío si no tenía fotos).
+- Concurrencia, probada con dos sesiones de verdad
+  (`tests/db/concurrency_room_delete.sh`):
+  - si una subida está abierta, el borrado espera y devuelve también su ruta;
+  - si el borrado está abierto, la subida espera y después se rechaza
+    (`room_not_writable`), y M2 borra su objeto;
+  - el control, sin el FOR UPDATE, pierde la ruta de la foto nueva aunque su
+    fila se borre en cascada.
+
+**Flujo del servidor** (`deleteOwnRoom`):
+1. el usuario, de la sesión (`auth.getUser()`), nunca del navegador. Antes de
+   crear el cliente privilegiado, la cuenta activa y la propiedad, con el
+   cliente del usuario;
+2. `rpc("delete_own_room")` con service_role;
+3. `removeDeletedRoomObjects` (`room-images.ts`):
+   - comprueba con service_role que la habitación ya no existe; si existe, o
+     no se puede comprobar, no borra nada;
+   - borra **solo** las rutas devueltas que son canónicas de su carpeta. Ya
+     no borra lo que encuentra al listar;
+   - lista la carpeta: solo si está vacía la limpieza es completa.
+
+**Fallos parciales.**
+- Rechazo definitivo de la función (SQLSTATE 22, 23, 42 o P0): no se ha
+  borrado nada. Se traduce por SQLSTATE y prefijo:
+  - `not_found`, `deleted` y `conflict` (FK sin cascada, con mensaje propio);
+  - cualquier otro, error genérico;
+  - una ruta no canónica avisa además `room_delete_path_invalid`.
+- Resultado ambiguo (red, tiempo agotado, sin SQLSTATE): no se toca Storage.
+  - Si la habitación sigue, error.
+  - Si no se puede comprobar, error y aviso `room_delete_unconfirmed`.
+  - Si ya no está, quedó borrada, pero sus rutas se perdieron con la
+    respuesta: `photosRemoved: false` y aviso `room_delete_paths_unknown`.
+    Los objetos los detecta la conciliación.
+- Respuesta mal formada (no es una lista de textos): igual,
+  `room_delete_paths_unknown`, sin tocar Storage.
+- Después de confirmar el borrado, un fallo de Storage, una limpieza
+  parcial, un listado fallido o un objeto que no estaba en la lista (un
+  huérfano anterior) dan `photosRemoved: false`.
+  - La confirmación (`/habitaciones/borrada?fotos=pendientes`) dice que
+    quedan fotos pendientes de limpieza: nunca se informa de un borrado
+    completo que no lo ha sido.
+  - Cada objeto que queda se avisa (`room_image_orphan_after_room_delete`,
+    o `room_objects_unverified` para la carpeta), y lo detecta la
+    conciliación.
+- Una ruta devuelta que no es canónica no se borra: se avisa
+  (`room_objects_invalid_path`) y no es completa.
+
+**Carrera residual.** `id` está en el GRANT de INSERT de `rooms`. Alguien
+podría crear una habitación nueva con el mismo id justo después del borrado
+y subirle una foto antes de la limpieza. La limpieza solo borra las rutas
+devueltas, que eran de las fotos de la habitación borrada. Un objeto nuevo
+con otro nombre no se toca: queda en la carpeta, y la limpieza, que lista la
+carpeta al final, no es completa (se avisa).
+
+**Cascadas desde profiles y Auth** (auditoría de la sesión 65; riesgo
+residual aceptado por el propietario el 2026-10-30).
+- `profiles.id` → `auth.users(id)` ON DELETE CASCADE, y `rooms.owner_id` →
+  `profiles(id)` ON DELETE CASCADE. Borrar una cuenta borra en cascada sus
+  habitaciones y las filas de sus fotos, sin pasar por la aplicación ni
+  limpiar Storage. Puede pasar:
+  - en Auth: el panel de Supabase, la API de administración
+    (`auth.admin.deleteUser`, que solo usa la limpieza de la api-suite) o SQL
+    de un operador;
+  - en `profiles`: un admin activo desde el cliente (`profiles_admin_all`,
+    FOR ALL; `authenticated` conserva DELETE sobre `profiles`, como
+    documenta `docs/DATABASE.md`) o service_role. Ninguna de las dos la usa
+    el código de la app.
+- **ROOMLY no tiene flujo de borrado de cuenta** (H6, fuera de alcance), así
+  que no hay ninguno que adaptar para borrar antes las habitaciones con
+  `delete_own_room`.
+- No se ha añadido nada en el esquema de Auth ni triggers que llamen a
+  Storage por HTTP desde la base de datos: un borrado en Auth no se puede
+  interceptar con seguridad desde la aplicación.
+- La conciliación detecta lo que deja. `room-images-reconcile-selftest.sh`
+  borra un usuario de `auth.users`, comprueba que la cascada se ha llevado su
+  perfil, su habitación y la fila de su foto y que el objeto sigue, y el
+  informe lo clasifica como `objeto_sin_fila`. La conciliación es
+  estrictamente de solo lectura: detecta esos objetos, pero no los borra.
+- **Decisión del propietario (2026-10-30), cerrada: riesgo residual
+  aceptado.**
+  - Se acepta que una eliminación externa en `auth.users` o en `profiles`
+    borre en cascada habitaciones y filas de `room_images` sin borrar sus
+    objetos de Storage. El DELETE de `profiles` de un admin activo
+    (`profiles_admin_all`) es una de esas vías y queda dentro del riesgo
+    aceptado: no se cambia.
+  - No se añaden triggers que llamen a Storage desde PostgreSQL. Tampoco se
+    implementa ahora el borrado de cuenta ni se amplía `service_role` para
+    este caso.
+  - **Requisito para H6:** el futuro borrado de cuenta tendrá que limpiar y
+    verificar los objetos de Storage de las habitaciones de la cuenta (por
+    ejemplo, con `delete_own_room` y la limpieza verificada de
+    `removeDeletedRoomObjects`) **antes** de eliminar el perfil o de dejar
+    que se produzca la cascada.
+  - Mientras H6 no exista, es una limitación conocida y visible, no una
+    protección implementada.
+- Las referencias sin cascada (`messages`, `reports`, `admin_action_logs` a
+  `profiles`, y `interests`, `matches` y `reports` a `rooms`) hacen que el
+  borrado de una cuenta con esas filas falle por FK.
+
+Los avatares (M3) siguen fuera de alcance; cuando se hagan, se revisa si
+siguen este mismo modelo.
 
 ## Privacidad de ubicación
 
@@ -1059,6 +1443,33 @@ sería invisible.
 
 `npm audit` en CI, Dependabot activado en el repositorio de GitHub en
 cuanto exista.
+
+- `sharp` es una dependencia directa y exacta desde la Fase 4.2
+  (`tests/unit/sharp-dependency.test.ts`).
+- **Revisión del 2026-10-29 (sesión 64).** Antes, `npm audit` daba 8
+  paquetes vulnerables: 1 crítico, 4 altos y 3 moderados. Después, 0.
+  - Se actualizaron solo los paquetes afectados, sin `npm audit fix --force`
+    ni `overrides`.
+  - `npm ci` en un directorio temporal reproduce la instalación sin cambiar
+    el lockfile.
+  - `tests/unit/sharp-dependency.test.ts` falla si alguno vuelve por debajo
+    de su versión corregida.
+
+| Paquete (ruta) | Antes → después | Alertas | Aplicabilidad en ROOMLY |
+| --- | --- | --- | --- |
+| `next` (directa) | 16.3.6 → 16.4.3 | **Crítica**: GHSA-2464-fhr4-w9xw (RCE en Image Optimization con SVG y sharp vulnerable, Linux glibc) y GHSA-673q-mjm6-r5xr (RCE en `use cache` con typed arrays), ≤ 16.4.0, corregidas en 16.4.1. **Alta**: GHSA-p3m5-59mp-jv5r (DoS con Server Actions, ≤ 16.4.0) y GHSA-cjq9-62q9-8jv4 (SSRF en Image Optimization, < 16.3.8). Además, 6 moderadas y 1 baja, < 16.3.8 | La de Server Actions aplica: la app las usa. La de Image Optimization: el endpoint existe por defecto, aunque la app no usa `next/image`. `use cache` no se usa, y sin `images.remotePatterns` no aplica la SSRF. Se corrigen todas igualmente |
+| `sharp` (directa) | 0.35.4 → 0.35.5 | **Alta**: GHSA-wq5f-xc86-pv6w (librsvg, < 0.35.5) | Por N1, un SVG no llega al sanitizador. Lo usaba Image Optimization de `next` (la crítica de arriba) |
+| `zod` (directa; también de `eslint-plugin-react-hooks`) | 4.6.5 → 4.6.7 | **Alta**: GHSA-mrhx-c7xc-m3w5 (memoria con arrays sin límite, < 4.6.6) | `lib/` y `app/` no usan `z.array`. Se corrige igualmente |
+| `source-map-js` (transitiva: `postcss` de `next` y de Tailwind, `magicast`) | 1.2.1 → 1.2.2 | **Alta**: GHSA-68fv-2mgg-jv7q (DoS con source maps indexados) | Solo en el build, sin source maps de terceros |
+| `vite` (transitiva de desarrollo: `vitest`, `@vitejs/plugin-react`) | 8.3.1 → 8.3.5 | **Alta**: GHSA-587h-7wmj-h5pm (launch-editor, Windows), 4 moderadas y 1 baja | Solo en el servidor de desarrollo de Vite; la app no lo usa |
+| `vitest`, `@vitest/mocker`, `@vitest/coverage-v8` (desarrollo) | 5.0.2 → 5.0.5 | Moderadas: GHSA-qxg6-89mg-rqv8 y GHSA-xp26-3454-mjgp | Solo en los tests |
+
+  - `react` y `react-dom` siguen en 19.2.8, que `next` 16.4.3 acepta
+    (`^19.0.0`) y que no tiene alertas. `eslint-config-next` sube con `next`
+    (16.4.3).
+  - No queda ninguna alerta pendiente. Esto describe la base de datos de
+    avisos del 2026-10-29: vuelve a comprobarse con `npm audit` antes de cada
+    despliegue.
 
 ## RGPD — lo que es responsabilidad técnica y lo que no
 

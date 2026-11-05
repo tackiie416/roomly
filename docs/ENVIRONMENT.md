@@ -112,3 +112,26 @@ una función Node, no Edge Middleware; es una consecuencia conocida del
 cambio y no bloquea nada. Las variables `NEXT_PUBLIC_SUPABASE_*` se leen en
 tiempo de ejecución.
 
+## Tamaño del cuerpo de las peticiones (Fase 4.2, sesiones 64 y 65)
+
+- `next.config.ts` fija `experimental.serverActions.bodySizeLimit = "5mb"`,
+  para que quepa una foto de habitación de 4 MiB con el multipart. Vale para
+  todas las Server Actions. Por encima, Next.js 16.4.3 no ejecuta la acción y
+  responde 500, no 413.
+- `proxy.ts` copia el cuerpo hasta `experimental.proxyClientMaxBodySize`, 10
+  MB por defecto, sin cambiar.
+- **Medido en local (sesión 65):** una foto de 4 194 304 bytes da un cuerpo
+  de 4 195 232 bytes con JavaScript y de 4 195 116 sin él
+  (`tests/e2e/local/upload-size.spec.ts`, con el build de producción). Frente
+  al umbral de comparación de 4 500 000 bytes, el margen con JavaScript es de
+  304 768 bytes (6,77 %). Es una medición local: no se ha comprobado en
+  Vercel ni en Netlify.
+- **Ajuste externo, sin comprobar en un despliegue:** el alojamiento (Vercel,
+  o un Deploy Preview de Netlify) aplica su propio límite al cuerpo de las
+  peticiones de sus funciones.
+  - La referencia de unos 4,5 MB es la que dio el propietario. Desde este
+    entorno no se ha podido consultar la documentación de esas plataformas
+    (sin acceso de red a sus dominios), y no se ha tocado ningún panel.
+  - Antes del primer despliegue hay que repetir la medición contra staging,
+    con el límite vigente de la plataforma (`docs/SECURITY.md`, «Tamaño real
+    de la subida»).

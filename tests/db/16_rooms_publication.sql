@@ -102,7 +102,7 @@ select roomly_test.ok(
   not has_table_privilege('authenticated', 'public.rooms', 'INSERT')
   and not has_table_privilege('authenticated', 'public.rooms', 'UPDATE')
   and has_table_privilege('authenticated', 'public.rooms', 'SELECT')
-  and has_table_privilege('authenticated', 'public.rooms', 'DELETE')
+  and not has_table_privilege('authenticated', 'public.rooms', 'DELETE')
   and (select string_agg(a.attname, ',' order by a.attname) from pg_attribute a
        where a.attrelid = 'public.rooms'::regclass and a.attnum > 0 and not a.attisdropped
          and has_column_privilege('authenticated', a.attrelid, a.attnum, 'INSERT'))
@@ -111,7 +111,7 @@ select roomly_test.ok(
        where a.attrelid = 'public.rooms'::regclass and a.attnum > 0 and not a.attisdropped
          and has_column_privilege('authenticated', a.attrelid, a.attnum, 'UPDATE'))
     = 'available_from,city_id,deposit_amount,description,expenses_included,features,house_rules,max_stay_months,min_stay_months,neighborhood_id,pets_allowed,price_month,roommate_preferences,smoking_allowed,status,students_only,title,total_roommates,total_rooms',
-  'RS4: authenticated escribe por columnas: sin status al crear, sin deleted_at, fechas, approx_*, ni id/owner_id al editar');
+  'RS4: authenticated escribe por columnas: sin status al crear, sin deleted_at, fechas, approx_*, ni id/owner_id al editar (y, desde 20261030120000, sin DELETE)');
 select roomly_test.ok(
   has_table_privilege('anon', 'public.rooms', 'SELECT')
   and not has_any_column_privilege('anon', 'public.rooms', 'INSERT')
@@ -376,9 +376,14 @@ select roomly_test.expect_affected(
            '2026-11-15', 1, 2
     from public.cities c where c.slug = 'barcelona'$$,
   1, 'RP9-control: la misma fila sin status entra (como draft)');
-select roomly_test.expect_affected(
-  $$delete from public.rooms where id = '16100000-0000-0000-0000-000000000011'$$,
-  1, 'RP9: y la propietaria puede borrar su borrador');
+-- Desde 20261030120000 la propietaria borra por el servidor (tests/db/21).
+reset role;
+set role service_role;
+select roomly_test.ok(
+  public.delete_own_room('16100000-0000-0000-0000-000000000011', '16000000-0000-0000-0000-00000000000a') = '{}',
+  'RP9: y la propietaria puede borrar su borrador (por el servidor)');
+reset role;
+set role authenticated;
 
 -- Un admin y el servidor tampoco publican una habitación incompleta.
 select roomly_test.login('16000000-0000-0000-0000-0000000000ad');

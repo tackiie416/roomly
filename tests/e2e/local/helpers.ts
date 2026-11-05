@@ -174,3 +174,34 @@ export async function completeOnboarding(page: Page, fullName: string) {
 }
 
 export const appNav = (page: Page) => page.getByRole("navigation", { name: "Tu cuenta" });
+
+/**
+ * Habitación de `email` (operación de servidor del mock, Fase 4.2), con
+ * `photos` fotos ya subidas (fila y objeto). Devuelve su id.
+ */
+export async function seedRoom(
+  email: string,
+  options: { title?: string; status?: string; photos?: number } = {}
+): Promise<string> {
+  const params = new URLSearchParams({ email });
+  if (options.title) params.set("title", options.title);
+  if (options.status) params.set("status", options.status);
+  if (options.photos !== undefined) params.set("photos", String(options.photos));
+  const response = await mock(`/__test/seed-room?${params}`);
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { id: string }).id;
+}
+
+export type MockRoomState = {
+  room: Record<string, unknown> | null;
+  images: Array<{ id: string; storage_path: string; position: number }>;
+  /** Objetos del bucket en la carpeta de la habitación. */
+  objects: string[];
+};
+
+/** Fila, fotos y objetos de una habitación en el mock. */
+export async function roomState(id: string): Promise<MockRoomState> {
+  const response = await mock(`/__test/room?id=${encodeURIComponent(id)}`);
+  expect(response.status).toBe(200);
+  return (await response.json()) as MockRoomState;
+}

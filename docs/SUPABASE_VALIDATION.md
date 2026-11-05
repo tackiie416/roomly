@@ -61,6 +61,17 @@ ninguna aprobación y falló, como se pretendía, en la validación de entradas.
 La causa sigue sin conocerse. Ver «Resultado: run 22, prueba de la protección
 del Environment».
 
+Estado (2026-10-29, Fase 4.2): **la 4.2 no tiene validación real.** Sus dos
+migraciones (`20261024120000` y `20261025120000`) solo han corrido en local,
+en la rama `feature/phase4-2-rebuild`, sin publicar (la implementación
+original se perdió y se reconstruyó; `PROGRESS.md`, sesión 63).
+`roomly-validation-3` sigue en la 4.1, y el preflight vigente, que ya
+describe la 4.2, **fallaría contra él en P1**. Por eso R8 comprueba su
+llegada con una copia congelada del preflight de la 4.1 (ver «Copia congelada
+del preflight de la 4.1»). La 4.2 se validará en un proyecto nuevo y aislado
+(D2), del que de momento solo está el procedimiento: ver «Fase 4.2: proyecto
+de validación aislado (D2)».
+
 Los resultados de los runs 13–22, más abajo, describen el esquema y las
 suites **de cada momento**. La configuración vigente está en «Cómo se
 ejecuta», «Preflight P0–P6» y «Matriz de pruebas».
@@ -910,15 +921,16 @@ Al final, en otra sesión y solo leyendo, comprueba que no quedan
 | Check | Qué exige |
 |---|---|
 | P0 | Marca `roomly-validation-3` exacta |
-| P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y Barcelona activa. Desde la Fase 4.1, además: las restricciones de `rooms` de `20261015120000`, validadas (`chk_rooms_features_catalog`, `chk_rooms_features_unique`, `chk_rooms_total_roommates`, `chk_rooms_total_rooms`, `chk_rooms_publishable` y `fk_rooms_neighborhood_city`); la FK compuesta comparada por columnas; el catálogo exacto de las 12 características (R6), y, con R1 (`20261016120000`), exactamente los 73 barrios oficiales de Barcelona, comprobados por número y por una huella md5 de «slug\|nombre» |
-| P2 | Mismo dueño para `is_conversation_participant` y `conversation_participants`, sin FORCE RLS, SECURITY DEFINER y `search_path` vacío |
-| P3 | RLS en las 18 tablas y **exactamente estas 44 políticas** (37 hasta la Fase 4.0), comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo). Desde la 4.0, además, cada política de escritura de `rooms`, `room_addresses` y `room_images` exige la cuenta activa (`deleted_at IS NULL`) |
-| P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE. Desde la Fase 3.1, en `compatibility_responses`: `anon` sin ningún privilegio de tabla ni de columna; `authenticated` solo con SELECT, sin INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES ni TRIGGER ni escritura de columna. Desde la Fase 4.1, en `rooms`: `authenticated` sin INSERT ni UPDATE de tabla completa, con exactamente las columnas del GRANT (INSERT sin `status`, `deleted_at`, fechas ni `approx_*`; UPDATE además sin `id` ni `owner_id`), y con SELECT y DELETE; `anon` sin escrituras y con SELECT; `service_role`, tabla completa |
+| P1 | 18 tablas en `public`, la función y el trigger de la migración de seguridad, y Barcelona activa. Desde la Fase 4.1, además: las restricciones de `rooms` de `20261015120000`, validadas (`chk_rooms_features_catalog`, `chk_rooms_features_unique`, `chk_rooms_total_roommates`, `chk_rooms_total_rooms`, `chk_rooms_publishable` y `fk_rooms_neighborhood_city`); la FK compuesta comparada por columnas; el catálogo exacto de las 12 características (R6), y, con R1 (`20261016120000`), exactamente los 73 barrios oficiales de Barcelona, comprobados por número y por una huella md5 de «slug\|nombre». Desde la Fase 4.2: `is_room_publicly_visible(uuid)` (R7), `chk_room_images_storage_path` y `chk_room_images_position` validadas y con su definición, y el bucket `room-images` privado (D1, `20261025120000`), con id = nombre, 5242880 bytes e `image/webp`; «no se puede comprobar» (sin Storage, o con una RLS que podría ocultar filas al rol) es un fallo propio. Desde la sesión 65: `delete_own_room(uuid, uuid)` (`20261030120000`) |
+| P2 | Mismo dueño para `is_conversation_participant` y `conversation_participants`, sin FORCE RLS, SECURITY DEFINER y `search_path` vacío. Desde la Fase 4.2, lo mismo para `is_room_publicly_visible` (R7), del dueño de `rooms` y `profiles` |
+| P3 | RLS en las 18 tablas y **exactamente estas 41 políticas** (37 hasta la Fase 4.0; 44 hasta la 4.2; 42 hasta la sesión 65, que elimina `rooms_delete_own`), comparadas por (tabla, política, comando) en los dos sentidos. No basta con contarlas (ver abajo). Desde la 4.0, además, cada política de escritura de `rooms`, `room_addresses` y `room_images` exige la cuenta activa (`deleted_at IS NULL`). Desde la 4.2: `rooms_select_active_public` y `room_images_select` usan `is_room_publicly_visible`; `room_images_admin_select` es solo SELECT de `authenticated` con `is_admin()`; `storage.objects` y `storage.buckets` tienen la RLS activa; `storage.objects` no tiene **ninguna política** y `storage.buckets` ninguna de escritura |
+| P4 | Permisos de columna de `profiles`, `reports` y `conversation_participants`, y EXECUTE de `is_conversation_participant`. Además, en `housing_preferences`: `anon` sin ningún privilegio; `authenticated` sin INSERT/UPDATE de tabla completa, con INSERT en exactamente 11 columnas (sin `updated_at`), UPDATE en exactamente 10 (sin `profile_id` ni `updated_at`), y SELECT y DELETE. Desde la Fase 3.1, en `compatibility_responses`: `anon` sin ningún privilegio de tabla ni de columna; `authenticated` solo con SELECT, sin INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES ni TRIGGER ni escritura de columna. Desde la Fase 4.1, en `rooms`: `authenticated` sin INSERT ni UPDATE de tabla completa, con exactamente las columnas del GRANT (INSERT sin `status`, `deleted_at`, fechas ni `approx_*`; UPDATE además sin `id` ni `owner_id`), y con SELECT (hasta la sesión 65, también DELETE); `anon` sin escrituras y con SELECT; `service_role`, tabla completa. Desde la sesión 65 (`20261030120000`): ni `authenticated`, ni `anon`, ni PUBLIC tienen DELETE ni TRUNCATE sobre `rooms`, y EXECUTE de `delete_own_room` es solo de `service_role`. Desde la Fase 4.2, en `room_images`: `anon` y `authenticated` solo con SELECT, sin ninguna escritura de tabla ni de columna, y `service_role` con INSERT, UPDATE y DELETE; EXECUTE de `is_room_publicly_visible` para `anon` y `authenticated`, no para PUBLIC ni para `service_role` |
 | P5 | Equivalente SQL de los lints del Security Advisor |
-| P6 | **Exactamente 13 triggers activos** en `public` (12 hasta la Fase 3.1, que añade `trg_compatibility_responses_integrity`). **Exactamente 11 funciones propias** (10 hasta la Fase 3.1, que añade `enforce_compatibility_responses_integrity()`), con su SECURITY DEFINER y `search_path`. EXECUTE revocado donde las migraciones lo revocan |
+| P6 | **Exactamente 14 triggers activos** en `public` (12 hasta la Fase 3.1, que añade `trg_compatibility_responses_integrity`; 13 hasta la 4.2, que añade `trg_room_images_integrity`). **Exactamente 14 funciones propias** (10 hasta la Fase 3.1; 11 hasta la 4.2, que añade `enforce_room_images_integrity()` e `is_room_publicly_visible(uuid)`; 13 hasta la sesión 65, que añade `delete_own_room(uuid, uuid)`, SECURITY INVOKER y sin EXECUTE para PUBLIC, `anon` ni `authenticated`), con su SECURITY DEFINER y `search_path`. EXECUTE revocado donde las migraciones lo revocan |
 
-Las 44 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
-`profiles_select_authenticated`; 37 hasta la Fase 4.0):
+Las 41 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
+`profiles_select_authenticated`; 37 hasta la Fase 4.0; 44 hasta la 4.2; 42
+hasta la sesión 65):
 
 | Tabla | Políticas |
 |---|---|
@@ -937,8 +949,8 @@ Las 44 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
 | `profiles` | `profiles_select_own_even_if_deleted` (SELECT), `profiles_update_own` (UPDATE), `profiles_insert_own` (INSERT), `profiles_admin_all` (ALL) |
 | `reports` | `reports_insert_own` (INSERT), `reports_select_own` (SELECT), `reports_admin_all` (ALL) |
 | `room_addresses` | `room_addresses_select_own` (SELECT), `_insert_own` (INSERT), `_update_own` (UPDATE), `_delete_own` (DELETE); desde la Fase 4.0 sustituyen a `room_addresses_owner_only` FOR ALL |
-| `room_images` | `room_images_select` (SELECT), `room_images_insert_own` (INSERT), `_update_own` (UPDATE), `_delete_own` (DELETE); desde la Fase 4.0 sustituyen a `room_images_owner_write` FOR ALL |
-| `rooms` | `rooms_select_active_public` (SELECT), `rooms_select_own` (SELECT), `rooms_insert_own` (INSERT), `rooms_update_own` (UPDATE), `rooms_delete_own` (DELETE), `rooms_admin_all` (ALL); desde la Fase 4.0 las tres de escritura sustituyen a `rooms_owner_write` FOR ALL |
+| `room_images` | `room_images_select` (SELECT, con R7) y `room_images_admin_select` (SELECT, `to authenticated`, `is_admin()`). Las de escritura de la Fase 4.0 (`_insert_own`, `_update_own` y `_delete_own`, que sustituyeron a `room_images_owner_write`) se eliminan en la 4.2: solo escribe el servidor |
+| `rooms` | `rooms_select_active_public` (SELECT), `rooms_select_own` (SELECT), `rooms_insert_own` (INSERT), `rooms_update_own` (UPDATE), `rooms_admin_all` (ALL). Desde la Fase 4.0 las de escritura sustituyen a `rooms_owner_write` FOR ALL. `rooms_delete_own` (DELETE) se elimina en la sesión 65: solo borra el servidor, con `delete_own_room` |
 | `universities` | `universities_select_all` (SELECT), `universities_admin_write` (ALL) |
 
 **Por qué el preflight decía 35.** Se escribió en la Fase 1:
@@ -952,7 +964,9 @@ Las 44 políticas, por tabla (38 hasta la Fase 2.9, cuando H4 eliminó
 - `20261007120000` (Fase 3.1) sustituye `compatibility_responses_own` por
   `compatibility_responses_select_own` (siguen 37);
 - `20261013120000` (Fase 4.0) divide por comando las tres políticas FOR ALL
-  de habitaciones: −3 +10 (44).
+  de habitaciones: −3 +10 (44);
+- `20261024120000` (Fase 4.2) elimina las tres de escritura de
+  `room_images` y añade `room_images_admin_select`: −3 +1 (42).
 
 Nadie actualizó el preflight entonces. Además solo contaba, y no
 comprobaba nada de la Fase 2.
@@ -978,32 +992,63 @@ comprobaba nada de la Fase 2.
   R8. El `dry_run` (run 20) no cambió nada; el `apply` (run 21) aplicó las
   tres migraciones, y después el preflight vigente pasó como job propio, con
   44 políticas y los 73 barrios. Ver «Resultado: run 21».
+- **Fase 4.2 (2026-10-29), sin aplicar en ningún proyecto real:** desde
+  `20261024120000` y `20261025120000`, el preflight vigente exige la función
+  de R7, las restricciones de `room_images`, el bucket privado, 42 políticas,
+  14 triggers y 13 funciones. Contra `roomly-validation-3`, que sigue en la
+  4.1, fallaría en P1. R8 no usa este preflight: comprueba su llegada con la
+  copia congelada de la 4.1.
+- **Sesión 65 (2026-10-30), tampoco aplicada en ningún proyecto real:** desde
+  `20261030120000`, el preflight vigente exige además `delete_own_room` (P1),
+  41 políticas, sin `rooms_delete_own` (P3), `rooms` sin DELETE ni TRUNCATE
+  para los clientes y EXECUTE de la función solo para service_role (P4), y 14
+  funciones (P6).
 
 **Verificación sin red:**
 - `tests/unit/validation-infra.test.ts` deriva de las migraciones el
   conjunto final de políticas y triggers y lo compara con las listas del
   preflight.
-- `tests/supabase/preflight-selftest.sh` (69 comprobaciones, en CI; 65 con
-  la 4.1 antes de R1, 50 con la 4.0, 44 antes):
+- `tests/supabase/preflight-selftest.sh` (121 comprobaciones, en CI; 107
+  hasta la sesión 65, 69 hasta la 4.2, 65 con la 4.1 antes de R1, 50 con la
+  4.0, 44 antes):
   - con el esquema actual pasan P0–P6;
-  - cada una de 61 mutaciones falla en su check, y cada una se deshace
+  - cada una de 113 mutaciones falla en su check, y cada una se deshace
     (desde la Fase 3, también la marca `roomly-validation-2` en P0);
   - las mutaciones incluyen, entre otras, «misma cantidad, otra política
-    (44 = 44)» y «vuelve `housing_preferences_own`»;
+    (41 = 41)» y «vuelve `housing_preferences_own`»;
   - desde la Fase 3.1, otras 8 de `compatibility_responses`: vuelve la
     política FOR ALL, `anon` con SELECT, `authenticated` con INSERT, con
     UPDATE de `completed_at` o sin SELECT, falta el trigger, la función pasa
     a SECURITY DEFINER, y `authenticated` puede ejecutarla;
   - desde la Fase 4.0, otras 6 de habitaciones: vuelve `rooms_owner_write`,
     falta `room_addresses_select_own` y cuatro políticas de escritura sin la
-    comprobación de cuenta activa (o con ella solo en WITH CHECK);
+    comprobación de cuenta activa (o con ella solo en WITH CHECK). Las dos de
+    `room_images` se quitaron en la 4.2, porque esas políticas ya no
+    existen;
   - desde la Fase 4.1, otras 15: en P1, restricciones de `rooms` que faltan
     o están sin validar, la FK sobre otras columnas y otro catálogo de
     características; en P4, columnas de más o de menos en el GRANT de
     `rooms`, el GRANT de tabla completa, `anon` con escrituras y
     `service_role` sin la tabla completa;
   - con R1, otras 4 en P1: falta un barrio oficial, uno renombrado, su slug
-    cambiado y un barrio de más en Barcelona.
+    cambiado y un barrio de más en Barcelona;
+  - desde la Fase 4.2, otras 40:
+    - en P1, sin la función de R7, sin las restricciones de `room_images`,
+      con otra definición o sin validar, sin el bucket, público, sin valor de
+      `public`, con otro nombre, otro límite u otros tipos, y un rol al que
+      la RLS podría ocultar filas («no se puede comprobar»);
+    - en P2, la función de R7 sin SECURITY DEFINER, con otro `search_path`
+      o de otro dueño;
+    - en P3, vuelve una política de escritura de `room_images`, falta la del
+      admin, es FOR ALL, para todos los roles o abierta, las lecturas
+      públicas sin R7, una política en `storage.objects`, `storage.objects` o
+      `storage.buckets` sin RLS, y una política de escritura (o FOR ALL) en
+      `storage.buckets`;
+    - en P4, escrituras de clientes en `room_images`, `authenticated` sin
+      SELECT, `service_role` sin INSERT y el EXECUTE de la función de R7 (sin
+      él para anon, o con él para PUBLIC o `service_role`);
+    - en P6, falta el trigger de `room_images` o está desactivado, su función
+      pasa a SECURITY DEFINER, y `authenticated` puede ejecutarla.
 
 ## E2E: E1 local y E2 real, separados
 
@@ -1121,7 +1166,7 @@ de la página, donde estaría el email escrito. `outputDir` no se conserva.
 | Grupo | Dónde | Qué demuestra |
 |---|---|---|
 | P0–P6 | `tests/supabase/preflight.sql` | Ver la tabla de arriba |
-| SQL 01–18 | `tests/db/*` vía `run-sql-suite.sh` | Las 651 aserciones actuales de `tests/db` con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real hasta `14`: 305/305 en el run 16 (Fase 3), y en verde en los runs 18 y 19.** La Fase 4 añade `15` (habitaciones y cuentas desactivadas, 4.0, 75 aserciones), `16` (integridad y publicación, 4.1, 88), `17` (transiciones de `status`, R7, 160) y `18` (barrios oficiales, R1, 22). **Los 18 archivos, en real por primera vez en el run 21, después del `apply` de R8:** cada uno revertido, 651 líneas `ok -` en el log y la comprobación final sin restos. Hasta el run 21, `15`–`18` no se habían ejecutado en real |
+| SQL 01–21 | `tests/db/*` vía `run-sql-suite.sh` | Las aserciones de `tests/db` (651 hasta la Fase 4.2) con los roles de Supabase: C1, C2, C3, H5, M2 (01–04), Fase 2.0 (05–06), onboarding y su escritura única de la 2.9 (07), cuentas eliminadas (08), perfil propio (09), preferencias (10), ownership aislado (11), ajustes (12), privacidad de `profiles`, H4 (13) y, desde la Fase 3.1, `compatibility_responses` (14: CR1–CR20, 40 aserciones). **Ejecutada en Supabase real hasta `14`: 305/305 en el run 16 (Fase 3), y en verde en los runs 18 y 19.** La Fase 4 añade `15` (habitaciones y cuentas desactivadas, 4.0, 75 aserciones), `16` (integridad y publicación, 4.1, 88), `17` (transiciones de `status`, R7, 160) y `18` (barrios oficiales, R1, 22). **Los 18 archivos, en real por primera vez en el run 21, después del `apply` de R8:** cada uno revertido, 651 líneas `ok -` en el log y la comprobación final sin restos. Hasta el run 21, `15`–`18` no se habían ejecutado en real. La Fase 4.2 añade `19` (fotos y Storage, 76) y `20` (R7, 32), y adapta `10`, `13`, `14` y `15` (762 aserciones en los 20 archivos, solo en local; `concurrency_room_images.sh` corre solo con `tests/db/run.sh`, que necesita dos sesiones). La sesión 65 añade `21` (borrado desde el servidor, 36) y adapta `10`, `13`, `14`, `15`, `16`, `19` y `20` (800 aserciones en los 21 archivos, solo en local; `concurrency_room_delete.sh`, como el de las fotos, solo en `run.sh`). **`19`, `20` y `21` no se han ejecutado en real** |
 | PR1–PR12 | api-suite | Perfiles: no `role=admin` (insert/update/upsert), no `deleted_at`, campos permitidos sí, `anon` sin acceso, asignación de admin solo con `service_role`, `is_admin()` por JWT. **PR8 registra el comportamiento real de `upsert()`** sin relajar permisos |
 | CH1–CH11 | api-suite | A y B en conversación 1, C en conversación 2: aislamiento total de lectura/escritura, participantes visibles solo en las propias conversaciones, sin `42P17`, sin suplantar `sender_id`, `last_read_at` sí / `conversation_id` no, RPC de la función, sin INSERT de cliente en conversaciones/participantes/matches |
 | RO1–RO9 | api-suite | Propietario crea un borrador, lo publica, lo edita y lo pausa; no pone ni saca de `removed` (desde la 4.1, el upsert de RO6 lo frena antes el GRANT); admin y `service_role` sí; `anon` no ve `removed`; dirección exacta solo para el propietario. Desde la 4.1, RO1 publica con un barrio oficial de Barcelona (R1) y la ocupación. **Con la 4.1, en real por primera vez en el run 21: RO1–RO9 en verde** (antes, sin ejecutar en real con la 4.1) |
@@ -1300,6 +1345,169 @@ niega si `public.profiles` ya existe. En local, la actualización de un
 esquema existente la prueba `migration-upgrade-selftest.sh`, y la instalación
 limpia, `tests/db/run.sh` y ese mismo selftest.
 
+### Fase 4.2: validación real
+
+**Sin hacer.** La 4.2 (`20261024120000`, `20261025120000` y, desde la
+sesión 65, `20261030120000`) solo está probada en local, en la rama `feature/phase4-2-rebuild`, sin publicar. Lo que hace
+falta, cada paso con su autorización:
+- **Dónde:** en un proyecto nuevo y aislado (D2, abajo), no en
+  `roomly-validation-3`: sigue en la 4.1, con la congelación de D3 de R8, y
+  aplicarle la 4.2 necesitaría una herramienta propia, como R8.
+- **Comprobar en el proyecto, sin escribir:**
+  - si el rol `postgres` ve todas las filas de `storage.buckets` y
+    `storage.objects` (dueño o BYPASSRLS). Si no, las migraciones y el
+    preflight se detienen con «no se puede comprobar»;
+  - que el proyecto no tiene ya políticas en `storage.objects` ni de
+    escritura en `storage.buckets`;
+  - los triggers propios de Storage (por ejemplo, contra el borrado directo
+    de objetos), que podrían cambiar lo que espera `tests/db/19`;
+  - el aviso del Security Advisor sobre `is_room_publicly_visible`.
+- **Casos de Storage en la api-suite**, todavía sin escribir:
+  - una subida con service_role de una foto con GPS, que se lee por una URL
+    firmada ya sin EXIF;
+  - la URL pública del mismo objeto no lo sirve, y la URL firmada caduca a su
+    hora;
+  - `listRoomImages` no firma nada para una habitación oculta por R7 (cuenta
+    desactivada) ni para otro usuario;
+  - el listado del bucket como anon y como usuario, vacío;
+  - una subida, un cambio y un borrado con el JWT de un usuario, denegados;
+  - `removeDeletedRoomObjects` (sesión 64): con la habitación borrada, borra
+    las rutas canónicas de su carpeta y el listado final queda vacío; con la
+    habitación viva, no borra nada. Además, si `list` de la API real devuelve
+    los nombres relativos a la carpeta, como supone el código;
+  - si el bucket tiene versiones de objetos activadas: un `remove` dejaría
+    versiones antiguas que el listado no muestra;
+  - limpieza: borrar por la API de Storage los objetos de prueba.
+- **Sesión 64, sin validar en real:** las Server Actions de fotos y de
+  borrado y la interfaz se han probado con tests unitarios y con E1 contra el
+  Storage simulado del mock. No se han probado con la API de Storage real, el
+  runtime de Next.js desplegado ni el límite del cuerpo del alojamiento
+  (`docs/SECURITY.md`, «Subida de archivos»). El E2 real no se ha ejecutado
+  con la Fase 4.
+- **Sesión 65: lo probado en local** (PostgreSQL local con el shim de
+  Supabase, el mock de E1 y tests unitarios; detalle en `docs/TESTING.md`):
+  `tests/db/21` (36), `concurrency_room_delete.sh` (7), el preflight
+  vigente con sus mutaciones, UP14, el caso de la cascada de la conciliación,
+  los unitarios del servicio y E1. Nada de esto se ha ejecutado contra un
+  proyecto de Supabase.
+- **Sesión 65: lo pendiente en Supabase real** (`20261030120000` y
+  `deleteOwnRoom`), cada paso con su autorización:
+  - que el REVOKE deja a `authenticated` y `anon` sin DELETE sobre `rooms`
+    también con los privilegios por defecto de Supabase, y que EXECUTE de
+    `delete_own_room` queda solo para service_role (P4 y P6 lo comprueban en
+    el catálogo);
+  - un DELETE por PostgREST con el JWT de un usuario, denegado;
+  - `rpc("delete_own_room")` por PostgREST: con service_role, borra y
+    devuelve las rutas como `text[]` (JSON); con el JWT de un usuario o como
+    anon, denegado;
+  - el flujo completo (`deleteOwnRoom`, la función y la limpieza de Storage)
+    con la API de Storage real.
+- **Fuera de Supabase, pendiente de un despliegue (staging):** el tamaño de
+  una subida de 4 MiB a través de la plataforma. En local, con la Server
+  Action real, el cuerpo es de 4 195 232 bytes. El límite de Vercel o
+  Netlify no se ha comprobado, y el 413 de la prueba lo genera el proxy
+  local (`docs/SECURITY.md`, «Tamaño real de la subida»).
+- **R8 no cubre la 4.2:** el run 21 aplicó en `roomly-validation-3` solo las
+  tres migraciones de la 4.0 y la 4.1. Ninguna migración de la 4.2
+  (`20261024120000`, `20261025120000` ni `20261030120000`) está aplicada en
+  un proyecto real.
+- **No cubre:** el runtime de Next.js con la clave real (staging) ni el paso
+  de `roomly-validation-3` a la 4.2.
+
+### Fase 4.2: proyecto de validación aislado (D2)
+
+Decisión del propietario (2026-10-25): la 4.2, con D1–D4, se valida en un
+proyecto Supabase **nuevo y aislado**, no en `roomly-validation-3` ni en
+`uwxb…`. **Solo está el procedimiento:** no se ha creado, configurado ni
+conectado ningún proyecto. Cada paso necesita la autorización explícita del
+propietario. Claude no crea proyectos, no configura secretos ni Environments
+y no lanza workflows.
+
+1. **Requisitos previos, sin conexión:**
+   - la rama, publicada y con la CI en verde (los workflows se lanzan desde
+     GitHub);
+   - que la aprobación del Environment detiene de verdad el job, demostrado
+     antes: el run 22 la dejó como no fiable;
+   - el nombre y la marca del proyecto (por ejemplo, `roomly-validation-4`);
+   - escritos y revisados: los casos de Storage de la api-suite (ver «Fase
+     4.2: validación real») y, si se quiere en remoto, una variante de la
+     prueba de concurrencia sin su control, que cambia la función del
+     trigger y es solo local.
+2. **Crear el proyecto** (el propietario): sin datos reales, con el registro
+   de Auth cerrado, y con su marca:
+   `comment on database postgres is '<marca>'`.
+3. **Adaptar la guarda F1 y el workflow** (un cambio de código, revisado en
+   un PR): hoy la guarda solo acepta `roomly-validation-3`. Hacen falta la
+   ref, la marca, `confirm_project`, un Environment propio con Required
+   reviewers y sus secrets, que configura el propietario.
+4. **Inspección de solo lectura,** antes de aplicar nada: que existe Storage,
+   qué buckets hay, las políticas y los triggers de `storage.objects` y
+   `storage.buckets`, si `postgres` ve todas sus filas y el Security Advisor.
+5. **Instalación limpia** (`apply_migrations=true`, que se niega si
+   `public.profiles` ya existe): las 16 migraciones y el seed en una
+   transacción, y después el preflight vigente (bucket privado, 41 políticas,
+   14 triggers y 14 funciones).
+   - Valida la instalación desde cero. El paso de la 4.1 a la 4.2 (el de un
+     proyecto existente) solo está probado en local
+     (`migration-upgrade-selftest`).
+6. **Suites:** la SQL `01`–`21` (cada archivo revertido), la api-suite con
+   los casos de Storage y AU3/AU5. El E2, solo si se autoriza aparte (abre el
+   registro).
+7. **Conciliación de solo lectura** antes y después de las suites (abajo).
+   Después de la limpieza tiene que dar 0 inconsistencias.
+8. **Limpieza y cierre:** 0 usuarios `@test`, 0 objetos de prueba (borrados
+   por la API de Storage) y la conciliación limpia. Después, rotar las claves
+   y pausar o borrar el proyecto, según decida el propietario.
+
+Riesgos y recuperación: el proyecto es desechable. Si algo sale mal, se
+descarta y se crea otro; no hay migraciones inversas.
+
+### Informe de conciliación de las fotos (D3 de la 4.2)
+
+Decisión del propietario (2026-10-25): una conciliación exclusivamente de
+lectura. No es la «congelación de D3» de R8, que es otra decisión con el
+mismo nombre.
+
+`tests/supabase/room-images-reconcile.sh` compara los metadatos de Storage
+(`storage.objects`, bucket `room-images`) con `public.room_images`. **Solo
+informa:** no escribe, no borra y no tiene ningún modo de aplicación.
+
+```
+ROOMLY_RECONCILE_DB_URL='<URL de la base de datos>' bash tests/supabase/room-images-reconcile.sh [--min-age-hours 24] [--as-of 2026-10-25T12:00:00Z]
+```
+
+- **Categorías:**
+  - `objeto_sin_fila`: candidato a huérfano, más antiguo que el umbral (24 h
+    por defecto);
+  - `objeto_sin_fila_reciente`: no concluyente, la subida puede estar en
+    curso;
+  - `objeto_sin_fila_sin_fecha`: no verificable;
+  - `ruta_no_canonica`: ajena a las fotos de la app;
+  - `fila_sin_objeto`.
+- **Salida:** 0 sin inconsistencias confirmadas; 1 hay objetos sin fila o
+  filas sin objeto; 2 no se pudo inspeccionar (entrada no válida, conexión,
+  permisos, o una RLS que podría ocultar filas al rol). «No verificable» nunca
+  se presenta como «sin inconsistencias». Como decidió el propietario, puede
+  salir con 0 aunque haya objetos sin fecha o recientes: se cuentan aparte,
+  en la línea del resultado.
+- **Solo lectura, en tres niveles:** la sesión con
+  `default_transaction_read_only`, una transacción READ ONLY que termina en
+  ROLLBACK y un SQL que solo lee (`validation-infra`).
+  `room-images-reconcile-selftest.sh` (17 casos, en `test:infra` y en la CI)
+  comprueba además que una escritura añadida falla y que los datos no
+  cambian.
+- **Determinista:** con la misma `--as-of` y los mismos datos, el informe es
+  idéntico.
+- **Qué muestra:** solo rutas (ids) y horas. Nunca la URL de la base de datos,
+  tokens ni URL firmadas, tampoco cuando falla la conexión.
+- **Límite:** no comprueba que el archivo exista físicamente en el
+  almacenamiento de Storage (solo lo sabe la API de Storage, que no usa).
+- **Conexión:** pasa `default_transaction_read_only` como opción de inicio
+  (`PGOPTIONS`). Si el pooler de Supabase la rechazara, el informe termina
+  con 2 («no verificable»), nunca con un resultado (sin verificar en real).
+- Ejecutarlo contra un proyecto remoto necesita autorización: lee todas las
+  rutas de las fotos.
+
 ### Fase 4: herramienta de actualización (R8)
 
 **Probada en local (2026-10-17), ejecutada en `dry_run` real contra
@@ -1465,11 +1673,13 @@ Pasos, con fallo cerrado en cada uno:
    `confirm_phase4_upgrade` igual a `aplicar-fase4-en-roomly-validation-3`.
    La guarda del workflow hace la misma comprobación antes de leer secrets.
 2. **SHA-256** (sin conectar), fijados en el script, de seis archivos: las
-   tres migraciones, los dos de estado de partida y el preflight vigente
-   (`tests/supabase/preflight.sql`, `PHASE4_FINAL_PREFLIGHT`). Un archivo
-   distinto aborta. El preflight congelado describe el estado de partida y el
-   vigente, el de llegada: son dos entradas distintas. Para cambiar el del
-   vigente, ver «Cambiar el SHA-256 del preflight vigente», más abajo.
+   tres migraciones, los dos de estado de partida y el preflight de llegada
+   (`tests/supabase/phase4-final-preflight.sql`, `PHASE4_FINAL_PREFLIGHT`). Un
+   archivo distinto aborta. El preflight congelado de la Fase 3 describe el
+   estado de partida y el de llegada, el que dejan las tres migraciones: son
+   dos entradas distintas. Desde la 4.2, el de llegada es una copia congelada
+   del preflight de la 4.1, y R8 ya no lee `tests/supabase/preflight.sql`: ver
+   «Copia congelada del preflight de la 4.1», más abajo.
 3. **El flujo SQL, entero y antes de conectar:**
    - una copia de cada archivo fijado en un directorio temporal, con el
      SHA-256 comprobado otra vez sobre la copia. Un archivo que desaparece o
@@ -1504,7 +1714,7 @@ Pasos, con fallo cerrado en cada uno:
      7 universidades, sin usuarios de prueba ni `roomly_test`, y las tablas
      del rol que conecta;
    - las tres migraciones, en orden;
-   - el preflight vigente (P0–P6);
+   - el preflight de llegada (P0–P6 de la 4.1, la copia congelada);
    - `R8-MSG` otra vez: ninguna migración ha cambiado `client_min_messages`;
    - `ROLLBACK` en `dry_run`, `COMMIT` en `apply`.
    Un error corta psql (`ON_ERROR_STOP`) antes del final de la transacción.
@@ -1519,8 +1729,9 @@ Pasos, con fallo cerrado en cada uno:
      la línea final no probaría nada;
    - no hay WARNING;
    - aparecen los avisos de éxito esperados, en orden: `ok - R8-MSG`, el
-     `ok - P6:` del preflight congelado, `ok - R8-BASE`, el `ok - P6:` del
-     vigente y `ok - R8-MSG`. Solo cuentan las líneas NOTICE del servidor.
+     `ok - P6:` del preflight congelado de la Fase 3, `ok - R8-BASE`, el
+     `ok - P6:` del de llegada y `ok - R8-MSG`. Solo cuentan las líneas NOTICE
+     del servidor.
 
    Si falta cualquiera de esas cosas, la pasada falla aunque psql haya
    terminado bien.
@@ -1558,18 +1769,23 @@ Pasos, con fallo cerrado en cada uno:
   Vercel. No imprime la cadena de conexión: solo NOTICE, WARNING y ERROR
   filtrados.
 
-**Probado en local** (`phase4-upgrade-selftest.sh`, 76 comprobaciones, contra
-PostgreSQL 16 local; el mismo selftest está en `test:infra`):
-- entradas incompatibles, `dry_run` sin efectos, `apply` y el preflight
-  vigente después, la segunda aplicación rechazada, otra marca o ninguna, y
+**Probado en local** (`phase4-upgrade-selftest.sh`, 79 comprobaciones desde
+la 4.2, contra PostgreSQL 16 local; el mismo selftest está en `test:infra`):
+- entradas incompatibles, `dry_run` sin efectos, `apply` y el preflight de
+  llegada después (la copia congelada, con psql en solo lectura, como en
+  «Recuperación»), la segunda aplicación rechazada, otra marca o ninguna, y
   seis estados de partida inesperados;
-- archivos con otro SHA-256: una migración, el preflight congelado y el
-  vigente. Un psql falso en el `PATH` demuestra que no se llega a llamar a
-  psql; su control comprueba que sí se le llama cuando las entradas y los
-  archivos son correctos;
+- archivos con otro SHA-256: una migración, el preflight congelado de la Fase
+  3 y el de llegada. Un psql falso en el `PATH` demuestra que no se llega a
+  llamar a psql; su control comprueba que sí se le llama cuando las entradas y
+  los archivos son correctos;
+- el preflight vigente (`tests/supabase/preflight.sql`) fuera de R8: cambiado
+  sin tocar el script, el `dry_run` sigue siendo correcto con la copia
+  congelada; retirado, el flujo se construye igual; y sin la copia congelada
+  se rechaza antes de conectar aunque el vigente exista;
 - el flujo, antes de conectar:
-  - un archivo que desaparece o al que se le añade `commit;` justo después
-    de su comprobación;
+  - un archivo (la copia congelada o una migración) que desaparece o al que
+    se le añade `commit;` justo después de su comprobación;
   - `commit;`, un bloque `begin;`/`rollback;` o `\connect` con el SHA-256 al
     día;
   - meta-comandos a mitad de línea (`\connect`, `\set ON_ERROR_STOP 0`, `\!`)
@@ -1584,10 +1800,10 @@ PostgreSQL 16 local; el mismo selftest está en `test:infra`):
   completo. Una entrada cortada justo antes del `COMMIT` da «NO
   CONFIRMADO… incierto», y una cortada antes del `ROLLBACK`, «ensayo
   FALLIDO»;
-- un error a mitad, y un preflight vigente que falla;
+- un error a mitad, y un preflight de llegada que falla;
 - un WARNING, también con `client_min_messages = error` en la base de datos,
   y una migración que sube `client_min_messages` (`FALLO R8-MSG`);
-- un aviso de éxito que falta (el P6 del vigente);
+- un aviso de éxito que falta (el P6 del de llegada);
 - fallos solo en la pasada con `COMMIT`: un error, y la conexión perdida
   durante el propio `COMMIT` (un trigger diferido que termina su backend).
   Los dos dan «NO CONFIRMADO… incierto», nunca «nada aplicado»;
@@ -1608,7 +1824,10 @@ Mutaciones: 14/14 de la versión inicial, 5/5 de la primera ronda de
 correcciones, 12/12 de la segunda y 6/6 de la tercera (M1 y L1;
 `docs/TESTING.md`). Además, cada selftest se ejecutó contra el código
 anterior: el de 67 contra el script de `2278cf7` falla en 16 comprobaciones,
-y el de 76 contra el validador y el script de `3e4cdee`, en 9.
+y el de 76 contra el validador y el script de `3e4cdee`, en 9. El de 79 (4.2,
+etapa 0), contra el `phase4-upgrade.sh` de la base `9391015`, que aún leía el
+preflight vigente, falla en 6 comprobaciones y se detiene en el primer `repin`
+de la copia congelada, que no encuentra su pin.
 `sql-suite-selftest` (89), contra el validador de `3e4cdee`, falla en 10.
 
 **En la CI:** el selftest corre en el job `db-security` de la CI del PR.
@@ -1975,8 +2194,9 @@ Actions detiene el proceso.
 
 | | Qué ejecuta | Qué deja escrito | Qué dice del estado |
 |---|---|---|---|
-| `dry_run` (`phase4_upgrade=dry_run`) | La guarda, y en una transacción que termina en `ROLLBACK`: el preflight congelado, R8-BASE, las 3 migraciones y el preflight vigente. No lanza suites | Nada | Si pasa, el proyecto sigue en el estado de partida (la Fase 4 **no** se aplicó). Si falla en el estado de partida (`FALLO P3` del congelado, o `FALLO R8-BASE` por objetos de la 4.1 o barrios), ya no está en la Fase 3 |
-| Validación normal (`phase4_upgrade=none`, `apply_migrations=false`, `run_e2e_real=false`) | La guarda y el preflight vigente (P0–P6). **Si el preflight pasa, siguen la suite SQL, la api-suite y AU3/AU5**: no es una comprobación aislada | La suite SQL revierte cada archivo. La api-suite crea usuarios de prueba y los borra al terminar | Si el preflight pasa, la Fase 4 está aplicada, y entera. Si falla, no se ejecuta nada más |
+| `dry_run` (`phase4_upgrade=dry_run`) | La guarda, y en una transacción que termina en `ROLLBACK`: el preflight congelado, R8-BASE, las 3 migraciones y el preflight de llegada (la copia congelada de la 4.1). No lanza suites | Nada | Si pasa, el proyecto sigue en el estado de partida (la Fase 4 **no** se aplicó). Si falla en el estado de partida (`FALLO P3` del congelado, o `FALLO R8-BASE` por objetos de la 4.1 o barrios), ya no está en la Fase 3 |
+| Preflight de llegada (`tests/supabase/phase4-final-preflight.sql`, con psql y en una sesión de solo lectura; paso 4) | P0–P6 de la 4.1 sobre el estado actual. No lanza suites | Nada | Si pasa, las tres migraciones de R8 están aplicadas, y enteras. Si falla, el estado no es el de llegada |
+| Validación normal (`phase4_upgrade=none`, `apply_migrations=false`, `run_e2e_real=false`) | La guarda y el preflight vigente (P0–P6). **Si el preflight pasa, siguen la suite SQL, la api-suite y AU3/AU5**: no es una comprobación aislada | La suite SQL revierte cada archivo. La api-suite crea usuarios de prueba y los borra al terminar | Desde la 4.2, el preflight vigente describe la 4.2: **no confirma** el estado de llegada de R8, y fallaría en P1 aunque R8 se hubiera aplicado bien. No se usa para investigar un `apply` de R8 |
 | `apply` | — | — | **No se usa para investigar** |
 
 **Cómo investigar un resultado incierto o un log sin `RESULTADO:`**, en este
@@ -1993,61 +2213,98 @@ orden:
    - falla por otra causa (conexión, `lock_timeout`, WARNING, P0): no es
      concluyente. Se resuelve la causa y se repite el `dry_run`, no el
      `apply`.
-4. **La validación normal** (`phase4_upgrade=none`), sabiendo que lanza las
-   suites si el preflight pasa:
-   - pasa: la Fase 4 está aplicada, y las suites validan el resultado;
+4. **El preflight de llegada** (`tests/supabase/phase4-final-preflight.sql`,
+   la copia congelada de la 4.1), **no** la validación normal ni
+   `tests/supabase/run-preflight.sh`: desde la 4.2 ejecutan el preflight
+   vigente, que describe la 4.2 y fallaría en P1 aunque R8 se hubiera
+   aplicado bien (L5).
+   - Ninguna entrada del workflow ejecuta la copia sola. Hay que lanzarla con
+     psql contra el proyecto, en una sesión de solo lectura (el preflight solo
+     lee el catálogo) y con su autorización:
+
+     ```
+     PGOPTIONS='-c default_transaction_read_only=on' psql "<URL de la base de datos>" -X -q -v ON_ERROR_STOP=1 --no-psqlrc -f tests/supabase/phase4-final-preflight.sql
+     ```
+
+   - pasa: las tres migraciones de R8 están aplicadas (el estado de llegada);
    - falla: el estado no es ni el de partida ni el de llegada. Se detiene todo
      y se investiga sin escribir.
+
+   El caso C de `phase4-upgrade-selftest.sh` ejecuta esta misma orden en local
+   después de un `apply`.
 5. **Documentar** los runs.
 
 **«apply NO VÁLIDO»:** el `COMMIT` se ejecutó, así que el `dry_run` no aporta
 nada. Primero hay que entender el WARNING o el aviso que falta. Después, con su
-autorización, la validación normal confirma el estado de llegada.
+autorización, el preflight de llegada (la copia congelada, como en el paso 4)
+confirma el estado de llegada.
 
 Repetir `apply` sobre un proyecto ya actualizado no aplica nada dos veces: el
 preflight congelado (37 políticas frente a 44) y R8-BASE lo rechazan antes de
 la primera migración. Lo prueba el caso D del selftest, en local. Aun así,
 `apply` no se usa como comprobación.
 
-#### Cambiar el SHA-256 del preflight vigente
+#### Copia congelada del preflight de la 4.1
 
-`PHASE4_FINAL_PREFLIGHT` fija el `tests/supabase/preflight.sql` revisado.
-`validation-infra` exige que coincida con el archivo, así que cualquier cambio
-de `preflight.sql` obliga a cambiar también esa línea en el mismo PR, a la
-vista. El pin protege frente a un archivo distinto del revisado. Que el
-contenido sea seguro lo garantiza la revisión.
+`PHASE4_FINAL_PREFLIGHT` fija `tests/supabase/phase4-final-preflight.sql`, el
+preflight de llegada de R8. Es una copia byte a byte del
+`tests/supabase/preflight.sql` de la base `9391015` (la punta de
+`claude/phase4-r8-upgrade-tool`, PR #27), el mismo que pasó en el run 21:
+- SHA-256 `38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec`
+  (el que el pin ya tenía);
+- blob de git `7f28f5d90cfd8b9f55d12c85db0a6bf3a1a9a4ec`.
 
-Si `preflight.sql` cambia de forma legítima:
-1. **Revisar el diff del SQL** (`git diff <base> -- tests/supabase/preflight.sql`):
-   - sin control de transacciones ni meta-comandos de psql, y sin
-     `client_min_messages`;
-   - el aviso de P6 sigue empezando por `ok - P6:`, que `EXPECTED_NOTICES`
-     exige;
-   - sigue describiendo exactamente el estado después de las tres migraciones
-     de R8. Si describe objetos de fases posteriores, la herramienta fallará
-     (de forma segura), y no hay que actualizar el pin.
-2. **Pasar el validador**, el mismo que la herramienta aplica a la copia:
+En los logs de los runs 20 y 21, «preflight vigente» es ese mismo archivo.
 
-   ```
-   bash -c 'source tests/supabase/sql-suite-lib.sh && out="$(roomly_sql_transform tests/supabase/preflight.sql)" && ! grep -q roomly_file <<<"$out" && echo "validador: OK"'
-   ```
+**Por qué una copia (decisión del propietario para la reconstrucción de la 4.2,
+2026-10-29).** R8 aplica solo las tres migraciones de la Fase 4 (4.0, 4.1 y
+R1) y comprueba la llegada antes del `COMMIT`. La 4.2 adapta
+`tests/supabase/preflight.sql` a su propio estado (más políticas, triggers y
+funciones, y Storage). Si R8 siguiera leyéndolo, fallaría siempre en P1–P6
+aunque la actualización fuera correcta, y actualizar su pin al nuevo archivo
+cambiaría lo que la herramienta comprueba. Por eso:
+1. la copia no cambia nunca: `validation-infra` fija su SHA-256 y su blob, como
+   el del preflight congelado de la Fase 3 (`PHASE3_BASELINE`);
+2. el pin de R8 apunta a la copia, con el mismo SHA-256. En
+   `phase4-upgrade.sh` cambian una sola línea de pin (la ruta de
+   `PHASE4_FINAL_PREFLIGHT`), la etiqueta de su sección en el flujo y los
+   textos que remiten al preflight (los resultados inciertos, L5). Las tres
+   migraciones, los demás archivos fijados, la frase de `apply`, la guarda, los
+   avisos esperados y la clasificación de los resultados no cambian;
+3. `tests/supabase/preflight.sql` describe el estado vigente del repositorio y
+   cambia con la 4.2 sin tocar R8.
 
-   Tiene que imprimir `validador: OK`.
-3. **Actualizar solo el hash previsto:**
-   - calcularlo con `sha256sum tests/supabase/preflight.sql` y sustituir el
-     hash de la línea `PHASE4_FINAL_PREFLIGHT=`;
-   - no tocar `PHASE3_BASELINE` (el preflight congelado no cambia nunca:
-     `validation-infra` fija su blob de git) ni las demás;
-   - `git diff tests/supabase/phase4-upgrade.sh` tiene que mostrar una sola
-     línea cambiada, la de `PHASE4_FINAL_PREFLIGHT`.
-4. **Ejecutar las pruebas:**
-   - `bash tests/supabase/phase4-upgrade-selftest.sh`;
-   - `npm run test:infra`, que incluye `preflight-selftest`;
-   - `npm run test`: en `validation-infra`, los pines coinciden con los
-     archivos y el congelado es distinto del vigente;
-   - y `npm run test:db`, si el cambio acompaña a una migración.
-5. **Revisar otra vez el diff completo** antes de aceptar el cambio, en un PR
-   revisado.
+Este cambio de referencia es de la rama de la reconstrucción de la 4.2. La
+congelación de D3 (las tres migraciones, los seis archivos fijados y el
+preflight congelado no cambian hasta decidir el siguiente paso del PR #26)
+sigue igual: el contenido fijado es el mismo, ahora en otra ruta.
+
+| Archivo | Describe | Lo usa |
+|---|---|---|
+| `tests/supabase/phase3-baseline-preflight.sql` | El estado de partida de R8: la Fase 3 (37 políticas). Blob `7155e796…` | R8, antes de las migraciones |
+| `tests/supabase/phase4-final-preflight.sql` | El estado de llegada de R8: la 4.1 (44 políticas, 13 triggers y 11 funciones). Blob `7f28f5d9…` | R8, antes del `COMMIT`, y el paso 4 de «Recuperación» |
+| `tests/supabase/preflight.sql` | El estado vigente del repositorio (desde la 4.2, el de la 4.2) | `run-preflight.sh` y la validación normal. Nunca R8 |
+
+**Cómo se comprueba:**
+- `validation-infra`: el pin apunta a la copia; su SHA-256 y su blob son los de
+  arriba, escritos literalmente en el test; el código de `phase4-upgrade.sh`
+  (sin comentarios) no nombra `tests/supabase/preflight.sql` ni
+  `run-preflight.sh`; y los resultados inciertos remiten a la copia;
+- `phase4-upgrade-selftest.sh`: el preflight vigente cambiado sin tocar el
+  script deja el `dry_run` correcto (g18); sin el vigente, el flujo se
+  construye igual (g20); sin la copia, se rechaza antes de conectar (g19); la
+  copia cambiada o retirada se rechaza sin llamar a psql (G3, G4 y G6); y el
+  caso C comprueba la llegada con la copia, en solo lectura, como el paso 4;
+- la copia pasa el mismo validador que la herramienta aplica a cada archivo
+  fijado (`roomly_sql_transform`):
+
+  ```
+  bash -c 'source tests/supabase/sql-suite-lib.sh && out="$(roomly_sql_transform tests/supabase/phase4-final-preflight.sql)" && ! grep -q roomly_file <<<"$out" && echo "validador: OK"'
+  ```
+
+Si R8 tuviera que comprobar algún día otro estado de llegada, sería otra
+herramienta, con su revisión y su autorización. No se edita la copia, no se
+actualiza su pin y R8 no vuelve a apuntar al preflight vigente.
 
 Nunca se rebaja la comprobación para que pase una prueba: quitar el pin,
 aceptar varios hashes o saltarse el validador.

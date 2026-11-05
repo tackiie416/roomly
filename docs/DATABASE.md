@@ -704,6 +704,299 @@ suites reales borran las suyas).
   la api-suite. El E2 no se ejecutó (`docs/SUPABASE_VALIDATION.md`,
   «Resultado: run 21»).
 
+## Fase 4.2 — fotos en Storage y visibilidad R7 (2026-10-24)
+
+Migración incremental
+`supabase/migrations/20261024120000_room_images_storage_visibility.sql`, con
+las decisiones del propietario del 2026-10-24. **Reconstruida el 2026-10-29**
+a partir de este diseño, después de perderse la implementación original, que
+nunca se publicó (`PROGRESS.md`, sesión 63). No modifica migraciones
+anteriores ni añade tablas. Pasan a ser 18 tablas, **42
+políticas** (44 − 3 + 1), **14 triggers y 13 funciones**, más 1 bucket de
+Storage sin políticas en `storage.objects`.
+
+**R7 — visibilidad pública según la cuenta.** Una habitación activa de una
+cuenta desactivada (`profiles.deleted_at` con valor) deja de ser pública, y
+sus fotos también.
+- Función `public.is_room_publicly_visible(p_room_id uuid)`: SECURITY
+  DEFINER, STABLE, `search_path` vacío. Devuelve si la habitación existe,
+  está `active`, no tiene `deleted_at` y su propietario no tiene `deleted_at`.
+  - Es SECURITY DEFINER porque `anon` no puede leer `profiles` (H4): una
+    subconsulta normal no vería ningún perfil y ocultaría todas las
+    habitaciones. Es del mismo dueño que `rooms` y `profiles`, que no tienen
+    FORCE RLS: sin recursión (P2 lo comprueba).
+  - Recibe el id de la habitación y no el del propietario: responde lo mismo
+    que ya revela un SELECT, y no sirve para preguntar por el estado de una
+    cuenta. anon y authenticated tienen EXECUTE (la llama la lectura
+    pública), así que también se puede invocar por RPC; ni PUBLIC ni
+    service_role, que no pasa por la RLS (`tests/db/20`, VR0 y VR3).
+  - Sin EXECUTE, la lectura pública falla con un error (`42501`), no enseña
+    más filas (`tests/db/20`, VR6).
+- `rooms_select_active_public` se sustituye (mismo nombre): `status =
+  'active'`, `deleted_at is null` y la función. Las dos primeras se repiten
+  fuera para que el planificador pueda filtrar antes de llamarla.
+- `room_images_select` se sustituye: la habitación es pública (función) o es
+  de quien lee. Antes, la condición pública era `r.status = 'active'` sobre
+  `rooms`, con la RLS del lector; ahora es explícita y mira la cuenta.
+- `room_images_admin_select` (nueva): el admin activo (`is_admin()`, `to
+  authenticated`, solo SELECT) lee todas las fotos, también las de
+  habitaciones ocultas, para moderar. Las habitaciones ya las veía con
+  `rooms_admin_all`.
+- **Se oculta al leer, sin cambiar datos.** Las habitaciones siguen `active`;
+  si la cuenta se reactiva, vuelven a verse sin perder su estado. La
+  propietaria desactivada sigue viendo las suyas (`rooms_select_own`).
+- Coste: la función no se puede insertar en la consulta (SECURITY DEFINER),
+  así que se evalúa por fila, con dos búsquedas por clave primaria. Con
+  listados paginados basta; si el volumen lo pidiera, el siguiente paso sería
+  desnormalizar el estado de la cuenta con un trigger.
+- Descartado: usar la vista `public_profile_previews` en la política. Mezcla
+  presentación con seguridad, y si la vista pasara a `security_invoker` (H3),
+  ocultaría todas las habitaciones sin avisar.
+
+**`room_images`: solo escribe el servidor.**
+- Sin escritura de clientes: se eliminan `room_images_{insert,update,delete}_own`
+  (4.0) y se revocan INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES y TRIGGER a
+  `anon` y `authenticated`, que conservan SELECT (RLS). El único escritor es
+  `lib/services/room-images.ts` con service_role (D17 ampliada).
+- `chk_room_images_storage_path`: `storage_path = room_id::text || '/' ||
+  id::text || '.webp'`. La ruta se deriva de la fila; el id lo genera el
+  servidor (UUID aleatorio), así que no se puede adivinar ni apuntar a la
+  foto de otra habitación.
+- `chk_room_images_position`: `position >= 0`. Sin unicidad: dos subidas
+  simultáneas pueden recibir la misma posición. El listado
+  (`lib/services/room-images.ts`) ordena por `position`, después por
+  `created_at` y, por último, por `id`, así que el orden es siempre el mismo.
+- Trigger `trg_room_images_integrity` (`BEFORE INSERT OR UPDATE`), función
+  `enforce_room_images_integrity()`: SECURITY INVOKER, `search_path` vacío y
+  EXECUTE revocado a PUBLIC, `anon` y `authenticated`. Se aplica a todos los
+  roles, también a service_role, que se salta la RLS (precedente:
+  `trg_compatibility_responses_integrity`).
+
+| Regla | Rechazo (`23514`) |
+|---|---|
+| En un UPDATE cambia algo que no sea `position` | `room_image_locked:` |
+| La habitación no existe, tiene `deleted_at` o está `removed` | `room_not_writable:` |
+| El propietario no existe o tiene `deleted_at` | `account_deleted:` |
+| En un INSERT, la habitación ya tiene 8 fotos | `room_images_limit:` |
+
+- **Límite ante subidas simultáneas:** antes de contar, el trigger bloquea la
+  fila de la habitación con `FOR NO KEY UPDATE` (no choca con las
+  comprobaciones de FK). Dos INSERT de la misma habitación se serializan y el
+  segundo cuenta la foto del primero. Lo prueba
+  `tests/db/concurrency_room_images.sh` con dos sesiones de verdad, y con un
+  control: sin el bloqueo, quedarían 9.
+- El DELETE no se comprueba: el servidor puede borrar siempre (también las
+  fotos de una cuenta desactivada o de una habitación retirada) y el borrado
+  en cascada de `rooms` no pasa por el trigger.
+
+**Storage: bucket `room-images`.**
+- Lo crea esta migración **público**, con solo `image/webp` y 5 MiB por
+  objeto (5 242 880 bytes). Desde `20261025120000` es **privado** (D1; ver
+  «Fase 4.2: bucket privado», abajo). El límite
+  de la aplicación es menor, 4 MiB (`lib/validation/room-images.ts`); el del
+  bucket es una defensa adicional que se aplica también a service_role.
+- **Ninguna política en `storage.objects`, a propósito.** Mientras el bucket
+  fue público, las URL `/storage/v1/object/public/room-images/<ruta>` se
+  servían sin RLS. Sin SELECT, nadie lista el bucket para enumerar rutas ni
+  descarga objetos; sin INSERT, UPDATE ni DELETE, ningún cliente sube,
+  cambia, mueve ni borra objetos. Solo service_role, que se salta la RLS.
+- La migración crea el bucket con `on conflict do nothing`; si ya existe con
+  otra configuración, la comprobación previa la detiene.
+
+**Datos existentes.** Antes de cambiar nada, la migración comprueba que
+existen `storage.buckets` y `storage.objects`, y cuenta las fotos con una ruta
+distinta de `room_id/id.webp`, con posición negativa y las habitaciones con
+más de 8 (`23514`). También se detiene si el bucket existe con otra
+configuración o si otro bucket se llama `room-images` (`55000`). En todos los
+casos, con `room_images_4_2_precheck:` y sin borrar ni transformar nada.
+
+**Riesgos residuales** (detalle en `docs/SECURITY.md`, «Subida de archivos»):
+- Hasta `20261025120000`, R7 ocultaba las filas, no los objetos: quien ya
+  tuviera la URL de una foto la seguía viendo. Con el bucket privado, solo
+  sirven las URL firmadas, que caducan en 10 minutos.
+- `rooms_delete_own` borraba en cascada las filas de `room_images`, pero no
+  los objetos del bucket. **Actualización de la sesión 65:** desde
+  `20261030120000` (abajo) los clientes ya no pueden borrar habitaciones. La
+  app las borra con `delete_own_room`, que devuelve las rutas para limpiar
+  Storage. La cascada desde `profiles` sigue sin limpiar Storage, y sus
+  huérfanos los detecta la conciliación: es un riesgo residual aceptado por
+  el propietario el 2026-10-30 (ver «Cascadas desde `profiles`», abajo).
+
+**Validación.** `tests/db/19_room_images_storage.sql` (76),
+`tests/db/20_rooms_visibility_r7.sql` (32), `tests/db/concurrency_room_images.sh`
+(5, con un control sin el bloqueo que deja 9 fotos), los ajustes de `10`,
+`13`, `14` y `15` (42 políticas; en `15`, las fotos las escribe el servidor),
+P1–P4 y P6 del preflight, `preflight-selftest`, `migration-upgrade-selftest` y
+`validation-infra`. El schema `storage` local
+es el del shim (`tests/db/supabase_shim.sql`): la API de Storage real (URL
+firmadas, subidas, listados) **no está validada**. Tampoco en Supabase real:
+`roomly-validation-3` sigue en la 4.1 (ver `docs/SUPABASE_VALIDATION.md`).
+
+### Fase 4.2: bucket privado (`20261025120000_room_images_private_bucket.sql`)
+
+Decisión del propietario del 2026-10-25 (D1, con L6_N2 de D4), reconstruida
+el 2026-10-29 como la anterior. Migración aditiva: no cambia `20261024120000`, que crea el bucket público; esta lo deja
+privado. Sin tablas, políticas, triggers ni funciones nuevas: siguen 42
+políticas, 14 triggers y 13 funciones en `public`.
+
+**Por qué privado.** R7 oculta las filas de las habitaciones de cuentas
+desactivadas, pero con el bucket público sus fotos seguían sirviéndose a
+quien tuviera la URL. Ahora solo sirven las URL firmadas que emite el
+servidor después de leer las filas con el cliente de quien pregunta (la RLS
+es la autorización; `docs/SECURITY.md`).
+
+**Comprobación previa** (`room_images_private_precheck:`, errcode 55000).
+Antes de cambiar nada, se detiene si:
+- falta Storage, o no se puede comprobar: el rol no puede leer
+  `storage.buckets`, o la RLS de `storage.buckets` o de `storage.objects`
+  podría ocultarle filas (no es su dueño, o la tabla tiene FORCE RLS, y no
+  tiene BYPASSRLS);
+- falta el bucket, o el id y el nombre no coinciden (también si otro bucket se
+  llama `room-images`);
+- tiene otro límite o tipos;
+- `storage.objects` o `storage.buckets` no tienen la RLS activa (sin ella, no
+  tener políticas no protege nada), `storage.objects` tiene **cualquier**
+  política, o `storage.buckets` tiene políticas de escritura. La migración
+  dice cuáles y no las cambia: se revisan a mano.
+
+`public` puede estar a `true` (lo deja así `20261024120000`) o a `false` (ya
+aplicada): termina en `false`, así que es idempotente.
+
+**Comprobación final** (`room_images_private_postcheck:`): el bucket ha
+quedado privado, con el mismo nombre, límite y tipos.
+
+**Validación local.** `tests/db/19` (ST0: privado, un solo bucket con id =
+nombre, la RLS activa y ninguna política de escritura en `storage.buckets`;
+ST1: ni anon, ni la propietaria, ni un admin lo vuelven público, con un
+control que lo haría con una política abierta), P1 y P3 del preflight con sus
+mutaciones (`preflight-selftest`) y los diez rechazos de
+`migration-upgrade-selftest`: políticas, bucket incoherente o ausente, otro
+límite u otros tipos, sin la RLS de `storage.objects` o de `storage.buckets`,
+un rol al que la RLS podría ocultar filas, e idempotencia. **Sin validar en
+Supabase real.**
+
+Las dos migraciones van juntas: aplicar solo `20261024120000` dejaría el
+bucket público (y las fotos, servidas por su URL pública) hasta la segunda.
+
+### Fase 4.2: borrado de habitaciones solo desde el servidor (`20261030120000_rooms_delete_server_only.sql`)
+
+Decisión del propietario del 2026-10-30 (sesión 65): ningún cliente borra
+filas de `rooms` por PostgREST, y D17 se amplía lo mínimo para que el borrado
+pase por una operación del servidor. Migración aditiva: no cambia ninguna
+anterior. Quedan 18 tablas, **41 políticas** (42 − 1), **14 triggers y 14
+funciones** (13 + 1).
+
+**Qué cambia.**
+- `revoke delete, truncate on public.rooms from public, anon, authenticated`.
+  No toca `service_role` ni los demás privilegios de `rooms` (SELECT, el
+  GRANT por columnas de INSERT y UPDATE de la 4.1).
+- `drop policy rooms_delete_own`: sin el privilegio ya no servía, y dejarla
+  confundiría al leer las políticas. `rooms_admin_all` (FOR ALL) se queda:
+  sigue sirviendo al admin para leer y moderar con UPDATE, y sin el
+  privilegio tampoco borra.
+- La función `public.delete_own_room(p_room_id uuid, p_user_id uuid)
+  returns text[]`, con EXECUTE solo para `service_role` (revocado de PUBLIC,
+  anon y authenticated).
+
+**Por qué SECURITY INVOKER.** La llama el servidor con service_role, que
+tiene DELETE sobre `rooms` y BYPASSRLS. No necesita privilegios de su dueño.
+Si la llamara otro rol, el DELETE fallaría por falta de privilegio. No hay
+que confiar solo en que nadie más tiene EXECUTE.
+
+**Qué comprueba, en una transacción y en este orden.** Cualquier fallo
+aborta sin borrar nada:
+1. parámetros no nulos (`room_delete_invalid:`, 22004);
+2. READ COMMITTED (`room_delete_isolation:`, P0001): en REPEATABLE READ o
+   SERIALIZABLE, la lectura de las fotos usaría la instantánea del principio
+   y no vería una foto confirmada durante la espera del bloqueo;
+3. la cuenta activa, con el criterio de la 4.0: el perfil existe y
+   `deleted_at` es NULL, leído con FOR SHARE (`account_deleted:`, 42501);
+4. la habitación existe y es de `p_user_id`, bloqueada con FOR UPDATE
+   (`room_not_found:`, P0002; no distingue una ajena de una inexistente);
+5. las rutas, de las filas reales de `room_images` de esa habitación, todas
+   iguales a `room_id || '/' || id || '.webp'` y con dos UUID en minúsculas
+   (`room_delete_path_invalid:`, 23514, con el número de rutas);
+6. el DELETE, otra vez filtrado por `id` y `owner_id`, y exactamente una fila
+   borrada. Si algo no cuadra, el error es `room_not_found:`.
+
+Devuelve las rutas (vacío si no tenía fotos), ordenadas por `position`,
+`created_at` e `id`. La cascada borra `room_images`, `room_addresses` y
+`favorites`. `interests`, `matches` y `reports` la referencian sin cascada:
+con alguna de esas filas, el DELETE falla por FK (23503) y no se borra nada.
+La operación **no** toca Storage: eso lo hace el servidor con las rutas
+devueltas (`docs/SECURITY.md`, «Borrado de habitaciones»).
+
+**Bloqueos.** El FOR UPDATE sobre la habitación choca con el FOR NO KEY
+UPDATE de `trg_room_images_integrity` (cada subida bloquea su habitación) y
+con el FOR KEY SHARE de la FK de `room_images`. Una subida en curso hace
+esperar al borrado, y el borrado devuelve también su ruta. Un borrado en
+curso hace esperar a la subida, que después ya no encuentra la habitación.
+Sin el bloqueo, la cascada borraría la fila de la foto nueva sin que su ruta
+saliera en la lista.
+
+**Validación local.**
+- `tests/db/21_rooms_server_delete.sql` (36):
+  - DS0: estructura;
+  - DS1–DS3: authenticated, un admin y anon no pueden borrar ni truncar, ni
+    llamar a la función;
+  - DS4–DS6: ajena, inexistente, cuenta desactivada o sin perfil, y
+    parámetros nulos;
+  - DS8: rutas no canónicas, con un rollback completo;
+  - DS9: FK sin cascada;
+  - DS10 y DS11: rutas exactas, cascada y `storage.objects` intacto.
+- `tests/db/concurrency_room_delete.sh` (7, dos sesiones de verdad, solo
+  local):
+  - CD0: REPEATABLE READ;
+  - CD1 y CD2: subida y borrado concurrentes, en los dos órdenes;
+  - CD3: un control sin el FOR UPDATE que pierde la ruta.
+- `15`, `16` y `19` borran ahora con la función.
+- `10`, `13`, `14` y `20`, con 41 políticas.
+- P1, P3, P4 y P6 del preflight, con sus mutaciones (`preflight-selftest`);
+  UP14 de `migration-upgrade-selftest`; y `validation-infra`.
+- Las mutaciones de la migración, en copias temporales:
+  - sin el REVOKE, con EXECUTE para authenticated, sin la comprobación de
+    rutas, sin la de la cuenta, sin la del aislamiento, o devolviendo solo la
+    primera ruta: cada una hace fallar al menos un test;
+  - quitar solo el filtro de propietaria del bloqueo sobrevive, porque el
+    DELETE vuelve a filtrar por `owner_id` y exige una fila;
+  - quitar los dos filtros hace fallar DS4.
+- **Sin validar en Supabase real**: ni el REVOKE frente a los privilegios por
+  defecto de Supabase, ni la llamada por `rpc` de PostgREST.
+
+**Cascadas desde `profiles`.** Esta migración no cambia ninguna clave
+foránea. Comportamiento actual, en dos casos distintos:
+- **Borrado ordinario de una habitación** (la app, por el servidor):
+  `delete_own_room` borra la fila de `rooms`, y la cascada se lleva
+  `room_images`, `room_addresses` y `favorites` (`room_id` con ON DELETE
+  CASCADE). `interests.room_id`, `matches.room_id` y
+  `reports.reported_room_id` no tienen cascada: si alguna fila la
+  referencia, falla con 23503 y no se borra nada. Después, el servidor
+  borra en Storage las rutas que devuelve la función y verifica la carpeta
+  (`docs/SECURITY.md`, «Borrado de habitaciones»).
+- **Eliminación externa de una cuenta** (el panel o la API de Auth, SQL de
+  un operador, un admin activo que borra un perfil con
+  `profiles_admin_all`, o service_role):
+  - `profiles.id` → `auth.users(id)` y `rooms.owner_id` → `profiles(id)`
+    tienen ON DELETE CASCADE, así que se borran el perfil, sus habitaciones
+    y, en la misma cascada, las filas de `room_images`, `room_addresses` y
+    `favorites`;
+  - también caen en cascada desde `profiles` `housing_preferences`,
+    `compatibility_responses`, `favorites`, `interests`, `matches`,
+    `conversation_participants` y `notifications`;
+  - `messages.sender_id`, `reports` (`reporter_id`, `reported_user_id` y
+    `resolved_by`) y `admin_action_logs.admin_id` no tienen cascada. Si
+    alguna fila que no se borra en esa misma cascada referencia la cuenta o
+    sus habitaciones, la eliminación falla por FK y no se borra nada;
+  - **no pasa por el servidor ni limpia Storage:** los objetos de las fotos
+    quedan huérfanos.
+
+La conciliación (`room-images-reconcile-selftest`, caso de la cascada) los
+detecta, pero es de solo lectura y no los borra. **Riesgo residual aceptado
+por el propietario el 2026-10-30**: no hay triggers que llamen a Storage ni
+borrado de cuenta (H6, fuera del alcance actual). El futuro H6 tendrá que
+limpiar y verificar Storage antes de eliminar el perfil (`docs/SECURITY.md`,
+«Cascadas desde profiles y Auth»).
+
 ## Hotfix: `public_profile_previews` sin privilegios de clientes (2026-10-31)
 
 Migración `20261014120000_public_profile_previews_write_lockdown.sql`, **solo
@@ -826,7 +1119,7 @@ Como `housing_preferences` solo la lee su propietario, mostrar ciudad o
 universidad en tarjetas de otros usuarios (Fase 3) necesitará una consulta,
 servicio o vista diseñada para ello; no se resuelve moviendo las columnas.
 
-**Habitaciones** — `rooms`, `room_images`, `room_addresses` (dirección exacta, aislada), `favorites`.
+**Habitaciones** — `rooms`, `room_images` (desde la Fase 4.2, solo la escribe el servidor; las fotos están en el bucket privado `room-images` de Storage y se sirven con URL firmadas), `room_addresses` (dirección exacta, aislada), `favorites`.
 
 **Interés y matching** — `interests` (unifica interés en persona e interés vía habitación), `matches` (creado solo desde el servidor).
 

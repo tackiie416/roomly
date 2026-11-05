@@ -15,7 +15,7 @@
     "test:supabase": "vitest run -c vitest.integration.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:real": "playwright test -c playwright.real.config.ts",
-    "test:infra": "bash tests/supabase/guard-selftest.sh && bash tests/supabase/sql-suite-selftest.sh && bash tests/supabase/preflight-selftest.sh && bash tests/supabase/migration-upgrade-selftest.sh && bash tests/supabase/phase4-upgrade-selftest.sh && bash tests/supabase/default-privileges-selftest.sh && bash tests/supabase/incident-runbook-selftest.sh",
+    "test:infra": "bash tests/supabase/guard-selftest.sh && bash tests/supabase/sql-suite-selftest.sh && bash tests/supabase/preflight-selftest.sh && bash tests/supabase/migration-upgrade-selftest.sh && bash tests/supabase/phase4-upgrade-selftest.sh && bash tests/supabase/room-images-reconcile-selftest.sh && bash tests/supabase/default-privileges-selftest.sh && bash tests/supabase/incident-runbook-selftest.sh",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
@@ -23,12 +23,13 @@
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",
     "clsx": "^2.1.1",
-    "next": "16.3.6",
+    "next": "16.4.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
+    "sharp": "0.35.5",
     "tailwind-merge": "^3.7.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -37,13 +38,13 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "5.0.2",
+    "@vitest/coverage-v8": "5.0.5",
     "eslint": "^9",
-    "eslint-config-next": "16.3.6",
+    "eslint-config-next": "16.4.3",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.9",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.5"
   }
 }

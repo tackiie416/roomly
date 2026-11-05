@@ -16,7 +16,8 @@
 # Orden, con fallo cerrado en cada paso:
 #   1. el modo y su combinación con las demás entradas, sin conectar;
 #   2. el SHA-256 de las tres migraciones, de los dos archivos de estado de
-#      partida y del preflight vigente, sin conectar;
+#      partida y del preflight de llegada (la copia congelada de la 4.1), sin
+#      conectar;
 #   3. el flujo SQL completo, sin conectar: una copia de cada uno de esos seis
 #      archivos en un directorio temporal, con el SHA-256 comprobado otra vez
 #      sobre la copia y sin control de transacciones ni meta-comandos de psql
@@ -27,8 +28,9 @@
 #   5. en cada pasada, una sola sesión y una sola transacción, que psql lee de
 #      ese archivo: client_min_messages = notice (R8-MSG), el preflight
 #      congelado de la Fase 3, R8-BASE, las tres migraciones en orden, el
-#      preflight vigente (P0–P6) y R8-MSG otra vez. Después, ROLLBACK (dry_run)
-#      o COMMIT (apply). Un error corta psql (ON_ERROR_STOP) antes del final.
+#      preflight de llegada (P0–P6 de la 4.1, copia congelada) y R8-MSG otra
+#      vez. Después, ROLLBACK (dry_run) o COMMIT (apply). Un error corta psql
+#      (ON_ERROR_STOP) antes del final.
 #
 # Mientras hay conexión no se lee ningún archivo del repositorio, y psql lee el
 # de la pasada en orden: el ROLLBACK o el COMMIT solo llegan si ha leído todo lo
@@ -63,15 +65,16 @@ PHASE4_MIGRATIONS=(
 # mismo que pasó en el run 19 contra roomly-validation-3.
 PHASE3_BASELINE="tests/supabase/phase3-baseline-preflight.sql 2c33c4a1d8dfb9a838b830777a71e4e877493da24b8fc976c9224bbd15a6e4c4"
 PHASE4_BASELINE_CHECKS="tests/supabase/phase4-upgrade-baseline.sql 7c8909b9a3a25394b58d8e2eb81506c6776f28eaecbce8e91eb72ce7d125f491"
-# Preflight vigente: el estado de llegada (P0–P6 de la Fase 4), comprobado
-# antes del COMMIT. No es el de partida (PHASE3_BASELINE). Si cambia de forma
-# legítima, el procedimiento para actualizar esta línea (y solo esta) está en
-# docs/SUPABASE_VALIDATION.md, «Cambiar el SHA-256 del preflight vigente».
-# validation-infra comprueba que coincide.
-PHASE4_FINAL_PREFLIGHT="tests/supabase/preflight.sql 38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec"
+# Preflight de llegada: el estado que dejan estas tres migraciones (P0–P6 de la
+# 4.1), comprobado antes del COMMIT. No es el de partida (PHASE3_BASELINE). Es
+# una copia exacta del tests/supabase/preflight.sql que pasó en el run 21 (blob
+# 7f28f5d9…): el preflight vigente ya describe la 4.2, que esta herramienta no
+# aplica. validation-infra comprueba que coincide. Procedimiento:
+# docs/SUPABASE_VALIDATION.md, «Copia congelada del preflight de la 4.1».
+PHASE4_FINAL_PREFLIGHT="tests/supabase/phase4-final-preflight.sql 38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec"
 
 # Avisos de éxito (NOTICE) que tiene que mostrar cada pasada, en este orden:
-# R8-MSG, P6 del preflight congelado, R8-BASE, P6 del vigente y R8-MSG. Si no
+# R8-MSG, P6 del preflight congelado, R8-BASE, P6 del de llegada y R8-MSG. Si no
 # llegan, tampoco llegaría un WARNING, así que su ausencia es un fallo.
 EXPECTED_NOTICES=("ok - R8-MSG:" "ok - P6:" "ok - R8-BASE:" "ok - P6:" "ok - R8-MSG:")
 
@@ -138,7 +141,7 @@ for entry in "${PHASE4_MIGRATIONS[@]}"; do
   pinned+=("supabase/migrations/${entry}")
 done
 check_pinned "${pinned[@]}"
-echo "phase4-upgrade: modo ${MODE}; SHA-256 de las 3 migraciones, del estado de partida y del preflight vigente verificados"
+echo "phase4-upgrade: modo ${MODE}; SHA-256 de las 3 migraciones, del estado de partida y del preflight de llegada verificados"
 
 # shellcheck source=tests/supabase/sql-suite-lib.sh
 source "$ROOT/tests/supabase/sql-suite-lib.sh"
@@ -269,7 +272,7 @@ for entry in "${PHASE4_MIGRATIONS[@]}"; do
   body_parts+=("$SRC/${entry% *}")
   add_line ""
 done
-add_line "$(section "preflight vigente sobre el resultado")"
+add_line "$(section "preflight de llegada (copia congelada de la 4.1) sobre el resultado")"
 body_parts+=("$(src_of "$PHASE4_FINAL_PREFLIGHT")")
 concat_verified "$BODY" "${body_parts[@]}" || die "el cuerpo del flujo no se ha construido completo"
 
@@ -324,7 +327,7 @@ run_pass() {
   seen="$(sed -nE 's/^(psql:<stdin>:[0-9]+: )?NOTICE:  (ok - (R8-[A-Z]+|P6):).*$/\2/p' "$out")"
   expected="$(printf '%s\n' "${EXPECTED_NOTICES[@]}")"
   if [ "$seen" != "$expected" ]; then
-    echo "   faltan avisos de éxito en la pasada (${ending}): se esperaban, en orden, R8-MSG, P6 (congelado), R8-BASE, P6 (vigente) y R8-MSG; fallo cerrado"
+    echo "   faltan avisos de éxito en la pasada (${ending}): se esperaban, en orden, R8-MSG, P6 (congelado), R8-BASE, P6 (de llegada) y R8-MSG; fallo cerrado"
     return 2
   fi
   return 0
@@ -348,11 +351,11 @@ STAGE="la pasada con COMMIT"
 echo "phase4-upgrade: ensayo limpio; se repite el mismo cuerpo con COMMIT"
 run_pass commit || status=$?
 if [ "$status" -eq 1 ]; then
-  echo "RESULTADO: apply NO CONFIRMADO: la pasada con COMMIT falló, mostró un ERROR o no llegó al final, y su resultado es incierto (si la conexión se perdió durante el COMMIT, la actualización pudo quedar aplicada o no; al ser una sola transacción, está entera o no está). No repitas apply: investiga antes el estado según «Recuperación» en docs/SUPABASE_VALIDATION.md (primero un dry_run, que no confirma nada; si falla en el estado de partida, el preflight vigente, tests/supabase/run-preflight.sh, que en el workflow lanza también las suites)" >&2
+  echo "RESULTADO: apply NO CONFIRMADO: la pasada con COMMIT falló, mostró un ERROR o no llegó al final, y su resultado es incierto (si la conexión se perdió durante el COMMIT, la actualización pudo quedar aplicada o no; al ser una sola transacción, está entera o no está). No repitas apply: investiga antes el estado según «Recuperación» en docs/SUPABASE_VALIDATION.md (primero un dry_run, que no confirma nada; si falla en el estado de partida, comprueba el de llegada con la copia congelada tests/supabase/phase4-final-preflight.sql, no con el preflight vigente, que desde la 4.2 describe la 4.2 y fallaría aunque la actualización se hubiera aplicado)" >&2
   exit 1
 fi
 if [ "$status" -eq 2 ]; then
-  echo "RESULTADO: apply NO VÁLIDO: el COMMIT se ejecutó (psql llegó a «== R8 · commit hecho»), pero la segunda pasada tuvo WARNING o le faltan avisos de éxito. No repitas apply: comprueba el estado de llegada con el preflight vigente (tests/supabase/run-preflight.sh; ver «Recuperación» en docs/SUPABASE_VALIDATION.md)" >&2
+  echo "RESULTADO: apply NO VÁLIDO: el COMMIT se ejecutó (psql llegó a «== R8 · commit hecho»), pero la segunda pasada tuvo WARNING o le faltan avisos de éxito. No repitas apply: comprueba el estado de llegada con la copia congelada tests/supabase/phase4-final-preflight.sql (no con el preflight vigente, que desde la 4.2 describe la 4.2; ver «Recuperación» en docs/SUPABASE_VALIDATION.md)" >&2
   exit 1
 fi
 echo "RESULTADO: apply correcto: las 3 migraciones de la Fase 4 aplicadas y P0–P6 superadas antes del COMMIT"

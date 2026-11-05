@@ -263,6 +263,554 @@ fetch, workflows ni conexión a Supabase.
 
 ---
 
+## 2026-10-30 — Sesión 67: riesgo residual de las cascadas aceptado y estrategia de publicación (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Contexto.** La auditoría de publicación de la sesión 66 (sin cambios, solo
+lectura) no encontró defectos de seguridad en el código. Solo encontró un
+bloqueo documental: la decisión del propietario sobre las cascadas no estaba
+registrada, y la documentación la presentaba como pendiente.
+
+**Decisión del propietario (2026-10-30), cerrada.** Riesgo residual
+aceptado:
+- una eliminación externa en `auth.users` o en `profiles` puede borrar en
+  cascada habitaciones y filas de `room_images` sin borrar sus objetos de
+  Storage;
+- la conciliación detecta esos objetos, pero es estrictamente de solo
+  lectura y no los borra;
+- no se añaden triggers que llamen a Storage desde PostgreSQL;
+- no se implementa ahora el borrado de cuenta ni se amplía `service_role`
+  para este caso;
+- el futuro H6 tendrá que limpiar y verificar Storage antes de eliminar el
+  perfil o de dejar que se produzca la cascada;
+- mientras H6 no exista, es una limitación conocida y visible, no una
+  protección implementada.
+
+Con esta decisión queda cerrado el punto 3 de los pendientes de la sesión
+65 (el borrado de cuenta y el DELETE de `profiles`). El DELETE de `profiles`
+de un admin activo queda dentro del riesgo aceptado y no se cambia. H6 sigue
+fuera del alcance actual.
+
+**Estrategia de publicación** (definida por el propietario, **sin
+ejecutar**):
+- rama remota nueva `feature/phase4-2-rebuild`;
+- PR apilado sobre el PR #27, contra `claude/phase4-r8-upgrade-tool`
+  (`9391015`), no contra `master`. Su base tiene que seguir siendo esa rama,
+  para que el diff contenga solo los 21 commits de la 4.2 (desde `9391015`)
+  y no los 16 heredados de los PR #26 y #27;
+- el push, la rama remota y el PR necesitan una autorización separada.
+
+**Qué se hizo** (un commit local, solo de documentación)
+- `docs/SECURITY.md`: la cascada aparece como riesgo residual aceptado, en
+  los riesgos de la 4.2 y en «Cascadas desde profiles y Auth», con el
+  requisito para H6. Deja de presentarse como «Pendiente de decisión».
+- `docs/DATABASE.md`: el comportamiento actual de las claves foráneas,
+  separando el borrado ordinario de una habitación por el servidor de la
+  eliminación externa de una cuenta, y el riesgo aceptado.
+- `CLAUDE.md`:
+  - en «Seguridad», el riesgo aceptado y el requisito de diseño para H6,
+    que no autoriza a implementarlo;
+  - en «Pendiente de decisión humana», se quita el punto de las cascadas y
+    se añade la estrategia de publicación;
+  - en «Estado actual», la línea de la cascada.
+- Esta entrada. Las sesiones anteriores no se han tocado.
+
+No cambia código, migraciones, permisos, tests ni la conciliación.
+
+**Verificación** (en local, después de editar)
+- `npm run test`: 1302/1302 en 50 archivos.
+- `npm run test:infra`: 377/377 (28, 89, 121, 41, 79 y 19).
+- `lint`, `typecheck`, `format:check` y `git diff --check`: en verde, sin
+  salida de `git diff --check`.
+- `test:db` y E1 no se repiten: no cambia ningún archivo SQL, de tests ni
+  de código (812/812 y 41/41 en la sesión 66, sobre el mismo código).
+- Sin restos: solo la base `postgres`, los roles del shim y `/tmp` igual que
+  antes.
+- Ninguna mención de la cascada o de H6 como decisión pendiente, ni de una
+  limpieza de Storage implementada para las cascadas externas.
+
+**Sin cambios:** lo que sigue sin validar en real (sesiones 65 y 66). No hubo
+push, PR, workflows ni acceso a Supabase remoto, y los PR #26 y #27 no se han
+tocado.
+
+---
+
+## 2026-10-30 — Sesión 66: auditoría final del borrado y del límite de subida (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Petición del propietario** (2026-10-30): continuar desde el último estado,
+auditar la migración del borrado y la prueba de tamaño, completar la
+documentación, repetir toda la verificación y hacer commits locales. Siguen
+las restricciones: sin push, PR, merge, workflows, Supabase remoto, cambios
+en secretos, Environments, Auth o servicios externos, ni despliegues.
+
+**Línea de partida** (comprobada): rama `feature/phase4-2-rebuild`, HEAD
+`49e5ce8`, árbol limpio, nada staged y ningún proceso de pruebas en marcha.
+La documentación de la sesión 65 ya estaba en `49e5ce8`. PostgreSQL local
+estaba parado por un reinicio del contenedor y se arrancó otra vez.
+
+**Qué se hizo** (commits locales `17f7e8d` y el de esta documentación)
+1. **Auditoría de `20261030120000`**, sin cambios de código: el diff
+   completo, los privilegios, la función y la relación de bloqueos.
+   - `trg_room_images_integrity` toma FOR NO KEY UPDATE sobre la habitación,
+     y la FK de una foto nueva, FOR KEY SHARE.
+   - `delete_own_room` toma FOR UPDATE antes de leer las rutas y lo mantiene
+     hasta el COMMIT. Choca con los dos, así que no cabe ninguna foto entre
+     la lectura de las rutas y el borrado.
+   - La función es VOLATILE: en READ COMMITTED, cada sentencia ve lo
+     confirmado mientras esperaba el bloqueo.
+   - Cada punto pedido tiene su test:
+     - DS0–DS3: anon y authenticated no borran ni llaman a la función;
+       EXECUTE es solo de service_role;
+     - el servicio toma la identidad de `auth.getUser()` y la pasa a la
+       función («el usuario de la llamada es el de la sesión, nunca otro»);
+       un `ownerId` del navegador se rechaza;
+     - DS4 y DS5: propiedad y cuenta activa;
+     - DS10 y DS8: rutas de las filas reales, y rollback con una ruta
+       incompatible;
+     - CD1–CD3: concurrencia;
+     - limpieza parcial: pendiente, nunca completa.
+2. **`upload-size.spec.ts`** (`17f7e8d`): el comentario del proxy decía que
+   su 413 era «como haría Vercel o Netlify», y el título del quinto caso,
+   «413 de la plataforma». Ahora dice que el 413 lo genera el proxy local. Las
+   aserciones no cambian; los cinco casos pasan.
+3. **Documentación** (este commit):
+   - el 413 simulado, sin atribuirlo a Next.js ni a una plataforma
+     (`SECURITY`, `TESTING` y esta entrada);
+   - el margen exacto, 304 768 bytes (6,77 %), en `SECURITY` y
+     `ENVIRONMENT`;
+   - en `SUPABASE_VALIDATION`, lo probado en local separado de lo pendiente
+     en real y de lo pendiente de despliegue. R8 no cubre la 4.2: ninguna de
+     sus migraciones está aplicada en un proyecto real.
+
+**Verificación** (en local, repetida entera; detalle en `docs/TESTING.md`)
+- `npm ci` en un directorio temporal: 426 paquetes y el lockfile idéntico.
+  `npm audit --json`: 0 vulnerabilidades en 516 dependencias.
+- `test` 1302/1302, `test:db` 812/812, `test:infra` 377/377 y E1 41/41
+  (orientativo), con `upload-size` 5/5 y la misma medición: 4 195 232
+  bytes.
+- `lint`, `typecheck`, `format:check` y `build`, en verde.
+- Las seis huellas de R8 coinciden, también `38ef7a3b…`. Desde `464ca06`
+  solo se añade `20261030120000`.
+- Sin restos: solo la base `postgres`, los roles del shim que ya existían y
+  `/tmp` como antes, después de quitar dos archivos vacíos de Chromium de
+  esta ejecución.
+
+**Problemas encontrados:** solo la redacción del 413 en el spec y en la
+documentación, corregida. Ningún fallo de pruebas.
+
+**Sin validar:** lo mismo que en la sesión 65. No hubo push, PR, merge,
+workflows, acceso a Supabase remoto ni despliegues, y los PR #26 y #27 no
+se han tocado.
+
+**Pendiente:** los puntos de la sesión 65, sin cambios. Publicar la rama y
+validarla en real necesitan otra autorización.
+
+---
+
+## 2026-10-30 — Sesión 65: endurecimiento del borrado de habitaciones y tamaño real de la subida (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Autorización del propietario** (2026-10-30), sobre HEAD `464ca06` y sin
+reescribir nada:
+- cerrar el DELETE directo de `rooms` por PostgREST con una operación del
+  servidor, ampliando D17 lo mínimo;
+- auditar las cascadas desde `profiles`;
+- medir el cuerpo HTTP real de una subida de 4 MiB;
+- documentar todo y hacer commits locales pequeños.
+
+Siguen las restricciones: sin push ni PR, sin workflows, sin Supabase remoto,
+sin cambiar servicios externos ni sus paneles, sin SECURITY DEFINER si no es
+imprescindible y sin alterar migraciones históricas.
+
+**Línea de partida** (comprobada): HEAD `464ca06`, árbol limpio, rama
+`feature/phase4-2-rebuild` sin upstream.
+
+**Qué se hizo** (commits locales `9516d15`, `7c0441d`, `ec688b6`, `1f136e9` y
+el de esta documentación)
+1. **Migración `20261030120000_rooms_delete_server_only.sql`** (`9516d15`).
+   - Inspección previa: GRANT y RLS de `rooms`, sus triggers, el criterio de
+     cuenta activa (decisión B de la 4.0), las acciones y servicios, las FK
+     (con y sin cascada) y las convenciones de las migraciones.
+   - REVOKE de DELETE y TRUNCATE a PUBLIC, anon y authenticated, sin tocar
+     service_role. Se elimina `rooms_delete_own` (41 políticas).
+   - `delete_own_room(p_room_id, p_user_id) returns text[]`: SECURITY
+     INVOKER, `search_path` vacío, EXECUTE solo para service_role. Comprueba
+     el aislamiento, la cuenta activa (FOR SHARE) y la propiedad (FOR
+     UPDATE), valida las rutas de las filas reales de `room_images`, borra
+     con una sola fila y devuelve las rutas. Ante cualquier fallo, no borra
+     nada.
+   - Tests: `tests/db/21` (36) y `tests/db/concurrency_room_delete.sh` (7);
+     los cambios de `10`, `13`–`16`, `19` y `20`; dos helpers que no dependen
+     del idioma del servidor (`expect_denied` y `expect_fk_violation`); el
+     preflight (P1, P3, P4 y P6) con 14 mutaciones nuevas; UP14; y
+     `validation-infra`. `types/database.ts` declara la función.
+2. **Servicio** (`7c0441d`).
+   - `deleteOwnRoom`: la sesión, la cuenta y la propiedad, con el cliente del
+     usuario, antes de crear el cliente admin. Después, solo
+     `rpc("delete_own_room")`. Los rechazos definitivos se traducen por
+     SQLSTATE y prefijo (también `conflict`, la FK sin cascada, con su
+     mensaje en la acción). Los ambiguos se comprueban mirando si la
+     habitación sigue.
+   - `removeDeletedRoomObjects` borra solo las rutas devueltas y canónicas,
+     ya no lo que lista. El listado final decide si la limpieza es completa.
+   - `rooms.ts` pasa a la lista de `admin-client-usage`, que fija que usa el
+     cliente admin solo para esa rpc. El mundo en memoria y el mock de E1
+     imitan la función y deniegan el DELETE al usuario.
+3. **Auditoría de las cascadas** (`ec688b6`).
+   - `auth.users` → `profiles` → `rooms` → `room_images` en cascada, sin
+     limpiar Storage. ROOMLY no tiene borrado de cuenta (H6), así que no hay
+     un flujo que adaptar.
+   - No se toca Auth ni se añaden triggers con llamadas HTTP. El selftest de
+     la conciliación prueba que detecta los objetos que deja (19).
+4. **Tamaño real de la subida** (`1f136e9`).
+   - `tests/e2e/local/upload-size.spec.ts` (5) y
+     `tests/support/exact-size-jpeg.mjs` (un JPEG válido del tamaño exacto).
+   - 4 195 232 bytes con JavaScript y 4 195 116 sin él, por una foto de
+     4 194 304. Margen de 304 768 bytes (6,77 %) frente a 4 500 000.
+   - Un byte de más se rechaza sin consultas de habitaciones ni privilegiadas.
+     Por encima de 5 MB, Next.js 16.4.3 responde 500, no 413. Un 413
+     simulado por el proxy local (no por Next.js ni por una plataforma) da el
+     error genérico. Los cinco casos del spec pasan.
+   - Conclusión: se conserva la subida por Server Action, sin subida firmada
+     a un bucket temporal.
+5. **Documentación** (este commit): `docs/SECURITY.md`, `DATABASE.md`,
+   `TESTING.md`, `SUPABASE_VALIDATION.md`, `ARCHITECTURE.md`, `ROADMAP.md`,
+   `ENVIRONMENT.md` y `CLAUDE.md`.
+
+**Verificación** (en local; detalle en `docs/TESTING.md`)
+- `npm run test`: 1302/1302 en 50 archivos (1289 en `464ca06`).
+- `test:db`: 812 (767), en bases de datos nuevas, también la concurrencia.
+- `test:infra`: 377 (356): 28, 89, 121, 41, 79 y 19.
+- E1: 41/41 (36), orientativo, con el Chromium preinstalado.
+- `lint`, `typecheck`, `format:check` y `build`, en verde.
+- Controles negativos: 7 mutaciones de la migración y 12 del servicio,
+  detectadas. Quitar solo el filtro de propietaria del bloqueo sobrevive: el
+  DELETE vuelve a filtrar por `owner_id` y exige una fila (quitar los dos lo
+  detecta DS4).
+- Huellas de R8: las tres migraciones, `phase3-baseline-preflight.sql`,
+  `phase4-upgrade-baseline.sql` y la copia congelada (`38ef7a3b…`), sin
+  cambios. En `supabase/` solo se añade `20261030120000`.
+- Sin restos: al terminar solo queda la base `postgres`.
+
+**Problemas encontrados**
+- Los mensajes de «permission denied» dependen del idioma del servidor, y la
+  suite remota no admite `commit` ni cambiar el aislamiento. Por eso los
+  helpers comparan SQLSTATE y restricción, y la prueba de REPEATABLE READ
+  está en el script de concurrencia, que solo corre en local.
+- La sesión 64 decía que Next.js responde 413 por encima de
+  `bodySizeLimit`. La medición muestra 500 en las acciones con `fetch` (un
+  TODO de `action-handler.js` de 16.4.3). Corregido en `docs/SECURITY.md`.
+- Sigue sin poderse consultar la documentación de Vercel y Netlify (sin red
+  a esos dominios). El límite de 4,5 MB es la referencia del propietario, sin
+  comprobar.
+- Tras un reinicio del contenedor, PostgreSQL local estaba parado. Se
+  arrancó otra vez sin perder nada.
+
+**Decisiones técnicas**
+- SECURITY INVOKER: service_role ya tiene DELETE y BYPASSRLS, y otro rol
+  que la llamara fallaría por privilegios.
+- `rooms_delete_own` se elimina en lugar de dejarla sin efecto. Se conserva
+  `rooms_admin_all`, que el admin sigue usando para leer y moderar.
+- Se exige READ COMMITTED, para que la lista de rutas no use una instantánea
+  anterior al bloqueo.
+- No se revoca el DELETE de `profiles` (un admin activo puede borrar un
+  perfil, como documenta `docs/DATABASE.md`): es una decisión de la Fase 7 o
+  de H6, fuera del alcance pedido.
+
+**Sin validar:** `rpc("delete_own_room")` por PostgREST y los privilegios
+por defecto de Supabase, la API de Storage real, el tamaño de la subida en un
+despliegue, la CI de la rama y el E2 real con la Fase 4. No hubo push, PR,
+workflows ni acceso a Supabase remoto o a paneles externos.
+
+**Pendiente** (cada punto con su autorización o decisión)
+1. Revisar los commits locales y decidir si se publica la rama.
+2. Repetir la medición de la subida contra un despliegue (staging), con el
+   límite vigente de la plataforma.
+3. Decidir el borrado de cuenta (H6) y si se quita el DELETE de `profiles`:
+   hoy la cascada desde `profiles` deja objetos que solo detecta la
+   conciliación.
+4. La validación real de la 4.2 en un proyecto aislado (D2), con los casos
+   de Storage de la api-suite y los de `delete_own_room` (por `rpc` y con el
+   JWT de un usuario).
+5. Sin cambios: el CRUD de habitaciones, la documentación de los runs 23 y
+   24, los PR #26 y #27, la congelación de D3, el Environment, el E2 con la
+   Fase 4 y el runtime de Next.js con la clave real.
+
+---
+
+## 2026-10-29 — Sesión 64: cierre local de la Fase 4.2 — dependencias, Server Actions, interfaz y borrado seguro (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Autorización del propietario** (2026-10-29): continuar sobre los 8 commits
+de la sesión 63 en `feature/phase4-2-rebuild`, con commits locales pequeños
+y revisados:
+- corregir las dependencias vulnerables;
+- completar la Server Action de subida, la interfaz de fotos y el borrado
+  seguro de habitaciones, con sus pruebas y su documentación.
+
+Siguen las restricciones: sin push ni PR, sin cambios en los PR #26 y #27,
+sin workflows, sin Supabase remoto y sin tocar secretos, Environments ni
+servicios externos.
+
+**Línea de partida** (comprobada antes de empezar): HEAD `64b90c5`, árbol
+limpio y sin upstream. Los 8 commits anteriores se conservan, y `2056be1` no
+se reescribe (su mensaje dice «diez» mutaciones; fueron 9, y está documentado
+en `docs/TESTING.md`).
+
+**Qué se hizo** (commits locales `1526658`, `f1a836f`, `f1e0dff`, `9124fc0` y
+el de esta documentación)
+1. **Dependencias** (`1526658`).
+   - `npm audit --json` antes: 8 paquetes vulnerables (1 crítico, 4 altos y 3
+     moderados). Después: 0.
+   - Avisos oficiales consultados (GitHub Advisory Database) y versiones
+     consultadas en el registro de npm:
+     - `next` 16.3.6 → 16.4.3, la última 16.x estable. Las críticas
+       GHSA-2464-fhr4-w9xw y GHSA-673q-mjm6-r5xr y la alta
+       GHSA-p3m5-59mp-jv5r (≤ 16.4.0) se corrigen en 16.4.1, el 14 de
+       octubre;
+     - `sharp` 0.35.4 → 0.35.5, directa y exacta (GHSA-wq5f-xc86-pv6w, con
+       librsvg 2.63.2). Sin `sharp.block()`: L3 sigue igual;
+     - `zod` 4.6.5 → 4.6.7;
+     - transitivas: `source-map-js` 1.2.2 y `vite` 8.3.5. De desarrollo:
+       `vitest` y `@vitest/coverage-v8` 5.0.5.
+   - `react` y `react-dom` siguen en 19.2.8, sin `overrides` ni
+     `npm audit fix --force`.
+   - `npm ci` en un directorio temporal reproduce la instalación sin cambiar
+     el lockfile.
+   - Tabla por alerta, con su aplicabilidad, en `docs/SECURITY.md`,
+     «Dependencias». `sharp-dependency.test.ts` fija las versiones mínimas.
+2. **Server Actions de fotos** (`f1a836f`).
+   - `uploadRoomPhoto` y `deleteRoomPhoto`, delgadas. Del navegador solo
+     llegan ids y la foto.
+   - Más de 4 MiB se rechaza antes de cualquier consulta, sin leer los bytes.
+   - `requireActiveProfile` como guard. `/habitaciones` pasa a las rutas
+     protegidas del proxy.
+   - `experimental.serverActions.bodySizeLimit = "5mb"` (comprobado en la
+     documentación y el código de Next.js 16.4.3 instalados: es global y se
+     aplica mientras se lee el cuerpo).
+3. **Borrado seguro de habitaciones** (`f1e0dff`).
+   - `lib/services/rooms.ts`, sin service_role: comprueba antes de cambiar
+     nada, borra la fila con el cliente del usuario y después delega los
+     objetos.
+   - `removeDeletedRoomObjects`, en el servicio de fotos: comprueba con
+     service_role que la habitación ya no existe, borra solo rutas canónicas
+     de su carpeta y verifica con un listado final.
+   - Fallos parciales: nunca informa de una limpieza completa sin
+     verificarla, y ante un DELETE ambiguo no toca Storage.
+   - Inventario de las rutas de borrado en `docs/SECURITY.md`, «Borrado de
+     habitaciones».
+4. **Interfaz mínima y E1** (`9124fc0`).
+   - Páginas `/habitaciones/[id]/fotos`, `/habitaciones/[id]/borrar` y
+     `/habitaciones/borrada`, y `components/rooms/room-photo-forms.tsx`.
+     Funcionan sin JavaScript.
+   - El mock de E1 emula `rooms`, `room_images` y la API de Storage del
+     bucket privado.
+
+**Verificación** (en local; detalle en `docs/TESTING.md`)
+- `npm run test`: 1289/1289 en 50 archivos (antes 1186 en `64b90c5`; 1069 en
+  la base `9391015`).
+- `test:db`: 767 (sin cambios en SQL), con la concurrencia en una base nueva.
+- `test:infra`: 356 (28, 89, 107, 36, 79 y 17).
+- E1: 36/36, orientativo, con el Chromium preinstalado.
+- `lint`, `typecheck`, `format:check` y `build` (Next.js 16.4.3), en verde.
+- Controles negativos: 7 mutaciones del borrado, 3 de las acciones y el
+  lockfile anterior contra `sharp-dependency`. Todos fallan como deben.
+- Huellas de R8 (las tres migraciones, `phase3-baseline-preflight.sql`,
+  `phase4-upgrade-baseline.sql` y la copia congelada `38ef7a3b…`) sin
+  cambios. Nada cambia en `supabase/`, `tests/supabase/`, `tests/db/` ni
+  `.github/`.
+- Sin restos: al terminar solo queda la base `postgres`. Los roles del shim
+  se conservan, como antes.
+
+**Problemas encontrados**
+- No se pudo consultar la documentación de Vercel ni de Netlify: el entorno
+  no tiene acceso de red a esos dominios. El límite del cuerpo del
+  alojamiento queda sin comprobar (`docs/SECURITY.md`, «Subida de
+  archivos»).
+- Las rutas de borrado fuera de la app (el DELETE directo por PostgREST y la
+  cascada desde `profiles`) siguen sin limpiar Storage. No se ha cambiado el
+  esquema: cerrarlas es un cambio de contrato que necesita una decisión.
+
+**Decisiones técnicas**
+- Borrar la fila primero y los objetos después, porque un fallo deja como
+  mucho objetos huérfanos inaccesibles, nunca filas sin objeto.
+- La confirmación del borrado es una página aparte con redirección, porque
+  la de la habitación ya no existe tras borrarla. `?fotos=pendientes` solo
+  elige el mensaje.
+- `<img>` en vez de `next/image` para las URL firmadas.
+- La gestión de fotos es solo de la propietaria y del admin activo (solo
+  lectura): no es la ficha pública.
+
+**Sin validar:** la API de Storage real, el runtime de Next.js desplegado
+con la clave real, el límite del alojamiento, la CI de la rama y el E2 real
+con la Fase 4. No hubo push, workflows ni cambios en los PR #26 y #27, ni
+acceso a Supabase remoto.
+
+**Pendiente** (cada punto con su autorización o decisión)
+1. Revisar los commits locales y decidir si se publica la rama.
+2. Comprobar el límite del cuerpo de las peticiones del alojamiento.
+3. Decidir si se cierra el DELETE directo de `rooms`.
+4. La validación real de la 4.2 en un proyecto aislado (D2), con los casos de
+   Storage de la api-suite, también `removeDeletedRoomObjects`.
+5. El CRUD de habitaciones, que necesita su propia autorización.
+6. Sin cambios: la documentación de los runs 23 y 24, los PR #26 y #27, la
+   congelación de D3, el Environment, el E2 con la Fase 4 y el runtime de
+   Next.js con la clave real.
+
+---
+
+## 2026-10-29 — Sesión 63: Fase 4.2 reconstruida en local tras perderse la original (Fase 4 EN CURSO; 4.2 solo en local, en commits locales sin publicar; PR #26 y #27 sin fusionar)
+
+**Contexto: qué se perdió**
+- Las sesiones 61 y 62 (2026-10-24 y 2026-10-25) implementaron la Fase 4.2
+  en la rama local `feature/phase4-storage-r7`: los commits `936ce11`,
+  `0194d29`, `976d80e` y `d523d46` y los cambios sin commit de D1–D4. La
+  sesión 60, la documentación de los runs 23 y 24, estaba en el stash
+  `e76aaedd…`. **Nada de eso se publicó.** Al reciclarse el contenedor se
+  perdió todo.
+- Se comprobó por GitHub, con una consulta de solo lectura autorizada, que
+  no existe nada de eso en remoto. Esas tres sesiones no están en este
+  archivo: esta entrada las sustituye, y por eso empieza en la 63.
+- **Lo que no se ha recuperado:** la documentación de los runs 23 y 24 (el
+  stash). Los runs existen en GitHub, pero este repositorio no los registra,
+  y esta sesión no los ha revisado.
+
+**Autorizaciones del propietario** (2026-10-29)
+- La recuperación local: `fetch` solo de `claude/phase4-r8-upgrade-tool` y la
+  rama `feature/phase4-2-rebuild` en su punta, `9391015` (PR #27), sin
+  upstream.
+- La implementación local completa de la 4.2, por etapas, con un commit
+  local por etapa revisada y con sus pruebas en verde. Sin push, PR, merge
+  ni cambios en los PR #26 y #27; sin Supabase remoto, workflows, secretos ni
+  servicios externos.
+- Decisiones: la copia congelada de R8 (D3, abajo), las dos migraciones
+  separadas y con sus nombres, `sharp` 0.35.4 como dependencia directa,
+  `order()` del fake con todas las llamadas, la conciliación tal como estaba
+  (puede salir con 0 aunque haya objetos sin fecha), recuentos nuevos (los
+  antiguos no valen) y los componentes sin código reconstruidos desde el
+  diseño, sin presentarlos como recuperados.
+
+**Línea de partida** (verificada antes de empezar): `9391015`, 16 de 16
+huellas y 6 de 6 pines de R8; `test` 1069 en 38 archivos, `test:db` 651,
+`test:infra` en verde (guarda 28, runner SQL 89, preflight 69, actualización
+26 y R8 76), y `lint`, `typecheck`, formato y `build` en verde.
+
+**Qué se reconstruyó y de dónde**
+- **Recuperado del registro de la sesión anterior** (el texto de los
+  archivos, tal como estaba en la conversación, revisado y probado de
+  nuevo): `lib/images/sanitize-room-image.ts`, `lib/validation/room-images.ts`,
+  `lib/services/room-images.ts` (la versión posterior a la auditoría),
+  `20261025120000_room_images_private_bucket.sql`, la conciliación (SQL,
+  script y selftest), los tests de N1 y L3, los fakes del test del servicio,
+  y parte de la documentación (`docs/DATABASE.md` de la 4.2).
+- **Reescrito desde el diseño documentado** (lo que solo se conservaba como
+  descripción): `20261024120000_room_images_storage_visibility.sql`,
+  `tests/db/19` y `20`, `concurrency_room_images.sh`, la adaptación de
+  `tests/db/15`, el preflight de la 4.2 y sus mutaciones, los casos de la
+  4.2 de `migration-upgrade-selftest`, la mayoría de los tests del
+  sanitizador y del servicio, y la documentación restante.
+- **Cambios sobre lo recuperado**, pequeños y del lado seguro:
+  - en el servicio, un mensaje de error que no es una cadena ya no puede
+    lanzar al traducirlo (el riesgo que había quedado anotado), y al borrar
+    solo se toca la ruta canónica de la fila;
+  - en el sanitizador, la comprobación final va en un try/catch;
+  - la `20261024120000` también se detiene, con su motivo, si otro bucket se
+    llama `room-images` (antes era un riesgo residual: fallaba sin
+    explicación).
+
+**Qué se hizo, por etapas** (commits locales, sin publicar)
+- **Etapa 0, `5f499a9`:** `tests/supabase/phase4-final-preflight.sql`, copia
+  byte a byte del preflight de `9391015` (SHA-256 `38ef7a3b…`, blob
+  `7f28f5d9…`). `PHASE4_FINAL_PREFLIGHT` apunta a ella con el mismo SHA-256;
+  cambian solo la ruta del pin, la etiqueta de su sección y los textos de los
+  resultados inciertos (L5). Selftest de R8 a 79 (g18, g19 y g20 nuevos),
+  `validation-infra` con el SHA-256 y el blob literales, y
+  «Copia congelada del preflight de la 4.1» en
+  `docs/SUPABASE_VALIDATION.md`, que sustituye a «Cambiar el SHA-256 del
+  preflight vigente». Controles: contra el script de la base, el selftest
+  falla en 6 comprobaciones y `validation-infra` en 5 tests.
+- **Etapa 1, `269ec49`:** schema `storage` en el shim (solo metadatos, con la
+  RLS activa sin políticas e índices únicos de Supabase), `order()` del fake
+  con todas las llamadas y `sharp` 0.35.4 directo (el lockfile solo deja de
+  marcarlo opcional; `npm ci` en un directorio limpio lo instala y procesa un
+  WebP).
+- **Etapas 2–3, `cd31db3`:** la `20261024120000`, `tests/db/19` (66 entonces),
+  `20` (32) y la concurrencia (5); `15`, `10`, `13` y `14` adaptados, dos
+  helpers nuevos, y la parte de la 24 del preflight (P1–P4 y P6) con sus
+  mutaciones, `migration-upgrade-selftest` y `sql-suite-selftest`. Van juntas
+  porque, por separado, el commit de la migración dejaba `test:db` y
+  `test:infra` en rojo.
+- **Etapa 4, `dd7e48f`:** validación y sanitizador, con sus tests y la
+  coherencia en `validation-infra`; y el comentario de
+  `lib/validation/rooms.ts` que llamaba «Fase 4.2» al CRUD (regla 10).
+- **Etapa 5, `2056be1`:** el servicio, sus tests y `admin-client-usage` con
+  tres servicios. **El mensaje de ese commit dice «diez mutaciones»: fueron
+  nueve** (no se reescribe el historial; el número correcto está en
+  `docs/TESTING.md`).
+- **Etapas 6–7, `2484325`:** la `20261025120000`, ST0 y ST1 en `tests/db/19`,
+  P1 y P3 del preflight para el bucket privado y L6_N2, sus mutaciones, y los
+  diez rechazos de L6_N2 con la idempotencia en `migration-upgrade-selftest`.
+- **Etapa 8, `f9ae92f`:** la conciliación de solo lectura, en `test:infra` y en
+  la CI (`db-security`), y sus tests en `validation-infra`.
+- **Etapa 9 (este commit):** documentación: `docs/DATABASE.md`,
+  `SECURITY.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `SUPABASE_VALIDATION.md` y
+  `TESTING.md`, `CLAUDE.md` y esta entrada.
+
+**Verificación (local, 2026-10-29)**
+- `test` ✅ 1186/1186 en 45 archivos; `test:db` ✅ 767/767; `test:infra` ✅ 356
+  (guarda 28, runner SQL 89 con 762 = 762, preflight 107 con 99 mutaciones,
+  actualización 36, R8 79 y conciliación 17).
+- E1 ✅ 32/32 con el Chromium preinstalado (orientativo). `lint`,
+  `typecheck`, `format:check`, `build` y `git diff --check` ✅.
+- Controles negativos: los de R8 (arriba); N1, L3 y `type_mismatch` en el
+  sanitizador; 9 mutaciones del servicio, todas detectadas; la concurrencia
+  sin el bloqueo (9 fotos); la conciliación sin sus capas de solo lectura;
+  `sharp-dependency` con el `package.json` de la base. Todos los archivos se
+  restauraron y se comprobaron con `cmp`.
+- Las tres migraciones de R8 y los archivos fijados (`75a5a3b1…`,
+  `c0a8cb51…`, `5ea9dae6…`, `2c33c4a1…`, `7c8909b9…` y `38ef7a3b…`), sin
+  cambios.
+- Todas las bases de datos y roles temporales se borraron.
+- **Sin ejecutar:** la CI (la rama no está publicada), el E2 y nada en
+  Supabase real.
+
+**Problemas encontrados**
+- `npm audit` marca `sharp` 0.35.4 con GHSA-wq5f-xc86-pv6w (alta, en
+  librsvg, corregida en 0.35.5). Ya estaba en la base, como dependencia
+  opcional de `next`. Se mantiene la versión decidida y queda para el
+  propietario (`docs/SECURITY.md`). El mismo `npm audit` marca alertas de
+  `next` 16.3.6, anteriores a la 4.2, que no se han revisado aquí.
+- En los tests SQL: un UUID sin letras no prueba las mayúsculas; una vista
+  temporal sin `security_invoker` se salta la RLS (era del superusuario); y
+  un UPDATE con WHERE necesita también una política SELECT (el control de
+  ST1). Corregidos en el propio test.
+- Una mutación del preflight (FORCE RLS) no tenía sentido con un
+  superusuario, que no ve limitadas sus filas: se quitó; el caso del rol sin
+  BYPASSRLS ya lo cubre.
+- Una mutación del servicio sobrevivía (aceptar URL de rutas no pedidas): le
+  faltaba un caso, que se añadió.
+- «D3» nombra dos decisiones distintas: la congelación de R8 y la
+  conciliación de la 4.2. La documentación las distingue.
+
+**Riesgos residuales:** los de `docs/SECURITY.md` («Fase 4.2», «Riesgos
+residuales»): una URL firmada filtrada sirve hasta 10 minutos; la firma de
+los bytes no valida el archivo entero; el borrado de habitaciones desde el
+cliente deja objetos huérfanos; y nada se ha probado con la API de Storage ni
+con las tablas de Storage reales de Supabase.
+
+**Pendiente** (cada punto con su autorización o decisión)
+1. Revisar los commits locales y decidir si se publica la rama.
+2. La versión de `sharp` (0.35.5).
+3. La validación real de la 4.2 en un proyecto aislado (D2,
+   `docs/SUPABASE_VALIDATION.md`), con sus requisitos previos: publicar la
+   rama, demostrar la aprobación del Environment, adaptar la guarda y
+   escribir los casos de Storage de la api-suite.
+4. La Server Action con `bodySizeLimit`, la interfaz, y el borrado de
+   habitaciones por el servidor.
+5. La documentación de los runs 23 y 24, perdida con el stash.
+6. Sin cambios: los PR #26 y #27, la congelación de D3, el Environment, la
+   limpieza de `roomly-validation-3`, el E2 con la Fase 4 y el runtime de
+   Next.js con la clave real.
+
+---
+
 ## 2026-10-21 — Sesión 59: R8, publicación de la documentación y prueba de la protección del Environment (run 22) (Fase 4 EN CURSO; protección de aprobación NO demostrada; PR #26 y #27 sin fusionar)
 
 **Contexto**

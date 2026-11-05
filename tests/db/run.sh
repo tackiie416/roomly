@@ -3,7 +3,9 @@
 #
 # Crea una base de datos temporal, aplica el shim de Supabase, TODAS las
 # migraciones de supabase/migrations en orden, el seed, y ejecuta cada
-# tests/db/[0-9]*.sql. Cualquier aserción fallida corta con exit != 0.
+# tests/db/[0-9]*.sql y, después, tests/db/concurrency_room_images.sh y
+# tests/db/concurrency_room_delete.sh (dos sesiones a la vez). Cualquier
+# aserción fallida corta con exit != 0.
 #
 # Conexión: variables estándar de libpq (PGHOST, PGPORT, PGUSER,
 # PGPASSWORD). El usuario debe poder crear bases de datos y roles.
@@ -40,6 +42,20 @@ for test_file in "$ROOT"/tests/db/[0-9]*.sql; do
     echo "   >> ${name} FALLÓ"
   fi
 done
+
+# Fase 4.2: el límite de fotos con dos sesiones simultáneas (solo local).
+echo "== concurrency_room_images.sh"
+if ! bash "$ROOT/tests/db/concurrency_room_images.sh" "$DB"; then
+  failed=1
+  echo "   >> concurrency_room_images.sh FALLÓ"
+fi
+
+# Sesión 65: borrar una habitación mientras se sube una foto (solo local).
+echo "== concurrency_room_delete.sh"
+if ! bash "$ROOT/tests/db/concurrency_room_delete.sh" "$DB"; then
+  failed=1
+  echo "   >> concurrency_room_delete.sh FALLÓ"
+fi
 
 if [ "$failed" -ne 0 ]; then
   echo "RESULTADO: hay tests de seguridad fallidos"

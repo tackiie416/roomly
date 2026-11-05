@@ -3,8 +3,9 @@ import { nonNegativeIntegerSchema } from "@/lib/validation/common";
 
 /**
  * Habitaciones (Fase 4.1): catálogo de características, ocupación y
- * requisitos de publicación, preparados para la validación del CRUD (Fase
- * 4.2). Todavía no los usa ningún formulario ni servicio.
+ * requisitos de publicación, preparados para la validación del CRUD (una
+ * subfase posterior: la 4.2 son las fotos y R7). Todavía no los usa ningún
+ * formulario ni servicio.
  *
  * PostgreSQL impone lo mismo (`20261015120000_rooms_integrity_publication.sql`)
  * aunque la escritura no pase por aquí: Zod da errores de campo y la base de

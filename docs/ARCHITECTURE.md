@@ -97,15 +97,23 @@ function calculateCompatibility(
 
 **Acceso a datos del matching (Fase 3, D17/D18)**: la RLS solo deja leer la
 fila propia de `profiles`, `housing_preferences` y `compatibility_responses`.
-Por eso `createAdminClient()` (service_role) se usa en exactamente dos
-servicios `server-only`, y un test estático
-(`tests/unit/admin-client-usage.test.ts`) impide cualquier otro uso:
+Por eso `createAdminClient()` (service_role) se usa en exactamente cuatro
+servicios `server-only` (dos desde la Fase 3 y dos desde la 4.2), y un test
+estático (`tests/unit/admin-client-usage.test.ts`) impide cualquier otro
+uso:
 
 - `lib/services/matching.ts`: lectura cruzada de candidatos, en una sola
   consulta con recursos embebidos y columnas explícitas. Construye el
   `CandidateDTO` campo a campo.
 - `lib/services/compatibility.ts`: escritura del test propio, porque
   `authenticated` ya no tiene INSERT ni UPDATE en `compatibility_responses`.
+- `lib/services/room-images.ts` (Fase 4.2, D17 ampliada): escritura de las
+  fotos de habitaciones en Storage y en `room_images`, y firma de sus URL
+  después de autorizar con el cliente del usuario (D1; ver «Imágenes»).
+- `lib/services/rooms.ts` (sesión 65, D17 ampliada otra vez): solo
+  `rpc("delete_own_room")`, el borrado de una habitación propia, después de
+  comprobar la sesión, la cuenta y la propiedad con el cliente del usuario.
+  Ni tablas ni Storage con el cliente admin.
 
 El estado propio se lee siempre con el cliente del usuario (RLS), nunca con
 service_role.
@@ -220,11 +228,70 @@ hasta que el análisis real pida algo distinto.
 
 ## Imágenes
 
-Supabase Storage. Bucket de lectura pública para fotos de habitación y
-avatares (nada sensible en una foto de un piso), escritura restringida por
-política de Storage a rutas prefijadas con el `auth.uid()` del propietario,
-con límite de tamaño y tipo MIME validado tanto en el bucket como en la
-capa Zod antes de subir.
+Supabase Storage (Fase 4.2, reconstruida el 2026-10-29; `PROGRESS.md`,
+sesión 63). Bucket `room-images` **privado** desde `20261025120000` (D1), sin
+ninguna política en `storage.objects`: solo escribe el servidor, y las fotos
+se sirven con URL firmadas que emite el servidor.
+
+- **Subida:** cliente → Server Action (llegará con el CRUD) →
+  `addRoomImage` en `lib/services/room-images.ts`.
+  - Comprueba con el cliente del usuario la sesión, la cuenta, la propiedad,
+    el estado de la habitación y el límite de 8 fotos.
+  - `lib/images/sanitize-room-image.ts` reconoce el formato por la firma de
+    sus bytes antes de llamar a sharp (N1), exige que coincida con el tipo
+    declarado y vuelve a codificar la imagen a WebP, sin metadatos (EXIF,
+    GPS), orientada y a 2048 px como máximo. No cambia la configuración global
+    de sharp (L3).
+  - Con service_role, sube el objeto a `room_id/id.webp` y después registra
+    la fila en `room_images`. Si la fila no entra, el objeto solo se borra
+    tras un rechazo definitivo de la base de datos y después de comprobar que
+    la fila no existe; si el resultado es ambiguo, se conserva y se avisa.
+    Si falla la propia subida, tampoco se borra nada y se avisa
+    (`docs/SECURITY.md`, «Objetos huérfanos y logs»).
+- **Lectura:** cliente → (página o Server Action futura) →
+  `listRoomImages` o `listOwnRoomImages`.
+  - Con el cliente de quien pregunta se leen la habitación y sus fotos: la
+    RLS decide (R7: solo las de habitaciones públicas, las propias y, para el
+    admin activo, todas). Si no se ve la habitación, `not_found`.
+  - Con service_role se firman, en una sola petición, solo las rutas leídas
+    (`createSignedUrls`, 600 s). El servicio devuelve `url` y `expiresAt`; la
+    interfaz pide otra URL antes de que caduque, y el servidor vuelve a
+    autorizar.
+  - Sin URL públicas ni caché de URL en el servidor. El `Cache-Control` de
+    los objetos es de 600 s.
+- **Borrado:** `deleteRoomImage`, primero la fila y después el objeto de su
+  ruta canónica.
+- **Conciliación:** `tests/supabase/room-images-reconcile.sh`, un informe de
+  solo lectura de objetos sin fila y filas sin objeto. No corrige nada.
+- **Límites:** 4 MiB en la aplicación; 5 MiB e `image/webp` en el bucket.
+- Antes (Fase 0) el diseño era subir desde el cliente a rutas con prefijo
+  `auth.uid()`. Se cambió para que la limpieza de metadatos no dependa del
+  cliente.
+- **Server Actions** (sesión 64): `app/actions/room-images.ts` (subir y
+  quitar fotos) y `app/actions/rooms.ts` (borrar una habitación), delgadas.
+  `next.config.ts` sube `serverActions.bodySizeLimit` a 5 MB, para todas las
+  acciones.
+- **Borrado de habitaciones** (sesión 65): los clientes no pueden borrar
+  `rooms` (`20261030120000`). `lib/services/rooms.ts` (`deleteOwnRoom`):
+  1. comprueba la sesión, la cuenta y la propiedad con el cliente del
+     usuario;
+  2. borra con `delete_own_room` (service_role), que vuelve a comprobarlo
+     todo con la habitación bloqueada y devuelve las rutas de sus fotos;
+  3. `removeDeletedRoomObjects` (`lib/services/room-images.ts`) borra solo
+     esas rutas, y después lista la carpeta para verificar que no queda nada.
+
+  Si Storage falla, se informa de la limpieza como pendiente
+  (`docs/SECURITY.md`, «Borrado de habitaciones»).
+- **Tamaño de la subida** (sesión 65): una foto de 4 MiB da un cuerpo de
+  4 195 232 bytes, medido en local con la Server Action real. Se conserva la
+  subida por Server Action, sin una subida firmada a un bucket temporal
+  (`docs/SECURITY.md`, «Tamaño real de la subida»).
+- **Interfaz mínima:** `/habitaciones/[id]/fotos` (la propietaria gestiona;
+  un admin activo solo mira), `/habitaciones/[id]/borrar` y
+  `/habitaciones/borrada`, con `components/rooms/room-photo-forms.tsx`. Las
+  rutas, en `lib/rooms/paths.ts`. Sin CRUD de habitaciones: todavía no se
+  pueden crear ni editar desde la app.
+- Avatares (M3): fuera de alcance por ahora.
 
 ## SEO
 
@@ -256,6 +323,7 @@ roomly/
 │   ├── supabase/{client,server,admin}.ts
 │   ├── matching/{score,weights,types,questionnaire,questionnaire-status,filters,explanations}.ts
 │   ├── services/                # lógica de negocio real
+│   ├── images/                   # limpieza de fotos con sharp (Fase 4.2, server-only)
 │   ├── validation/               # esquemas Zod
 │   ├── email/
 │   └── utils/
