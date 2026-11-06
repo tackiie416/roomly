@@ -21,7 +21,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ADMIN=(psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc -d postgres)
 DB="preflight_selftest_$$"
 WORK="$(mktemp -d)"
-MARKER="$(sed -n 's/^ROOMLY_VALIDATION_MARKER="\(.*\)"$/\1/p' "$ROOT/tests/supabase/guard.sh")"
+MARKER="$(sed -n 's/^ROOMLY_VALIDATION_ALLOWED_MARKERS=("\([^"]*\)".*/\1/p' "$ROOT/tests/supabase/guard.sh")"
 
 cleanup() {
   "${ADMIN[@]}" -c "drop database if exists ${DB}" >/dev/null 2>&1 || true
@@ -234,6 +234,36 @@ while IFS='|' read -r label sql; do
 done <<'CASES'
 vista invoker sin privilegios de clientes y con SELECT explícito para authenticated|create view public.zz_pf_ok with (security_invoker = true) as select id, name from public.cities; revoke all on public.zz_pf_ok from public, anon, authenticated; grant select on public.zz_pf_ok to authenticated;
 CASES
+
+echo "== allow-list F1: roomly-validation-4 aceptado y marca esperada exacta"
+# Preflight con una marca esperada explícita (-v expected_marker), como hace run-preflight.sh.
+run_with_expected() {
+  { echo "begin;"; cat "$ROOT/tests/supabase/preflight.sql"; echo "rollback;"; } \
+    | "${P[@]}" -v expected_marker="$1" >"$WORK/out" 2>&1
+}
+# El mismo esquema marcado como roomly-validation-4: P0 lo acepta (allow-list).
+"${ADMIN[@]}" -c "comment on database ${DB} is 'roomly-validation-4'" >/dev/null
+if run_with "select 1;" && grep -q "ok - P0:" "$WORK/out"; then
+  echo "   ok - P0 acepta roomly-validation-4 (allow-list)"
+else
+  echo "   FALLO: P0 no acepta roomly-validation-4"; grep -E "ERROR|FALLO" "$WORK/out" | head -3; failed=1
+fi
+# Marca esperada -4 y BD -4: coincidencia exacta.
+if run_with_expected "roomly-validation-4" && grep -q "ok - P0:" "$WORK/out"; then
+  echo "   ok - P0 acepta -4 con la marca esperada -4 (coincidencia exacta)"
+else
+  echo "   FALLO: P0 no acepta -4 con la marca esperada -4"; grep -E "ERROR|FALLO" "$WORK/out" | head -3; failed=1
+fi
+# Marca esperada -3 pero la BD es -4: P0 exige coincidencia exacta y lo rechaza.
+if run_with_expected "roomly-validation-3"; then
+  echo "   FALLO: P0 aceptó -4 cuando el Environment esperaba -3"; failed=1
+elif grep -q "FALLO P0" "$WORK/out"; then
+  echo "   ok - P0 rechaza -4 cuando el Environment espera -3 (coincidencia exacta)"
+else
+  echo "   FALLO: falló, pero no en P0:"; grep -E "ERROR|FALLO" "$WORK/out" | head -3; failed=1
+fi
+# Restaurar la marca para el resto del selftest.
+"${ADMIN[@]}" -c "comment on database ${DB} is '${MARKER}'" >/dev/null
 
 echo "== el preflight no deja nada creado"
 if "${P[@]}" -At -c "select count(*) from pg_class where relpersistence = 't'" | grep -qx 0 \

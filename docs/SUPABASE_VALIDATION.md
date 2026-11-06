@@ -68,9 +68,11 @@ original se perdió y se reconstruyó; `PROGRESS.md`, sesión 63).
 `roomly-validation-3` sigue en la 4.1, y el preflight vigente, que ya
 describe la 4.2, **fallaría contra él en P1**. Por eso R8 comprueba su
 llegada con una copia congelada del preflight de la 4.1 (ver «Copia congelada
-del preflight de la 4.1»). La 4.2 se validará en un proyecto nuevo y aislado
-(D2), del que de momento solo está el procedimiento: ver «Fase 4.2: proyecto
-de validación aislado (D2)».
+del preflight de la 4.1»). La Fase 4 se validará en un proyecto nuevo y aislado
+(D2), `roomly-validation-4`, con la instalación limpia de las 19 migraciones:
+la guarda F1 ya acepta la allow-list `roomly-validation-3`/`-4` (rama de
+trabajo, pendiente de revisión). Ver «Fase 4.2: proyecto de validación aislado
+(D2)».
 
 Los resultados de los runs 13–22, más abajo, describen el esquema y las
 suites **de cada momento**. La configuración vigente está en «Cómo se
@@ -1423,41 +1425,62 @@ conectado ningún proyecto. Cada paso necesita la autorización explícita del
 propietario. Claude no crea proyectos, no configura secretos ni Environments
 y no lanza workflows.
 
-1. **Requisitos previos, sin conexión:**
-   - la rama, publicada y con la CI en verde (los workflows se lanzan desde
-     GitHub);
-   - que la aprobación del Environment detiene de verdad el job, demostrado
-     antes: el run 22 la dejó como no fiable;
-   - el nombre y la marca del proyecto (por ejemplo, `roomly-validation-4`);
-   - escritos y revisados: los casos de Storage de la api-suite (ver «Fase
-     4.2: validación real») y, si se quiere en remoto, una variante de la
-     prueba de concurrencia sin su control, que cambia la función del
-     trigger y es solo local.
+La instalación limpia de `roomly-validation-4` valida la Fase 4 completa (4.1
+a 4.4, con el hotfix `20261014120000`) **sin R8 ni las copias congeladas D3**:
+R8 es el camino incremental de `roomly-validation-3` (Fase 3 → Fase 4) y sigue
+fijando sus tres migraciones y sus tres preflights congelados; `-4` aplica las
+**19 migraciones** vigentes y el seed de cero, y comprueba el preflight vigente,
+no las copias de R8.
+
+1. **Requisitos previos (bloqueos B1 y B2):**
+   - **B1:** la aprobación del Environment detiene de verdad el job,
+     demostrado con un run que queda en `waiting` y se rechaza o cancela sin
+     ejecutar nada (el run 22 la dejó como no fiable; se dio por demostrada
+     con un run posterior en `waiting`).
+   - **B2:** el proyecto `roomly-validation-4` creado y aislado (sin datos
+     reales, Auth cerrado, su marca en la BD), con secrets independientes de
+     `-3` y `-2b`.
+   - La rama de la guarda F1 publicada, revisada y con la CI en verde (los
+     workflows se lanzan desde GitHub).
+   - Escritos: los casos de Storage de la api-suite (IMG1–IMG7; solo se
+     ejecutan en este workflow) y, si se quiere en remoto, una variante de la
+     prueba de concurrencia sin su control (solo local).
 2. **Crear el proyecto** (el propietario): sin datos reales, con el registro
    de Auth cerrado, y con su marca:
-   `comment on database postgres is '<marca>'`.
-3. **Adaptar la guarda F1 y el workflow** (un cambio de código, revisado en
-   un PR): hoy la guarda solo acepta `roomly-validation-3`. Hacen falta la
-   ref, la marca, `confirm_project`, un Environment propio con Required
-   reviewers y sus secrets, que configura el propietario.
+   `comment on database postgres is 'roomly-validation-4'`.
+3. **Guarda F1 adaptada (hecho; allow-list):** `confirm_project` es un
+   `choice` entre `roomly-validation-3` y `roomly-validation-4`, cada job usa
+   el Environment `${{ inputs.confirm_project }}`, y `guard.sh`, `preflight.sql`
+   (P0), `sql-suite-lib.sh` y la api-suite exigen que la marca de la BD esté en
+   la allow-list y coincida con la marca esperada. El propietario configura en
+   el Environment de `-4`: Required reviewers, sin bypass de administradores,
+   la variable **`SUPABASE_VALIDATION_MARKER=roomly-validation-4`** y los
+   secrets del proyecto nuevo. Las copias congeladas D3 y los pins de R8 no
+   cambian.
 4. **Inspección de solo lectura,** antes de aplicar nada: que existe Storage,
    qué buckets hay, las políticas y los triggers de `storage.objects` y
    `storage.buckets`, si `postgres` ve todas sus filas y el Security Advisor.
 5. **Instalación limpia** (`apply_migrations=true`, que se niega si
-   `public.profiles` ya existe): las 16 migraciones y el seed en una
-   transacción, y después el preflight vigente (bucket privado, 41 políticas,
-   14 triggers y 14 funciones).
-   - Valida la instalación desde cero. El paso de la 4.1 a la 4.2 (el de un
-     proyecto existente) solo está probado en local
-     (`migration-upgrade-selftest`).
-6. **Suites:** la SQL `01`–`21` (cada archivo revertido), la api-suite con
-   los casos de Storage y AU3/AU5. El E2, solo si se autoriza aparte (abre el
-   registro).
+   `public.profiles` ya existe): las **19 migraciones** y el seed en una
+   transacción, y después el preflight vigente (bucket privado, 42 políticas,
+   15 triggers y 15 funciones).
+   - Valida la instalación desde cero. El paso incremental de una versión a
+     la siguiente (el de un proyecto existente, R8 y la 4.1 → 4.2) solo está
+     probado en local (`migration-upgrade-selftest`, `phase4-upgrade-selftest`).
+6. **Suites:** la SQL `01`–`25` (cada archivo revertido), la api-suite con
+   los casos de Storage (IMG1–IMG7) y AU3/AU5. El E2, solo si se autoriza
+   aparte (abre el registro).
 7. **Conciliación de solo lectura** antes y después de las suites (abajo).
    Después de la limpieza tiene que dar 0 inconsistencias.
 8. **Limpieza y cierre:** 0 usuarios `@test`, 0 objetos de prueba (borrados
    por la API de Storage) y la conciliación limpia. Después, rotar las claves
    y pausar o borrar el proyecto, según decida el propietario.
+
+Diferencia `-3` / `-4`: `roomly-validation-3` es el camino de compatibilidad
+(R8 incremental, copias congeladas D3, pins); `roomly-validation-4` es la
+instalación limpia (las 19 migraciones de cero, sin R8 ni D3). La guarda
+acepta los dos y rechaza todo lo demás (`-2`/`-2b`, Fase 1, producción,
+desconocidos).
 
 Riesgos y recuperación: el proyecto es desechable. Si algo sale mal, se
 descarta y se crea otro; no hay migraciones inversas.

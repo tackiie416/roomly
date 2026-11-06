@@ -6,19 +6,41 @@
 
 -- ============================================================
 -- P0 — Identidad del proyecto (F1). Va primero: si la base de datos no
--- lleva la marca exacta, no se comprueba ni se ejecuta nada más.
+-- lleva una marca de validación permitida (y, cuando el runner la declara,
+-- la marca esperada exacta), no se comprueba ni se ejecuta nada más.
 -- (guard.sh ya lo verifica antes de conectar a nada destructivo; esto lo
 -- repite dentro de la misma sesión que ejecuta preflight.)
+--
+-- Allow-list F1: se aceptan EXCLUSIVAMENTE roomly-validation-3 (compatibilidad)
+-- y roomly-validation-4 (instalación limpia, D2). Quedan fuera los proyectos de
+-- validación anteriores (Fase 2.8 y Fase 1), producción y cualquier marca
+-- desconocida. run-preflight.sh pasa además la marca esperada con
+-- -v expected_marker=<marca>, y entonces P0 exige coincidencia exacta.
 -- ============================================================
+\if :{?expected_marker}
+\else
+\set expected_marker ''
+\endif
+-- La marca esperada se pasa a una GUC FUERA del bloque $$ (psql no interpola
+-- variables dentro de los cuerpos $$). run-preflight.sh la fija con
+-- -v expected_marker=<marca>; sin ella queda vacía (solo se comprueba la allow-list).
+select set_config('roomly.expected_marker', :'expected_marker', false);
 do $$
+declare
+  db_marker text := coalesce(
+    (select shobj_description(d.oid, 'pg_database')
+     from pg_database d where d.datname = current_database()), '');
+  expected  text := coalesce(current_setting('roomly.expected_marker', true), '');
 begin
-  if coalesce(
-       (select shobj_description(d.oid, 'pg_database')
-        from pg_database d where d.datname = current_database()),
-       '') <> 'roomly-validation-3' then
-    raise exception 'FALLO P0: el destino NO está reconocido como roomly-validation-3 (falta la marca de identidad o no coincide). Abortado.';
+  if db_marker not in ('roomly-validation-3', 'roomly-validation-4') then
+    raise exception 'FALLO P0: el destino NO es un proyecto de validación permitido (su marca no está en la allow-list roomly-validation-3 / roomly-validation-4). Abortado.';
   end if;
-  raise notice 'ok - P0: destino identificado como roomly-validation-3 por su propia marca';
+  if expected <> '' and db_marker <> expected then
+    raise exception 'FALLO P0: el destino no coincide con la marca esperada del proyecto declarada por el Environment. Abortado.';
+  end if;
+  raise notice 'ok - P0: destino % en la allow-list de validación%',
+    db_marker,
+    case when expected <> '' then ' y coincide con la marca esperada' else '' end;
 end $$;
 
 -- ============================================================

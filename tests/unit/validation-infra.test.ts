@@ -29,22 +29,44 @@ const code = (file: string) =>
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
 const MARKER = "roomly-validation-3";
+const NEW_MARKER = "roomly-validation-4";
+/** Allow-list F1: los dos únicos proyectos de validación aceptados. */
+const ALLOWED_MARKERS = [MARKER, NEW_MARKER] as const;
 const OLD_MARKER = "roomly-validation";
 /** Marca de la Fase 2.8 (uwxb…): aislamiento, no debe pasar ninguna guarda. */
 const PREVIOUS_MARKER = "roomly-validation-2";
 
-describe("identidad del proyecto P1: roomly-validation-3, comparación exacta", () => {
-  it("guard.sh define la marca nueva", () => {
-    expect(read("tests/supabase/guard.sh")).toMatch(
-      /^ROOMLY_VALIDATION_MARKER="roomly-validation-3"$/m
+describe("identidad del proyecto (F1): allow-list roomly-validation-3 / -4, comparación exacta", () => {
+  it("guard.sh define la allow-list exacta (sin la Fase 2.8 ni producción)", () => {
+    const guard = read("tests/supabase/guard.sh");
+    expect(guard).toMatch(
+      /^ROOMLY_VALIDATION_ALLOWED_MARKERS=\("roomly-validation-3" "roomly-validation-4"\)$/m
     );
+    // La marca esperada la declara el Environment (SUPABASE_VALIDATION_MARKER);
+    // el valor por defecto histórico es el proyecto de compatibilidad.
+    expect(guard).toContain('"${SUPABASE_VALIDATION_MARKER:-roomly-validation-3}"');
+    // Ya no hay un literal único de marca fuera de la allow-list.
+    expect(guard).not.toMatch(/^ROOMLY_VALIDATION_MARKER="roomly-validation/m);
+    expect(guard).not.toContain(`'${OLD_MARKER}'`);
+    expect(guard).not.toContain(PREVIOUS_MARKER);
   });
 
-  it("preflight.sql (P0) compara con la marca nueva y con <> exacto", () => {
+  it("preflight.sql (P0) exige la allow-list y, si se declara, la marca esperada exacta", () => {
     const sql = read("tests/supabase/preflight.sql");
-    expect(sql).toContain(`'') <> '${MARKER}' then`);
+    expect(sql).toContain(
+      `db_marker not in (${ALLOWED_MARKERS.map((m) => `'${m}'`).join(", ")})`
+    );
+    expect(sql).toContain("expected <> '' and db_marker <> expected");
     expect(sql).not.toContain(`'${OLD_MARKER}'`);
     expect(sql).not.toContain(PREVIOUS_MARKER);
+  });
+
+  it("run-preflight.sh pasa la marca esperada (ROOMLY_VALIDATION_MARKER) a P0, tras la guarda", () => {
+    const runner = read("tests/supabase/run-preflight.sh");
+    expect(runner).toContain('-v expected_marker="$ROOMLY_VALIDATION_MARKER"');
+    const guardAt = runner.indexOf('source "$ROOT/tests/supabase/guard.sh"');
+    expect(guardAt).toBeGreaterThan(0);
+    expect(guardAt).toBeLessThan(runner.indexOf("expected_marker="));
   });
 
   it("el runner SQL usa la marca de guard.sh en cada sesión, sin literal propio", () => {
@@ -124,9 +146,19 @@ describe("identidad del proyecto P1: roomly-validation-3, comparación exacta", 
     );
   });
 
-  it("el workflow confirma exactamente roomly-validation-3 y usa su Environment en todos los jobs", () => {
+  it("el workflow usa la allow-list (choice), el Environment de confirm_project en todos los jobs y exige la marca declarada", () => {
     const workflow = read(".github/workflows/supabase-validation.yml");
-    expect(workflow).toContain(`if [ "$CONFIRM" != "${MARKER}" ]; then`);
+    // confirm_project es un choice con exactamente la allow-list.
+    expect(workflow).toMatch(
+      /options:\n {10}- roomly-validation-4\n {10}- roomly-validation-3\n/
+    );
+    // El paso de confirmación valida la allow-list y la coincidencia con la
+    // marca que declara el Environment.
+    expect(workflow).toContain("roomly-validation-3|roomly-validation-4) ;;");
+    expect(workflow).toContain('if [ "$CONFIRM" != "$ENV_MARKER" ]; then');
+    expect(workflow).toContain(
+      "SUPABASE_VALIDATION_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}"
+    );
     const jobs = workflow
       .slice(workflow.indexOf("\njobs:\n"))
       .split(/\n(?=  [a-z0-9-]+:\n)/)
@@ -142,8 +174,45 @@ describe("identidad del proyecto P1: roomly-validation-3, comparación exacta", 
       "e2e-real",
     ]);
     for (const job of jobs) {
-      expect(job, job.split("\n")[0]).toContain(`    environment: ${MARKER}\n`);
+      expect(job, job.split("\n")[0]).toContain(
+        "    environment: ${{ inputs.confirm_project }}\n"
+      );
     }
+  });
+
+  it("invariancia F1: los tres pins R8 y los tres fingerprints D3 no cambian con F1", () => {
+    const sha256 = (file: string) =>
+      createHash("sha256").update(readFileSync(file)).digest("hex");
+    const gitBlob = (file: string) => {
+      const content = readFileSync(file);
+      return createHash("sha1")
+        .update(Buffer.concat([Buffer.from(`blob ${content.length}\0`), content]))
+        .digest("hex");
+    };
+    // 3 pins R8: las migraciones funcionales de la Fase 4, con el SHA-256 que
+    // fija phase4-upgrade.sh (F1 no las toca).
+    const script = read("tests/supabase/phase4-upgrade.sh");
+    const pinned = [
+      ...script.matchAll(/^ {2}"([0-9]{14}_[a-z0-9_]+\.sql) ([0-9a-f]{64})"$/gm),
+    ].map(([, file, hash]) => ({ file, hash }));
+    expect(pinned.map((p) => p.file)).toEqual([
+      "20261013120000_rooms_deleted_account_writes.sql",
+      "20261015120000_rooms_integrity_publication.sql",
+      "20261016120000_barcelona_neighborhoods.sql",
+    ]);
+    for (const { file, hash } of pinned) {
+      expect(sha256(`supabase/migrations/${file}`), file).toBe(hash);
+    }
+    // 3 fingerprints D3: las copias congeladas del preflight (F1 no las toca).
+    expect(gitBlob("tests/supabase/phase3-baseline-preflight.sql")).toBe(
+      "7155e79601220f896530d8f35fe314ee91ff203d"
+    );
+    expect(gitBlob("tests/supabase/phase4-final-preflight.sql")).toBe(
+      "7f28f5d90cfd8b9f55d12c85db0a6bf3a1a9a4ec"
+    );
+    expect(sha256("tests/supabase/phase4-final-preflight.sql")).toBe(
+      "38ef7a3b011e72519eb4cc695408677c18f6743c547b6440e562565e9ef840ec"
+    );
   });
 });
 
@@ -1138,7 +1207,9 @@ describe("R8: herramienta de actualización de la Fase 4 (phase4-upgrade.sh)", (
     );
     const upgrade = job("phase4-upgrade");
     expect(upgrade).toContain("needs: guard");
-    expect(upgrade).toContain(`environment: ${MARKER}`);
+    expect(upgrade).toContain("environment: ${{ inputs.confirm_project }}");
+    // R8 solo corre en roomly-validation-3 (gate del job, además del paso de confirmación).
+    expect(upgrade).toContain("inputs.confirm_project == 'roomly-validation-3'");
     expect([...upgrade.matchAll(/secrets\.([A-Z_]+)/g)].map((m) => m[1]).sort()).toEqual([
       "SUPABASE_VALIDATION_DB_URL",
       "SUPABASE_VALIDATION_PROJECT_REF",

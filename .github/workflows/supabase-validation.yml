@@ -1,13 +1,17 @@
 name: Supabase validation
 
-# Validación MANUAL contra el proyecto Supabase de validación P1
-# (roomly-validation-3, Fase 3). Nunca se ejecuta en push ni en
-# pull_request. Detalle, matriz de pruebas y configuración de secrets:
-# docs/SUPABASE_VALIDATION.md.
+# Validación MANUAL contra un proyecto Supabase de validación. Nunca se
+# ejecuta en push ni en pull_request. Detalle, matriz de pruebas y
+# configuración de secrets: docs/SUPABASE_VALIDATION.md.
 #
-# Todos los jobs usan el GitHub Environment `roomly-validation-3`: los
-# secrets viven SOLO ahí (GitHub → Settings → Environments), no como secrets
-# del repositorio.
+# Proyecto de destino (F1, allow-list): confirm_project elige el proyecto y su
+# GitHub Environment, EXCLUSIVAMENTE entre:
+#   - roomly-validation-3  → camino de compatibilidad (R8 / Fase 4 incremental);
+#   - roomly-validation-4  → proyecto aislado de instalación limpia (D2).
+# Quedan rechazados los proyectos de validación anteriores (Fase 2.8 y Fase 1),
+# producción y cualquier marca desconocida. Cada job usa el
+# Environment `${{ inputs.confirm_project }}`: los secrets viven SOLO ahí
+# (GitHub → Settings → Environments), no como secrets del repositorio.
 #
 # Secrets del Environment:
 #   SUPABASE_VALIDATION_PROJECT_REF       ref del proyecto (no secreto, pero se usa como guarda)
@@ -17,16 +21,20 @@ name: Supabase validation
 #   SUPABASE_VALIDATION_DB_URL            PRIVILEGIADA: cadena del Session pooler (incluye contraseña)
 #   E2E_EMAIL_TEMPLATE                    dirección de prueba con {id} (solo e2e-real)
 #   E2E_MAILBOX_CONFIG                    configuración del buzón de prueba, opaca (solo e2e-real)
-# Variable del Environment (no secreta):
+# Variables del Environment (no secretas):
+#   SUPABASE_VALIDATION_MARKER            marca de este proyecto (roomly-validation-3 o -4);
+#                                         tiene que coincidir con confirm_project y con la de la BD
 #   E2E_MAILBOX_ADAPTER                   módulo adaptador del buzón dentro de tests/e2e/
 # Cada paso recibe solo los secrets que necesita; service_role nunca llega a
 # la app ni al proceso de Playwright.
 #
 # Identidad (F1): antes de migrar, comprobar o crear usuarios, cada punto de
 # entrada verifica EN la propia base de datos la marca
-#   COMMENT ON DATABASE postgres IS 'roomly-validation-3';
-# Si falta o no coincide exactamente, todo aborta. Sin fallback. Las marcas
-# de los proyectos de validación anteriores (Fases 1 y 2.8) no pasan.
+#   COMMENT ON DATABASE postgres IS '<marca>';
+# donde <marca> es la del Environment (SUPABASE_VALIDATION_MARKER), que tiene
+# que estar en la allow-list y coincidir con confirm_project. Si falta o no
+# coincide exactamente, todo aborta. Sin fallback. Las marcas de los proyectos
+# de validación anteriores (Fases 1 y 2.8) no pasan.
 #
 # R8 (Fase 4): phase4_upgrade aplica a roomly-validation-3 solo las tres
 # migraciones de la Fase 4 sobre el esquema de la Fase 3, con
@@ -42,9 +50,13 @@ on:
   workflow_dispatch:
     inputs:
       confirm_project:
-        description: "Escribe roomly-validation-3 para confirmar el proyecto de destino"
+        description: "Proyecto de validación de destino (su GitHub Environment y su marca)"
         required: true
-        type: string
+        type: choice
+        options:
+          - roomly-validation-4
+          - roomly-validation-3
+        default: roomly-validation-4
       apply_migrations:
         description: "Aplicar migraciones + seed (solo la primera vez, sobre un proyecto vacío)"
         required: true
@@ -81,7 +93,7 @@ jobs:
   guard:
     name: Guarda de destino
     runs-on: ubuntu-latest
-    environment: roomly-validation-3
+    environment: ${{ inputs.confirm_project }}
     steps:
       - uses: actions/checkout@v4
       - name: Entradas compatibles (phase4_upgrade frente a apply_migrations y run_e2e_real), sin conectar
@@ -91,21 +103,38 @@ jobs:
           RUN_E2E_REAL: ${{ inputs.run_e2e_real }}
           PHASE4_UPGRADE_CONFIRM: ${{ inputs.confirm_phase4_upgrade }}
         run: bash tests/supabase/phase4-upgrade.sh --check-inputs
-      - name: Confirmación explícita del proyecto
+      - name: Confirmación del proyecto (allow-list, coincide con la marca del Environment, R8 solo en -3)
         env:
           CONFIRM: ${{ inputs.confirm_project }}
+          ENV_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}
+          PHASE4_UPGRADE: ${{ inputs.phase4_upgrade }}
         run: |
-          if [ "$CONFIRM" != "roomly-validation-3" ]; then
-            echo "ERROR: confirm_project debe ser exactamente roomly-validation-3" >&2
+          case "$CONFIRM" in
+            roomly-validation-3|roomly-validation-4) ;;
+            *) echo "ERROR: confirm_project no es un proyecto de validación permitido (roomly-validation-3 / roomly-validation-4)" >&2; exit 1 ;;
+          esac
+          if [ -z "$ENV_MARKER" ]; then
+            echo "ERROR: falta la variable SUPABASE_VALIDATION_MARKER en el Environment ${CONFIRM} (Settings → Environments → Variables)" >&2
             exit 1
           fi
-      - name: Secrets del mismo proyecto y marca de identidad roomly-validation-3 (sin imprimirlos)
+          if [ "$CONFIRM" != "$ENV_MARKER" ]; then
+            echo "ERROR: confirm_project no coincide con la marca declarada por el Environment" >&2
+            exit 1
+          fi
+          # R8 (migraciones de la Fase 4 sobre la Fase 3) solo aplica a roomly-validation-3.
+          if [ "$CONFIRM" != "roomly-validation-3" ] && [ "$PHASE4_UPGRADE" != "none" ]; then
+            echo "ERROR: phase4_upgrade solo es válido con confirm_project=roomly-validation-3 (R8 es del camino de compatibilidad)" >&2
+            exit 1
+          fi
+      - name: Secrets del mismo proyecto y marca de identidad del Environment (sin imprimirlos)
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
           SUPABASE_VALIDATION_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
           SUPABASE_VALIDATION_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_VALIDATION_SERVICE_ROLE_KEY }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+          SUPABASE_VALIDATION_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}
+          ROOMLY_CONFIRM_PROJECT: ${{ inputs.confirm_project }}
         run: |
           source tests/supabase/guard.sh SUPABASE_VALIDATION_URL SUPABASE_VALIDATION_ANON_KEY \
             SUPABASE_VALIDATION_SERVICE_ROLE_KEY SUPABASE_VALIDATION_DB_URL
@@ -115,21 +144,25 @@ jobs:
     needs: guard
     if: ${{ inputs.apply_migrations && inputs.phase4_upgrade != 'dry_run' && inputs.phase4_upgrade != 'apply' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-3
+    environment: ${{ inputs.confirm_project }}
     steps:
       - uses: actions/checkout@v4
       - name: Migraciones existentes + seed (una transacción, se niega si el esquema ya existe)
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+          SUPABASE_VALIDATION_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}
+          ROOMLY_CONFIRM_PROJECT: ${{ inputs.confirm_project }}
         run: bash tests/supabase/apply-migrations.sh
 
   phase4-upgrade:
     name: R8 — migraciones de la Fase 4 sobre la Fase 3 (dry_run o apply)
     needs: guard
-    if: ${{ inputs.phase4_upgrade == 'dry_run' || inputs.phase4_upgrade == 'apply' }}
+    # R8 solo aplica a roomly-validation-3 (camino de compatibilidad). El paso de
+    # confirmación de la guarda ya rechaza phase4_upgrade != none en otro proyecto.
+    if: ${{ (inputs.phase4_upgrade == 'dry_run' || inputs.phase4_upgrade == 'apply') && inputs.confirm_project == 'roomly-validation-3' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-3
+    environment: ${{ inputs.confirm_project }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -141,6 +174,8 @@ jobs:
           PHASE4_UPGRADE_CONFIRM: ${{ inputs.confirm_phase4_upgrade }}
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+          SUPABASE_VALIDATION_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}
+          ROOMLY_CONFIRM_PROJECT: ${{ inputs.confirm_project }}
         run: bash tests/supabase/phase4-upgrade.sh "$PHASE4_UPGRADE"
 
   preflight:
@@ -150,13 +185,15 @@ jobs:
     # ya pasó P0–P6 dentro de su transacción y la revirtió.
     if: ${{ !cancelled() && needs.guard.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') && (needs.phase4-upgrade.result == 'success' || needs.phase4-upgrade.result == 'skipped') && inputs.phase4_upgrade != 'dry_run' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-3
+    environment: ${{ inputs.confirm_project }}
     steps:
       - uses: actions/checkout@v4
       - name: P0–P6 — si falla, no se ejecuta ninguna suite
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+          SUPABASE_VALIDATION_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}
+          ROOMLY_CONFIRM_PROJECT: ${{ inputs.confirm_project }}
         run: bash tests/supabase/run-preflight.sh
 
   sql-suite:
@@ -164,13 +201,15 @@ jobs:
     needs: preflight
     if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-3
+    environment: ${{ inputs.confirm_project }}
     steps:
       - uses: actions/checkout@v4
       - name: tests/db (todos los archivos) en Supabase real
         env:
           SUPABASE_VALIDATION_PROJECT_REF: ${{ secrets.SUPABASE_VALIDATION_PROJECT_REF }}
           SUPABASE_VALIDATION_DB_URL: ${{ secrets.SUPABASE_VALIDATION_DB_URL }}
+          SUPABASE_VALIDATION_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}
+          ROOMLY_CONFIRM_PROJECT: ${{ inputs.confirm_project }}
         run: bash tests/supabase/run-sql-suite.sh
 
   api-suite:
@@ -178,7 +217,7 @@ jobs:
     needs: sql-suite
     if: ${{ !cancelled() && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-3
+    environment: ${{ inputs.confirm_project }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -195,6 +234,8 @@ jobs:
           SUPABASE_VALIDATION_URL: ${{ secrets.SUPABASE_VALIDATION_URL }}
           SUPABASE_VALIDATION_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
           SUPABASE_VALIDATION_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_VALIDATION_SERVICE_ROLE_KEY }}
+          SUPABASE_VALIDATION_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}
+          ROOMLY_CONFIRM_PROJECT: ${{ inputs.confirm_project }}
         run: npm run test:supabase -- --reporter=verbose
 
   auth-redirects:
@@ -202,7 +243,7 @@ jobs:
     needs: sql-suite
     if: ${{ !cancelled() && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-3
+    environment: ${{ inputs.confirm_project }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -233,7 +274,7 @@ jobs:
     needs: sql-suite
     if: ${{ !cancelled() && inputs.run_e2e_real && inputs.phase4_upgrade != 'dry_run' && inputs.phase4_upgrade != 'apply' && needs.sql-suite.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: roomly-validation-3
+    environment: ${{ inputs.confirm_project }}
     timeout-minutes: 30
     env:
       # Id único por ejecución: la dirección de prueba es E2E_EMAIL_TEMPLATE con {id}.
@@ -263,6 +304,8 @@ jobs:
           SUPABASE_VALIDATION_ANON_KEY: ${{ secrets.SUPABASE_VALIDATION_ANON_KEY }}
           SUPABASE_VALIDATION_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_VALIDATION_SERVICE_ROLE_KEY }}
           E2E_EMAIL_TEMPLATE: ${{ secrets.E2E_EMAIL_TEMPLATE }}
+          SUPABASE_VALIDATION_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}
+          ROOMLY_CONFIRM_PROJECT: ${{ inputs.confirm_project }}
         run: node tests/e2e/real/cleanup.mjs before
       # Solo las variables públicas: la app nunca recibe claves privilegiadas.
       - name: Build y arranque de la app (URL + clave anon)
@@ -300,6 +343,8 @@ jobs:
           E2E_EMAIL_TEMPLATE: ${{ secrets.E2E_EMAIL_TEMPLATE }}
           E2E_MAILBOX_ADAPTER: ${{ vars.E2E_MAILBOX_ADAPTER }}
           E2E_MAILBOX_CONFIG: ${{ secrets.E2E_MAILBOX_CONFIG }}
+          SUPABASE_VALIDATION_MARKER: ${{ vars.SUPABASE_VALIDATION_MARKER }}
+          ROOMLY_CONFIRM_PROJECT: ${{ inputs.confirm_project }}
         run: node tests/e2e/real/cleanup.mjs after
       - name: Borrar salidas locales del runner
         if: ${{ always() }}
