@@ -33,8 +33,11 @@ name: Supabase validation
 #   COMMENT ON DATABASE postgres IS '<marca>';
 # donde <marca> es la del Environment (SUPABASE_VALIDATION_MARKER), que tiene
 # que estar en la allow-list y coincidir con confirm_project. Si falta o no
-# coincide exactamente, todo aborta. Sin fallback. Las marcas de los proyectos
-# de validación anteriores (Fases 1 y 2.8) no pasan.
+# coincide exactamente, todo aborta. En el workflow NO hay fallback: si falta la
+# variable SUPABASE_VALIDATION_MARKER del Environment, el paso de confirmación
+# aborta (el valor por defecto roomly-validation-3 de guard.sh es solo para la
+# ejecución directa fuera del workflow). Las marcas de los proyectos de
+# validación anteriores (Fases 1 y 2.8) no pasan.
 #
 # R8 (Fase 4): phase4_upgrade aplica a roomly-validation-3 solo las tres
 # migraciones de la Fase 4 sobre el esquema de la Fase 3, con

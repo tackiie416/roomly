@@ -957,6 +957,30 @@ describe("Room images y Storage (IMG)", () => {
     return new File([webp], "foto.webp", { type: "image/webp" });
   }
 
+  /**
+   * `exp`/`iat` (segundos) del token JWT de una URL firmada de Storage, o
+   * `null` si no se puede leer. Permite comprobar el TTL REAL que fija Storage
+   * (exp - iat), no solo el `expiresAt` que calcula el servicio.
+   */
+  function signedUrlExp(url: string): { iat: number; exp: number } | null {
+    try {
+      const token = new URL(url).searchParams.get("token");
+      const payload = token?.split(".")[1];
+      if (!payload) return null;
+      const json: unknown = JSON.parse(
+        Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(
+          "utf8"
+        )
+      );
+      if (typeof json !== "object" || json === null) return null;
+      const { exp, iat } = json as Record<string, unknown>;
+      if (typeof exp !== "number" || typeof iat !== "number") return null;
+      return { iat, exp };
+    } catch {
+      return null;
+    }
+  }
+
   const setImgStatus = (client: Client, status: string) =>
     client.from("rooms").update({ status }).eq("id", imgRoomId).select("status");
 
@@ -1014,20 +1038,51 @@ describe("Room images y Storage (IMG)", () => {
     if (!result.ok) return;
     expect(result.data.url).toBeTruthy();
     expect(result.data.expiresAt).toBeTruthy();
-    const ttlMs = new Date(result.data.expiresAt!).getTime() - before;
-    expect(ttlMs).toBeGreaterThanOrEqual((ROOM_IMAGE_SIGNED_URL_TTL_SECONDS - 5) * 1000);
-    expect(ttlMs).toBeLessThanOrEqual((ROOM_IMAGE_SIGNED_URL_TTL_SECONDS + 120) * 1000);
+    // `expiresAt` del servicio: ventana amplia (now + ttl, antes de firmar).
+    const serviceTtlMs = new Date(result.data.expiresAt!).getTime() - before;
+    expect(serviceTtlMs).toBeGreaterThanOrEqual(
+      (ROOM_IMAGE_SIGNED_URL_TTL_SECONDS - 5) * 1000
+    );
+    expect(serviceTtlMs).toBeLessThanOrEqual(
+      (ROOM_IMAGE_SIGNED_URL_TTL_SECONDS + 120) * 1000
+    );
+    // TTL REAL del token firmado por Storage: exp - iat debe ser exactamente el
+    // configurado (no se depende solo del expiresAt calculado por el servicio).
+    const claim = signedUrlExp(result.data.url!);
+    expect(claim).not.toBeNull();
+    if (claim) {
+      expect(claim.exp - claim.iat).toBe(ROOM_IMAGE_SIGNED_URL_TTL_SECONDS);
+    }
     // La URL firmada sirve la foto como image/webp; el bucket NO es público.
     const res = await fetch(result.data.url!);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("image/webp");
-    record(`IMG1: foto subida y firmada (ttl≈${Math.round(ttlMs / 1000)}s)`);
+    record(
+      `IMG1: foto subida y firmada (ttl real ${claim ? claim.exp - claim.iat : "?"}s)`
+    );
+  });
+
+  it("IMG1b: el extractor del exp de la URL firmada descarta tokens inválidos o sin exp", () => {
+    // Puro, sin Storage: protege el aserto de TTL de IMG1 frente a falsos positivos.
+    expect(signedUrlExp("https://x/y")).toBeNull(); // sin token
+    expect(signedUrlExp("https://x/y?token=no-es-un-jwt")).toBeNull();
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    const noExp = `h.${b64({ url: "room-images/x", iat: 1000 })}.s`;
+    expect(signedUrlExp(`https://x/y?token=${noExp}`)).toBeNull(); // sin exp
+    const ok = `h.${b64({ url: "room-images/x", iat: 1000, exp: 1600 })}.s`;
+    expect(signedUrlExp(`https://x/y?token=${ok}`)).toEqual({ iat: 1000, exp: 1600 });
   });
 
   it("IMG2: la foto guardada no conserva EXIF ni metadatos (sanitizador, N1)", async () => {
+    // Precondición: el JPEG de entrada DEBE llevar EXIF; si no, la prueba no
+    // demostraría la eliminación de metadatos, así que falla explícitamente.
+    const inputFile = await photo(true);
+    const inputMeta = await sharp(Buffer.from(await inputFile.arrayBuffer())).metadata();
+    expect(inputMeta.exif).toBeDefined();
+
     const up = await addRoomImage(
       asDb(O().client),
-      { roomId: imgRoomId, photo: await photo(true) },
+      { roomId: imgRoomId, photo: inputFile },
       imgDeps
     );
     expect(up.ok).toBe(true);
@@ -1066,6 +1121,9 @@ describe("Room images y Storage (IMG)", () => {
       expectPgError(ins.error, "42501");
     }
     // Subida directa a storage.objects (anon y authenticated) → denegada (ninguna política).
+    // El error de Storage es un StorageError HTTP (403/400, mensaje variable),
+    // no un SQLSTATE estable: no se fija un código (evitar falsos negativos); se
+    // comprueba que falla y que no crea ningún objeto.
     const bytes = new Uint8Array(await (await photo()).arrayBuffer());
     for (const client of [anon, O().client]) {
       const up = await client.storage
@@ -1074,6 +1132,7 @@ describe("Room images y Storage (IMG)", () => {
           contentType: "image/webp",
         });
       expect(up.error).not.toBeNull();
+      expect(up.data).toBeNull();
     }
   });
 
@@ -1102,11 +1161,16 @@ describe("Room images y Storage (IMG)", () => {
     const del = await O().client.from("rooms").delete().eq("id", imgRoomId);
     expectPgError(del.error, "42501");
     // delete_own_room solo lo puede ejecutar service_role (SECURITY INVOKER).
+    // Sin EXECUTE, PostgREST devuelve un error variable según el contexto (403
+    // de permiso, o 404 si la función no está en la caché del esquema): no se
+    // fija un código (evitar falsos negativos); se comprueba que falla y que no
+    // devuelve rutas.
     const rpc = await O().client.rpc("delete_own_room", {
       p_room_id: imgRoomId,
       p_user_id: O().id,
     });
     expect(rpc.error).not.toBeNull();
+    expect(rpc.data).toBeNull();
   });
 
   it("IMG7: tras borrar la habitación, removeDeletedRoomObjects limpia sus objetos", async () => {

@@ -1432,6 +1432,26 @@ fijando sus tres migraciones y sus tres preflights congelados; `-4` aplica las
 **19 migraciones** vigentes y el seed de cero, y comprueba el preflight vigente,
 no las copias de R8.
 
+> **Requisito operativo F1 — variable de Environment obligatoria (antes del
+> primer workflow posterior al merge).** La guarda F1 lee la marca esperada de
+> una variable de Environment. **Hay que crearla en los DOS Environments** (no
+> solo en `-4`); la validación no comprueba aquí si ya está puesta:
+>
+> | GitHub Environment | Variable | Valor |
+> |---|---|---|
+> | `roomly-validation-3` | `SUPABASE_VALIDATION_MARKER` | `roomly-validation-3` |
+> | `roomly-validation-4` | `SUPABASE_VALIDATION_MARKER` | `roomly-validation-4` |
+>
+> Es una **variable**, no un secret (Settings → Environments → el Environment →
+> Variables). Si falta en el Environment que `confirm_project` selecciona, el
+> paso de confirmación de la guarda **aborta en fail-closed** («falta la
+> variable SUPABASE_VALIDATION_MARKER…») y **bloquea la validación de ese
+> Environment** antes de tocar nada; no es un fallo que se pueda sortear. Afecta
+> también al camino de compatibilidad `-3`: sin su variable, `-3` deja de
+> validar. (El valor por defecto histórico `roomly-validation-3` de `guard.sh`
+> es solo para la ejecución directa fuera del workflow; dentro del workflow no
+> hay fallback.)
+
 1. **Requisitos previos (bloqueos B1 y B2):**
    - **B1:** la aprobación del Environment detiene de verdad el job,
      demostrado con un run que queda en `waiting` y se rechaza o cancela sin
