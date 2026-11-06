@@ -71,7 +71,7 @@ BASE="phase4_base_$$"
 CASE_PREFIX="phase4_case_$$_"
 LAST_PHASE3="20261007120000_compatibility_responses_hardening.sql"
 WORK="$(mktemp -d)"
-MARKER="$(sed -n 's/^ROOMLY_VALIDATION_MARKER="\(.*\)"$/\1/p' "$ROOT/tests/supabase/guard.sh")"
+MARKER="$(sed -n 's/^ROOMLY_VALIDATION_ALLOWED_MARKERS=("\([^"]*\)".*/\1/p' "$ROOT/tests/supabase/guard.sh")"
 PHRASE="$(sed -n 's/^PHASE4_APPLY_PHRASE="\(.*\)"$/\1/p' "$ROOT/tests/supabase/phase4-upgrade.sh")"
 export PGSSLMODE=disable
 

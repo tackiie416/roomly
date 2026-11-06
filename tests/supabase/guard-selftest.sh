@@ -103,6 +103,35 @@ expect fail "4: marca ausente" run_guard
 expect fail "5: aislamiento: proyecto anterior con la marca 'roomly-validation-2'" run_guard
 "${ADMIN[@]}" -c "comment on database ${OTHER_DB} is null" >/dev/null
 
+echo "== allow-list F1: roomly-validation-4 y coincidencia de la marca esperada"
+# OTHER_DB marcado como roomly-validation-4: un proyecto NUEVO de la allow-list.
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is 'roomly-validation-4'" >/dev/null
+set_target "$OTHER_REF" "https://${OTHER_REF}.supabase.co" "$(db_url "$OTHER_REF" "$OTHER_DB")"
+# Sin SUPABASE_VALIDATION_MARKER se espera -3 por defecto, que no coincide con -4.
+expect fail "allow-list: BD -4 con la marca esperada por defecto (-3) no pasa" run_guard
+# Con la marca esperada roomly-validation-4, coincide con la BD: pasa.
+export SUPABASE_VALIDATION_MARKER="roomly-validation-4"
+expect pass "allow-list: positivo -4 (marca esperada -4 y BD -4)" run_guard
+# confirm_project que coincide: pasa; que no coincide: aborta.
+export ROOMLY_CONFIRM_PROJECT="roomly-validation-4"
+expect pass "allow-list: confirm_project -4 coincide" run_guard
+export ROOMLY_CONFIRM_PROJECT="roomly-validation-3"
+expect fail "allow-list: confirm_project -3 no coincide con la marca esperada -4" run_guard
+unset ROOMLY_CONFIRM_PROJECT
+# Marca esperada -4 pero la BD es -3 (VAL_DB): no coincide.
+set_target "$VAL_REF" "https://${VAL_REF}.supabase.co" "$(db_url "$VAL_REF" "$VAL_DB")"
+expect fail "allow-list: marca esperada -4 pero la BD es -3" run_guard
+unset SUPABASE_VALIDATION_MARKER
+# Marca esperada FUERA de la allow-list: aborta aunque la BD la llevara.
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is 'roomly-validation-2'" >/dev/null
+set_target "$OTHER_REF" "https://${OTHER_REF}.supabase.co" "$(db_url "$OTHER_REF" "$OTHER_DB")"
+export SUPABASE_VALIDATION_MARKER="roomly-validation-2"
+expect fail "allow-list: marca esperada fuera de la lista (-2)" run_guard
+export SUPABASE_VALIDATION_MARKER="produccion"
+expect fail "allow-list: marca esperada fuera de la lista (produccion)" run_guard
+unset SUPABASE_VALIDATION_MARKER
+"${ADMIN[@]}" -c "comment on database ${OTHER_DB} is null" >/dev/null
+
 echo "== diagnóstico de la marca que no coincide (sin datos sensibles)"
 # diag <descripción> <patrón que debe aparecer>: la salida de la guarda
 # contiene el diagnóstico esperado y nunca el ref completo ni la contraseña.
@@ -164,4 +193,4 @@ if [ "$failed" -ne 0 ]; then
   echo "RESULTADO: la guarda F1 tiene fallos"
   exit 1
 fi
-echo "RESULTADO: la guarda F1 rechaza todo destino que no sea roomly-validation-3"
+echo "RESULTADO: la guarda F1 acepta solo la allow-list (roomly-validation-3 / -4) con la marca esperada, y rechaza todo lo demás"

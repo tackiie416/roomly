@@ -47,7 +47,8 @@ DB="sqlsuite_selftest_$$"
 ROLE="postgres.${REF}"
 WORK="$(mktemp -d)"
 
-MARKER="$(sed -n 's/^ROOMLY_VALIDATION_MARKER="\(.*\)"$/\1/p' "$ROOT/tests/supabase/guard.sh")"
+# Primera marca de la allow-list de guard.sh (el proyecto de compatibilidad).
+MARKER="$(sed -n 's/^ROOMLY_VALIDATION_ALLOWED_MARKERS=("\([^"]*\)".*/\1/p' "$ROOT/tests/supabase/guard.sh")"
 export ROOMLY_VALIDATION_MARKER="$MARKER"
 # shellcheck source=tests/supabase/sql-suite-lib.sh
 source "$ROOT/tests/supabase/sql-suite-lib.sh"
