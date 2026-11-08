@@ -12,7 +12,10 @@ source "$ROOT/tests/supabase/sql-suite-lib.sh"
 out="$(mktemp)"
 trap 'rm -f "$out"' EXIT
 status=0
-psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc -d "$SUPABASE_VALIDATION_DB_URL" \
+# La marca esperada (F1) la fija guard.sh en ROOMLY_VALIDATION_MARKER tras
+# validarla contra la allow-list; P0 la exige con -v expected_marker.
+psql -X -q -v ON_ERROR_STOP=1 --no-psqlrc \
+  -v expected_marker="$ROOMLY_VALIDATION_MARKER" -d "$SUPABASE_VALIDATION_DB_URL" \
   <"$ROOT/tests/supabase/preflight.sql" >"$out" 2>&1 || status=$?
 # NOTICE/WARNING/ERROR visibles (nunca datos de conexión); un WARNING falla.
 roomly_sql_filter_output "$out" || status=1

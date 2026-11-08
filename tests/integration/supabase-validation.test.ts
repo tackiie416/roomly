@@ -1,6 +1,7 @@
 /**
- * Validación contra un proyecto Supabase REAL (roomly-validation-3, Fase 3).
- * Matriz: PR1–PR12, CH1–CH11, RO1–RO9, RE1–RE9, CRA1–CRA6 (Fase 3.1),
+ * Validación contra un proyecto Supabase REAL de la allow-list
+ * (roomly-validation-3 o roomly-validation-4; F1). Matriz: PR1–PR12, CH1–CH11,
+ * RO1–RO9, RE1–RE9, CRA1–CRA6 (Fase 3.1), IMG1–IMG7 (Fase 4.2, Storage),
  * SVC1–SVC5 y GC1–GC4 (servicios del servidor), AU2 — ver
  * docs/SUPABASE_VALIDATION.md.
  *
@@ -45,7 +46,22 @@ import {
   getCandidates,
   type CandidateDTO,
 } from "@/lib/services/matching";
+import {
+  addRoomImage,
+  deleteRoomImage,
+  listOwnRoomImages,
+  listRoomImages,
+  removeDeletedRoomObjects,
+  type RoomImagesDeps,
+} from "@/lib/services/room-images";
+import { sanitizeRoomImage } from "@/lib/images/sanitize-room-image";
+import {
+  ROOM_IMAGE_SIGNED_URL_TTL_SECONDS,
+  ROOM_IMAGES_BUCKET,
+  roomImageStoragePath,
+} from "@/lib/validation/room-images";
 import type { DbClient } from "@/lib/services/result";
+import sharp from "sharp";
 import { createTestUser } from "./test-users";
 
 // ---------------------------------------------------------------------------
@@ -82,10 +98,11 @@ function readEnv() {
 /**
  * F1 — Identidad verificada DESDE EL PROPIO PROYECTO antes de crear o borrar
  * nada: ejecuta tests/supabase/guard.sh (la misma guarda que usan los
- * scripts SQL), que exige la marca `COMMENT ON DATABASE postgres IS
- * 'roomly-validation-3'` en la base de datos a la que apuntan los secrets
- * (las marcas de los proyectos de validación anteriores, Fases 1 y 2.8, no
- * pasan).
+ * scripts SQL), que exige que la base de datos a la que apuntan los secrets
+ * lleve una marca de la allow-list (roomly-validation-3 o roomly-validation-4)
+ * y, cuando el Environment la declara, la marca esperada exacta
+ * (SUPABASE_VALIDATION_MARKER, heredada de process.env). Las marcas de los
+ * proyectos de validación anteriores (Fases 1 y 2.8) no pasan.
  * Sin fallback: cualquier fallo aborta la suite. El mensaje propagado es
  * solo el de la guarda, que nunca incluye valores de variables.
  */
@@ -105,7 +122,7 @@ function verifyValidationProjectIdentity() {
   } catch (err) {
     const stderr = (err as { stderr?: Buffer }).stderr?.toString().trim();
     throw new Error(
-      `Destino NO reconocido como roomly-validation-3; la suite no se ejecuta.\n${stderr ?? ""}`
+      `Destino NO reconocido como proyecto de validación permitido; la suite no se ejecuta.\n${stderr ?? ""}`
     );
   }
 }
@@ -890,6 +907,293 @@ describe("Rooms (RO)", () => {
       .eq("room_id", roomId);
     expectOk(own.error);
     expect(own.data).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// ROOM IMAGES Y STORAGE (IMG) — Fase 4.2, SOLO contra Supabase real
+//
+// Casos que NO se pueden ejercer en local (necesitan la API de Storage y las
+// URL firmadas reales): llegan de la api-suite del workflow manual contra
+// roomly-validation-4. Lo que es puramente SQL (GRANT por columnas de
+// room_images, REVOKE DELETE de rooms, EXECUTE de delete_own_room, políticas)
+// ya lo cubren tests/db y el preflight P1/P3/P4/P6 en local; aquí se comprueba
+// el COMPORTAMIENTO real de Storage y la orquestación del servicio
+// lib/services/room-images.ts. service_role se inyecta como `adminClient`,
+// igual que en SVC/GC y como hace la app (D17). O propietaria, A otro usuario,
+// D admin.
+// ===========================================================================
+describe("Room images y Storage (IMG)", () => {
+  let imgRoomId = "";
+  let imgRoomDeleted = false;
+  const imgEvents: Array<{ event: string; path: string }> = [];
+  const imgDeps: RoomImagesDeps = {
+    adminClient: () => asDb(service),
+    sanitize: (input, declaredType) => sanitizeRoomImage(input, { declaredType }),
+    newId: () => randomUUID(),
+    now: () => new Date(),
+    signedUrlTtlSeconds: ROOM_IMAGE_SIGNED_URL_TTL_SECONDS,
+    reportRecovery: (event, path) => imgEvents.push({ event, path }),
+  };
+
+  /** Imagen válida generada con sharp: WebP, o JPEG con EXIF para la prueba de metadatos. */
+  async function photo(withExif = false): Promise<File> {
+    const base = sharp({
+      create: {
+        width: 80,
+        height: 60,
+        channels: 3,
+        background: { r: 20, g: 120, b: 200 },
+      },
+    });
+    if (withExif) {
+      const jpeg = await base
+        .withExif({ IFD0: { Copyright: "ROOMLY-TEST", Artist: "debe-quitarse" } })
+        .jpeg()
+        .toBuffer();
+      return new File([jpeg], "foto.jpg", { type: "image/jpeg" });
+    }
+    const webp = await base.webp().toBuffer();
+    return new File([webp], "foto.webp", { type: "image/webp" });
+  }
+
+  /**
+   * `exp`/`iat` (segundos) del token JWT de una URL firmada de Storage, o
+   * `null` si no se puede leer. Permite comprobar el TTL REAL que fija Storage
+   * (exp - iat), no solo el `expiresAt` que calcula el servicio.
+   */
+  function signedUrlExp(url: string): { iat: number; exp: number } | null {
+    try {
+      const token = new URL(url).searchParams.get("token");
+      const payload = token?.split(".")[1];
+      if (!payload) return null;
+      const json: unknown = JSON.parse(
+        Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(
+          "utf8"
+        )
+      );
+      if (typeof json !== "object" || json === null) return null;
+      const { exp, iat } = json as Record<string, unknown>;
+      if (typeof exp !== "number" || typeof iat !== "number") return null;
+      return { iat, exp };
+    } catch {
+      return null;
+    }
+  }
+
+  const setImgStatus = (client: Client, status: string) =>
+    client.from("rooms").update({ status }).eq("id", imgRoomId).select("status");
+
+  beforeAll(async () => {
+    const { data } = await service
+      .from("neighborhoods")
+      .select("id")
+      .eq("city_id", cityId)
+      .order("slug")
+      .limit(1);
+    const neighborhoodId = data?.[0]?.id;
+    if (!neighborhoodId)
+      throw new Error("Faltan barrios de Barcelona (R1, Fase 4.1) en el proyecto");
+    imgRoomId = randomUUID();
+    const insert = await O()
+      .client.from("rooms")
+      .insert({
+        id: imgRoomId,
+        owner_id: O().id,
+        title: "Habitación con fotos",
+        city_id: cityId,
+        neighborhood_id: neighborhoodId,
+        price_month: 500,
+        available_from: "2026-11-01",
+        total_roommates: 2,
+        total_rooms: 3,
+      })
+      .select("id");
+    expectOk(insert.error);
+    expectOk((await setImgStatus(O().client, "active")).error);
+  });
+
+  afterAll(async () => {
+    // Storage no cae en cascada: se limpia a mano (la fila cae con el usuario).
+    try {
+      const { data } = await service.storage.from(ROOM_IMAGES_BUCKET).list(imgRoomId);
+      const names = (data ?? []).map((o) => `${imgRoomId}/${o.name}`);
+      if (names.length > 0) await service.storage.from(ROOM_IMAGES_BUCKET).remove(names);
+    } catch {
+      /* mejor esfuerzo */
+    }
+    if (!imgRoomDeleted) {
+      await service.rpc("delete_own_room", { p_room_id: imgRoomId, p_user_id: O().id });
+    }
+  });
+
+  it("IMG1: addRoomImage sube la foto y la URL firmada vale ~10 min (bucket privado)", async () => {
+    const before = Date.now();
+    const result = await addRoomImage(
+      asDb(O().client),
+      { roomId: imgRoomId, photo: await photo() },
+      imgDeps
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.url).toBeTruthy();
+    expect(result.data.expiresAt).toBeTruthy();
+    // `expiresAt` del servicio: ventana amplia (now + ttl, antes de firmar).
+    const serviceTtlMs = new Date(result.data.expiresAt!).getTime() - before;
+    expect(serviceTtlMs).toBeGreaterThanOrEqual(
+      (ROOM_IMAGE_SIGNED_URL_TTL_SECONDS - 5) * 1000
+    );
+    expect(serviceTtlMs).toBeLessThanOrEqual(
+      (ROOM_IMAGE_SIGNED_URL_TTL_SECONDS + 120) * 1000
+    );
+    // TTL REAL del token firmado por Storage: exp - iat debe ser exactamente el
+    // configurado (no se depende solo del expiresAt calculado por el servicio).
+    const claim = signedUrlExp(result.data.url!);
+    expect(claim).not.toBeNull();
+    if (claim) {
+      expect(claim.exp - claim.iat).toBe(ROOM_IMAGE_SIGNED_URL_TTL_SECONDS);
+    }
+    // La URL firmada sirve la foto como image/webp; el bucket NO es público.
+    const res = await fetch(result.data.url!);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("image/webp");
+    record(
+      `IMG1: foto subida y firmada (ttl real ${claim ? claim.exp - claim.iat : "?"}s)`
+    );
+  });
+
+  it("IMG1b: el extractor del exp de la URL firmada descarta tokens inválidos o sin exp", () => {
+    // Puro, sin Storage: protege el aserto de TTL de IMG1 frente a falsos positivos.
+    expect(signedUrlExp("https://x/y")).toBeNull(); // sin token
+    expect(signedUrlExp("https://x/y?token=no-es-un-jwt")).toBeNull();
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    const noExp = `h.${b64({ url: "room-images/x", iat: 1000 })}.s`;
+    expect(signedUrlExp(`https://x/y?token=${noExp}`)).toBeNull(); // sin exp
+    const ok = `h.${b64({ url: "room-images/x", iat: 1000, exp: 1600 })}.s`;
+    expect(signedUrlExp(`https://x/y?token=${ok}`)).toEqual({ iat: 1000, exp: 1600 });
+  });
+
+  it("IMG2: la foto guardada no conserva EXIF ni metadatos (sanitizador, N1)", async () => {
+    // Precondición: el JPEG de entrada DEBE llevar EXIF; si no, la prueba no
+    // demostraría la eliminación de metadatos, así que falla explícitamente.
+    const inputFile = await photo(true);
+    const inputMeta = await sharp(Buffer.from(await inputFile.arrayBuffer())).metadata();
+    expect(inputMeta.exif).toBeDefined();
+
+    const up = await addRoomImage(
+      asDb(O().client),
+      { roomId: imgRoomId, photo: inputFile },
+      imgDeps
+    );
+    expect(up.ok).toBe(true);
+    if (!up.ok) return;
+    const path = roomImageStoragePath(imgRoomId, up.data.id);
+    const dl = await service.storage.from(ROOM_IMAGES_BUCKET).download(path);
+    expect(dl.error).toBeNull();
+    const bytes = Buffer.from(await dl.data!.arrayBuffer());
+    const meta = await sharp(bytes).metadata();
+    expect(meta.format).toBe("webp");
+    expect(meta.exif).toBeUndefined();
+  });
+
+  it("IMG3: R7 — en una habitación pausada las fotos solo las ve la propietaria y el admin", async () => {
+    // Activa: otro usuario y anon las ven.
+    expect((await listRoomImages(asDb(A().client), imgRoomId, imgDeps)).ok).toBe(true);
+    expect((await listRoomImages(asDb(anon), imgRoomId, imgDeps)).ok).toBe(true);
+    // Pausada: ni anon ni otro usuario (not_found); la propietaria y el admin sí.
+    expectOk((await setImgStatus(O().client, "paused")).error);
+    expect((await listRoomImages(asDb(anon), imgRoomId, imgDeps)).ok).toBe(false);
+    expect((await listRoomImages(asDb(A().client), imgRoomId, imgDeps)).ok).toBe(false);
+    expect((await listOwnRoomImages(asDb(O().client), imgRoomId, imgDeps)).ok).toBe(true);
+    expect((await listRoomImages(asDb(D().client), imgRoomId, imgDeps)).ok).toBe(true);
+    expectOk((await setImgStatus(O().client, "active")).error);
+  });
+
+  it("IMG4: ningún cliente escribe room_images ni storage.objects (solo el servidor)", async () => {
+    // INSERT directo en room_images → 42501 (sin GRANT de escritura para clientes).
+    for (const who of [O(), A()]) {
+      const ins = await who.client.from("room_images").insert({
+        id: randomUUID(),
+        room_id: imgRoomId,
+        storage_path: `${imgRoomId}/${randomUUID()}.webp`,
+        position: 0,
+      });
+      expectPgError(ins.error, "42501");
+    }
+    // Subida directa a storage.objects (anon y authenticated) → denegada (ninguna política).
+    // El error de Storage es un StorageError HTTP (403/400, mensaje variable),
+    // no un SQLSTATE estable: no se fija un código (evitar falsos negativos); se
+    // comprueba que falla y que no crea ningún objeto.
+    const bytes = new Uint8Array(await (await photo()).arrayBuffer());
+    for (const client of [anon, O().client]) {
+      const up = await client.storage
+        .from(ROOM_IMAGES_BUCKET)
+        .upload(`${imgRoomId}/${randomUUID()}.webp`, bytes, {
+          contentType: "image/webp",
+        });
+      expect(up.error).not.toBeNull();
+      expect(up.data).toBeNull();
+    }
+  });
+
+  it("IMG5: deleteRoomImage borra la fila y el objeto de Storage", async () => {
+    const up = await addRoomImage(
+      asDb(O().client),
+      { roomId: imgRoomId, photo: await photo() },
+      imgDeps
+    );
+    expect(up.ok).toBe(true);
+    if (!up.ok) return;
+    const path = roomImageStoragePath(imgRoomId, up.data.id);
+    const del = await deleteRoomImage(asDb(O().client), up.data.id, imgDeps);
+    expect(del.ok).toBe(true);
+    const row = await O()
+      .client.from("room_images")
+      .select("id")
+      .eq("id", up.data.id)
+      .maybeSingle();
+    expect(row.data).toBeNull();
+    const dl = await service.storage.from(ROOM_IMAGES_BUCKET).download(path);
+    expect(dl.error).not.toBeNull();
+  });
+
+  it("IMG6: authenticated no borra rooms (DELETE revocado) ni ejecuta delete_own_room", async () => {
+    const del = await O().client.from("rooms").delete().eq("id", imgRoomId);
+    expectPgError(del.error, "42501");
+    // delete_own_room solo lo puede ejecutar service_role (SECURITY INVOKER).
+    // Sin EXECUTE, PostgREST devuelve un error variable según el contexto (403
+    // de permiso, o 404 si la función no está en la caché del esquema): no se
+    // fija un código (evitar falsos negativos); se comprueba que falla y que no
+    // devuelve rutas.
+    const rpc = await O().client.rpc("delete_own_room", {
+      p_room_id: imgRoomId,
+      p_user_id: O().id,
+    });
+    expect(rpc.error).not.toBeNull();
+    expect(rpc.data).toBeNull();
+  });
+
+  it("IMG7: tras borrar la habitación, removeDeletedRoomObjects limpia sus objetos", async () => {
+    // Deja una foto antes de borrar.
+    const up = await addRoomImage(
+      asDb(O().client),
+      { roomId: imgRoomId, photo: await photo() },
+      imgDeps
+    );
+    expect(up.ok).toBe(true);
+    // El servidor borra la habitación (service_role) y recibe las rutas de sus fotos.
+    const rpc = await service.rpc("delete_own_room", {
+      p_room_id: imgRoomId,
+      p_user_id: O().id,
+    });
+    expect(rpc.error).toBeNull();
+    const paths = (rpc.data ?? []) as string[];
+    const cleanup = await removeDeletedRoomObjects(imgRoomId, paths, imgDeps);
+    expect(cleanup.complete).toBe(true);
+    imgRoomDeleted = true;
+    const list = await service.storage.from(ROOM_IMAGES_BUCKET).list(imgRoomId);
+    expect(list.data ?? []).toHaveLength(0);
+    record(`IMG7: habitación borrada y Storage limpio (avisos: ${imgEvents.length})`);
   });
 });
 

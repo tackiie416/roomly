@@ -11,20 +11,32 @@
 #
 #   2. Identidad verificada DESDE EL PROPIO PROYECTO: la base de datos a la
 #      que realmente se conecta debe llevar la marca
-#         COMMENT ON DATABASE postgres IS 'roomly-validation-3';
-#      (legible por cualquier rol vía pg_shdescription; solo el dueño de la
-#      BD puede escribirla). Si la marca falta, no coincide exactamente, o no
-#      se puede comprobar, se aborta. Unos secrets coherentes que apunten a
-#      otro proyecto NO pasan: ese proyecto no tiene la marca. Tampoco los
-#      proyectos de validación anteriores (Fase 3: proyecto nuevo, con una
-#      marca distinta de la de la Fase 2.8).
+#         COMMENT ON DATABASE postgres IS '<marca>';
+#      donde <marca> es la que el Environment declara en la variable
+#      SUPABASE_VALIDATION_MARKER y que, además, tiene que estar en la
+#      allow-list de abajo. La marca es legible por cualquier rol vía
+#      pg_shdescription; solo el dueño de la BD puede escribirla. Si la marca
+#      falta, no coincide exactamente con la esperada, o no se puede comprobar,
+#      se aborta. Unos secrets coherentes que apunten a otro proyecto NO pasan:
+#      ese proyecto no tiene la marca esperada.
+#
+# Allow-list (F1, proyecto aislado de la Fase 4.x): se aceptan EXCLUSIVAMENTE
+# roomly-validation-3 (camino de compatibilidad existente) y roomly-validation-4
+# (proyecto de instalación limpia, D2). Quedan rechazados explícitamente los
+# proyectos de validación anteriores (Fase 2.8, uwxb…, y Fase 1),
+# cualquier marca desconocida y cualquier proyecto de producción: no están en
+# la lista. En cada ejecución, la marca esperada (SUPABASE_VALIDATION_MARKER)
+# tiene que coincidir EXACTAMENTE con la marca leída de la propia base de datos
+# y, cuando el workflow lo pasa, con confirm_project (ROOMLY_CONFIRM_PROJECT).
 #
 # Nunca imprime valores de variables ni la salida de error de psql (podría
-# contener el host o el usuario de la conexión).
+# contener el host o el usuario de la conexión). Las marcas de proyecto no son
+# secretas (son etiquetas), pero una marca rechazada no se vuelve a imprimir.
 #
 # Uso: source tests/supabase/guard.sh [VAR_EXTRA ...]
+#   Requiere SUPABASE_VALIDATION_MARKER en el entorno (la declara el Environment).
 
-ROOMLY_VALIDATION_MARKER="roomly-validation-3"
+ROOMLY_VALIDATION_ALLOWED_MARKERS=("roomly-validation-3" "roomly-validation-4")
 
 roomly_guard() {
   local missing=()
@@ -56,6 +68,30 @@ roomly_guard() {
     echo "ERROR: SUPABASE_VALIDATION_DB_URL no corresponde al project ref de validación" >&2
     return 1
   fi
+
+  # --- Marca esperada declarada por el Environment, validada contra la allow-list ---
+  # El Environment la declara en SUPABASE_VALIDATION_MARKER. Si no está (R8 y los
+  # auto-tests que no la fijan), se mantiene el comportamiento histórico: el
+  # proyecto de compatibilidad roomly-validation-3. En el workflow, el paso de
+  # confirmación exige además que coincida con confirm_project, así que una
+  # ejecución real nunca se queda sin declararla.
+  local expected="${SUPABASE_VALIDATION_MARKER:-roomly-validation-3}"
+  local allowed="" m
+  for m in "${ROOMLY_VALIDATION_ALLOWED_MARKERS[@]}"; do
+    [ "$expected" = "$m" ] && allowed=1
+  done
+  if [ -z "$allowed" ]; then
+    echo "ERROR: SUPABASE_VALIDATION_MARKER no es un proyecto de validación permitido." >&2
+    echo "       Allow-list: ${ROOMLY_VALIDATION_ALLOWED_MARKERS[*]}. Abortado." >&2
+    return 1
+  fi
+  # Si el workflow pasó confirm_project, debe coincidir exactamente con la marca esperada.
+  if [ -n "${ROOMLY_CONFIRM_PROJECT:-}" ] && [ "$ROOMLY_CONFIRM_PROJECT" != "$expected" ]; then
+    echo "ERROR: confirm_project no coincide con SUPABASE_VALIDATION_MARKER. Abortado." >&2
+    return 1
+  fi
+  # Marca verificada contra la base de datos: debe ser exactamente la esperada.
+  ROOMLY_VALIDATION_MARKER="$expected"
 
   # --- Identidad verificada desde el propio proyecto ---
   local marker_ok
