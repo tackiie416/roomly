@@ -158,4 +158,44 @@ begin
   raise exception 'FALLO: % (la sentencia se ejecutó sin error)', p_msg;
 end $$;
 
+-- Exige que p_sql, lanzada por un cliente, NO consiga borrar nada. Un borrado
+-- de cliente queda bloqueado de tres formas legítimas, y SOLO esas se aceptan:
+--   1. PostgreSQL local (storage es un esquema normal): la RLS sin política
+--      DELETE lo filtra a 0 filas, sin error (rama de n = 0, abajo).
+--   2. Falta de privilegio DELETE (GRANT) o RLS: insufficient_privilege (42501).
+--   3. Supabase real: el trigger de plataforma de Storage rechaza el DELETE
+--      directo con el mensaje «Direct deletion from storage tables is not
+--      allowed. Use the Storage API instead.» (su SQLSTATE no está documentado;
+--      se reconoce por ese mensaje estable, capturado del run #27).
+-- Cualquier OTRO error (sintaxis, tabla/columna inexistente, etc.) NO se acepta:
+-- se vuelve a lanzar y el test falla por él — así no hay falsos positivos por un
+-- error ajeno al bloqueo. Falla también si el borrado afecta a alguna fila (el
+-- cliente logró borrar). El error aceptado se muestra en la línea «ok»; no se
+-- oculta. Que los datos sobreviven lo comprueban los controles vecinos
+-- (IM9-control con service_role; ST1 «el bucket sigue privado»).
+create function roomly_test.expect_blocked(p_sql text, p_msg text) returns void
+language plpgsql as $$
+declare
+  n bigint;
+begin
+  begin
+    execute p_sql;
+    get diagnostics n = row_count;
+  exception
+    when insufficient_privilege then
+      raise notice 'ok - % (rechazado por privilegio/RLS: %)', p_msg, sqlerrm;
+      return;
+    when others then
+      if sqlerrm like '%Direct deletion from storage tables%' then
+        raise notice 'ok - % (rechazado por Storage: %)', p_msg, sqlerrm;
+        return;
+      end if;
+      raise;  -- error ajeno al bloqueo: el test debe fallar por él
+  end;
+  if n <> 0 then
+    raise exception 'FALLO: % (afectó % filas; debía quedar bloqueado)', p_msg, n;
+  end if;
+  raise notice 'ok - %', p_msg;
+end $$;
+
 grant execute on all functions in schema roomly_test to anon, authenticated, service_role;

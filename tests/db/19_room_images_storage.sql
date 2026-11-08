@@ -480,9 +480,9 @@ select roomly_test.expect_error(
 select roomly_test.expect_affected(
   $$update storage.objects set name = 'roomly-test-19/movida.webp' where name like 'roomly-test-19/%'$$,
   0, 'IM9: ni mueve objetos');
-select roomly_test.expect_affected(
+select roomly_test.expect_blocked(
   $$delete from storage.objects where name like 'roomly-test-19/%'$$,
-  0, 'IM9: ni los borra');
+  'IM9: ni los borra');
 select roomly_test.login('19000000-0000-0000-0000-0000000000ad');
 select roomly_test.expect_rows(
   $$select 1 from storage.objects where name like 'roomly-test-19/%'$$,
@@ -515,9 +515,9 @@ select roomly_test.expect_affected(
 select roomly_test.expect_error(
   $$insert into storage.buckets (id, name, public) values ('roomly-test-19', 'roomly-test-19', true)$$,
   '42501', 'ST1: ni crea otro bucket público');
-select roomly_test.expect_affected(
+select roomly_test.expect_blocked(
   $$delete from storage.buckets where id = 'room-images'$$,
-  0, 'ST1: ni borra el bucket');
+  'ST1: ni borra el bucket');
 reset role;
 select roomly_test.ok(
   exists (select 1 from storage.buckets b
