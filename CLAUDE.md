@@ -296,13 +296,26 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       api-suite 71/71 (con IMG1–IMG7 y la API de Storage real) y AU3/AU5.
       `migrate`, R8 y el E2 se omitieron: el esquema viene del run 27
       (`9ed20ed`), y entre los dos commits solo cambian tests;
-    - **V1 y D5.** Claude no encuentra en el repositorio ni en Actions
-      ninguna referencia a «V1» ni a «D5» para esta validación (el V1 de
-      `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md` es otra cosa), así que no
-      puede asociar el run 28 a «V1». **V1 consta como pendiente de
-      confirmación por el propietario:** que la autorización D5 exista no
-      significa que se haya despachado. El run 28 queda registrado como
-      evidencia, sin dar por cumplido ningún criterio de cierre;
+    - **V1 (autorizada con D5) = run 28: confirmada el 2026-11-23** con la
+      API de Actions y los logs (sesión 76 de `PROGRESS.md`). Datos del run:
+      - `workflow_dispatch` de `supabase-validation.yml`, lanzado por
+        `tackiie416`;
+      - `master` en `154a0f1a6891a3fce8c0c23071e8fde459eed700`, con
+        `run_attempt` 1;
+      - la tupla autorizada coincide entera: `confirm_project` es
+        `roomly-validation-4`, con `apply_migrations=false`,
+        `phase4_upgrade=none`, `run_e2e_real=false` y `confirm_phase4_upgrade`
+        vacío. La API no conserva los inputs del despacho: salen de los
+        valores de `inputs.*` impresos en el log de la guarda;
+      - cada job declara `environment: ${{ inputs.confirm_project }}`, y la
+        variable `SUPABASE_VALIDATION_MARKER` del Environment valía
+        `roomly-validation-4`. Ningún job quedó a la espera de una
+        aprobación: todos empezaron unos 4 s después de crearse;
+      - V1 ejecutada no significa la Fase 4 validada: pasaron sus jobs, pero
+        `migrate` y el E2 no formaban parte de la tupla y los pendientes de
+        abajo siguen abiertos. Del V1 de
+        `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md` (otra cosa) no se dice
+        nada;
     - siguen sin evidencia: el E2 con la Fase 4, la conciliación de fotos
       antes y después de las suites (ningún job del workflow la ejecuta), una
       comprobación independiente de la limpieza, el runtime completo de
@@ -904,9 +917,10 @@ borrado de cuenta (H6).
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.
 - Fase 4 tras los merges (PR #26–#33, 2026-11-04 a 2026-11-09):
-  - si el run 28 en `roomly-validation-4` es la validación que el propietario
-    llama V1, y qué falta para darla por buena (E2, conciliación,
-    comprobación independiente de la limpieza);
+  - V1 está confirmada en el run 28. Falta lo que V1 no cubre: el E2, la
+    conciliación, una comprobación independiente de la limpieza y el
+    comportamiento de las aprobaciones del Environment, que no detuvieron
+    ningún job;
   - cuándo y cómo se comprueban los criterios de cierre de la Fase 4;
   - si `roomly-validation-3` recibe las migraciones de la 4.2 a la 4.4, o se
     retira;

@@ -66,12 +66,46 @@ lanzó ningún workflow.
     IMG1–IMG7, la API de Storage real y PR10b del hotfix) y AU3/AU5.
   - `migrate`, R8 y el E2 se omitieron. El esquema es el del run 27, y entre
     `9ed20ed` y `154a0f1` solo cambian tests.
-- **V1 y D5.** En el repositorio y en Actions no hay ninguna referencia a «V1»
-  ni a «D5» para esta validación. El V1 del runbook del incidente es otra
-  cosa, y D5 ya se usa con otro significado en la Fase 3. Por eso:
-  - **V1 consta como pendiente de confirmación por el propietario;**
-  - que la autorización D5 exista no significa que V1 se haya despachado;
-  - el run 28 queda como evidencia, sin asignarle ese nombre.
+- **V1 y D5: V1 CONFIRMADA en el run 28** (segunda comprobación de esta misma
+  sesión, por encargo del propietario). En el primer borrador del PR #34 constaba
+  como pendiente, porque el repositorio no registra ni la tupla de D5 ni el
+  nombre V1. El propietario dio después la tupla autorizada, y se contrastó así:
+  - **Evento, actor y estado** (`get_workflow_run`): `workflow_dispatch` de
+    `.github/workflows/supabase-validation.yml`, lanzado por `tackiie416` (actor
+    y triggering_actor), `run_attempt` 1, `completed`/`success`. Duró del
+    2026-11-21T00:18:02Z al 00:26:04Z.
+  - **SHA y rama:** `master`, `154a0f1a6891a3fce8c0c23071e8fde459eed700`, que es
+    el SHA esperado.
+  - **Inputs.** La API REST del run no conserva los inputs de un
+    `workflow_dispatch`. Salen del log del job «Guarda de destino», que imprime
+    el `env` de cada paso. Según el workflow, ese `env` es `${{ inputs.* }}` sin
+    transformar:
+    - `CONFIRM`/`ROOMLY_CONFIRM_PROJECT=roomly-validation-4`;
+    - `APPLY_MIGRATIONS=false`;
+    - `PHASE4_UPGRADE=none`;
+    - `RUN_E2E_REAL=false`;
+    - `PHASE4_UPGRADE_CONFIRM` vacío.
+
+    Coinciden los cinco con la tupla autorizada. El workflow del run es el
+    mismo que el de esta rama: no hay diff en `.github/`.
+  - **Environment:** cada job declara `environment: ${{ inputs.confirm_project
+    }}`. La variable del Environment `SUPABASE_VALIDATION_MARKER` valía
+    `roomly-validation-4`, y la guarda imprimió «destino verificado como
+    roomly-validation-4 (coherencia local + marca del proyecto)». La
+    configuración del Environment no se ha leído.
+  - **Jobs:**
+    - en verde: la guarda, P0–P6, la suite SQL, la api-suite (71/71, con
+      IMG1–IMG7) y AU3/AU5;
+    - omitidos: `migrate` y `phase4-upgrade`, por sus condiciones `if`, y
+      `e2e-real` (`run_e2e_real=false`);
+    - ninguno falló.
+  - **Aprobaciones:** ningún job esperó una. Todos empezaron unos 4 s después
+    de crearse. Esta sesión no ha determinado si eso es lo que se pretendía con
+    los Required reviewers (B1, pendiente desde los runs 21 y 22).
+  - **Lo que V1 no es:** que sus jobs pasaran no valida la Fase 4 entera. La
+    tupla no incluía `migrate` (el esquema es el del run 27) ni el E2, y los
+    pendientes de abajo siguen abiertos. Que D5 esté autorizada no significaba
+    que se hubiera despachado: el despacho es el run 28.
 - Siguen sin evidencia:
   - el E2 con la Fase 4;
   - la conciliación de fotos antes y después de las suites (el workflow no
@@ -105,8 +139,8 @@ lanzó ningún workflow.
 **Fase 4: no está cerrada.** Sus criterios de cierre no se han comprobado.
 
 **Próximos pasos (cada uno con su autorización):**
-1. El propietario confirma si el run 28 es V1 y qué falta para darlo por
-   bueno.
+1. Decidir qué falta, después de V1 (run 28), para dar por buena la
+   validación real de la Fase 4.
 2. Actualizar `docs/SUPABASE_VALIDATION.md`, `docs/ROADMAP.md` y
    `docs/TESTING.md`.
 3. Decidir el E2 con la Fase 4, la conciliación y el destino de
