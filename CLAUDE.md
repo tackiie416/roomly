@@ -251,14 +251,93 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     `apply_migrations=false`, y cada run, E2 o apertura del registro, con
     autorización explícita.
 - **Fase 4 (Rooms): en curso desde el 2026-10-13**, con la autorización
-  expresa del propietario. Iniciarla no autoriza el lanzamiento.
+  expresa del propietario. Iniciarla no autoriza el lanzamiento. **No está
+  validada ni cerrada.**
+  - **Integración en `master` (verificada en Git el 2026-11-23; sesión 76 de
+    `PROGRESS.md`).** Los PR de la Fase 4 y el hotfix ya no están «en local»:
+    - PR #29, hotfix de `public_profile_previews`: merge `e18435e`
+      (2026-11-04);
+    - PR #26, 4.1: merge `5cfcc83` (2026-11-05);
+    - PR #27, R8: merge `5843ea1` (2026-11-05);
+    - PR #28, 4.2 (fotos): merge `6fe9a47` (2026-11-05);
+    - PR #30, 4.3 (CRUD): merge `4eb6d6f` (2026-11-05);
+    - PR #31, 4.4 (búsqueda y detalle públicos): merge `3bc7b4b`
+      (2026-11-05);
+    - PR #32, guarda F1 con la allow-list `roomly-validation-3`/`-4` (D2):
+      merge `9ed20ed` (2026-11-08);
+    - PR #33, `tests/db/19` y `tests/db/helpers.sql` adaptados a la
+      restricción de Supabase que prohíbe borrar directamente en las tablas
+      de Storage: merge `154a0f1` (2026-11-09). Solo cambia tests.
+    - `master` (`154a0f1`) tiene 19 migraciones. **Integrar no es validar
+      ni cerrar:** los criterios de cierre de la Fase 4 (`docs/ROADMAP.md`)
+      no se han comprobado y nadie ha declarado la fase cerrada.
+  - **Validación real de la Fase 4 en `roomly-validation-4`: evidencias
+    parciales.** Lo que dicen la API de GitHub Actions y los logs, leídos
+    el 2026-11-23 (sin conectar con Supabase):
+    - run 25 (`42127037909`, `3bc7b4b`, 2026-11-05): `failure`. La guarda
+      terminó sin ejecutar ningún paso y los demás jobs se omitieron. La
+      causa no se ha determinado;
+    - run 26 (`42128834666`, `3bc7b4b`, 2026-11-05): `cancelled`. La guarda
+      se canceló sin ejecutar ningún paso, unos 7 minutos después de empezar.
+      No se sabe si estaba esperando una aprobación;
+    - **run 27** (`42519140423`, `9ed20ed`, 2026-11-08): `failure`. La
+      guarda verificó `roomly-validation-4` y `migrate` aplicó las 19
+      migraciones y el seed en una transacción. Después, P0–P6 pasaron. La
+      suite SQL falló en `19_room_images_storage.sql` («Direct deletion from
+      storage tables is not allowed. Use the Storage API instead.»), y la
+      transacción de ese archivo se revirtió. La api-suite, AU3/AU5 y el E2
+      se omitieron. **No es una validación completa, y menos aún un E2E:**
+      solo prueba la instalación limpia y P0–P6;
+    - **run 28** (`44842885713`, `154a0f1`, 2026-11-21, lanzado por
+      `tackiie416`): `success` en `roomly-validation-4`, con
+      `apply_migrations=false`, `run_e2e_real=false` y
+      `phase4_upgrade=none`. Pasaron la guarda, P0–P6, la suite SQL completa
+      (cada archivo con ROLLBACK, «sin usuarios de test» al terminar), la
+      api-suite 71/71 (con IMG1–IMG7 y la API de Storage real) y AU3/AU5.
+      `migrate`, R8 y el E2 se omitieron: el esquema viene del run 27
+      (`9ed20ed`), y entre los dos commits solo cambian tests;
+    - **V1 (autorizada con D5) = run 28: confirmada el 2026-11-23** con la
+      API de Actions y los logs (sesión 76 de `PROGRESS.md`). Datos del run:
+      - `workflow_dispatch` de `supabase-validation.yml`, lanzado por
+        `tackiie416`;
+      - `master` en `154a0f1a6891a3fce8c0c23071e8fde459eed700`, con
+        `run_attempt` 1;
+      - la tupla autorizada coincide entera: `confirm_project` es
+        `roomly-validation-4`, con `apply_migrations=false`,
+        `phase4_upgrade=none`, `run_e2e_real=false` y `confirm_phase4_upgrade`
+        vacío. La API no conserva los inputs del despacho: salen de los
+        valores de `inputs.*` impresos en el log de la guarda;
+      - cada job declara `environment: ${{ inputs.confirm_project }}`, y la
+        variable `SUPABASE_VALIDATION_MARKER` del Environment valía
+        `roomly-validation-4`. Ningún job quedó a la espera de una
+        aprobación: todos empezaron unos 4 s después de crearse;
+      - V1 ejecutada no significa la Fase 4 validada: pasaron sus jobs, pero
+        `migrate` y el E2 no formaban parte de la tupla y los pendientes de
+        abajo siguen abiertos. Del V1 de
+        `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md` (otra cosa) no se dice
+        nada;
+    - siguen sin evidencia: el E2 con la Fase 4, la conciliación de fotos
+      antes y después de las suites (ningún job del workflow la ejecuta), una
+      comprobación independiente de la limpieza, el runtime completo de
+      Next.js con la clave real y un despliegue (incluido el tamaño de la
+      subida de 4 MiB en Vercel o Netlify). Tampoco se ha determinado el
+      comportamiento de las aprobaciones del Environment (runs 21, 22, 25 y
+      26);
+    - `roomly-validation-3` sigue con la Fase 4 hasta la 4.1 (run 21): no hay
+      evidencia de que tenga las migraciones de la 4.2 a la 4.4;
+    - `docs/SUPABASE_VALIDATION.md`, `docs/ROADMAP.md` y `docs/TESTING.md`
+      siguen sin registrar los runs 23–28 y los merges. Actualizarlos es una
+      tarea aparte, con su autorización.
+  - Más abajo se conserva el historial de cada subfase. Las frases «en local»
+    y «sin publicar» describen el estado de entonces. El estado actual es el
+    de este bloque.
   - La 4.0 (escrituras de habitaciones bloqueadas para cuentas
     desactivadas) está integrada en `master` (PR #25, `7818a15`). Se validó
     en Supabase real en el run 21 (R8, 2026-10-21; ver abajo).
   - La 4.1 (datos e integridad, sin interfaz), autorizada el 2026-10-15 con
-    R1, R2 (alcance mínimo), R6, R7 (publicación) y R9, está implementada y
-    probada en local, pendiente de revisión en su PR (#26) y validada en
-    Supabase real en el run 21 (R8):
+    R1, R2 (alcance mínimo), R6, R7 (publicación) y R9, está integrada en
+    `master` (PR #26, merge `5cfcc83`, 2026-11-05) y validada en Supabase
+    real en el run 21 (R8):
     - migración `20261015120000`: barrio ↔ ciudad, catálogo cerrado de
       características (`lib/validation/rooms.ts`), ocupación, requisitos para
       `active` y GRANT por columnas en `rooms`;
@@ -270,11 +349,12 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       entre `draft`, `active`, `paused` y `rented`; `removed` es del admin),
       fijada por `tests/db/17`.
   - Siguen pendientes R3, R4 y el resto de R2. R5 y la visibilidad de R7
-    están en la 4.2, solo en local (abajo). De R8 quedan los pendientes
+    están en la 4.2, integrada en `master` con el PR #28 (abajo). De R8 quedan los pendientes
     posteriores al run 21 (abajo). Cada subfase necesita su autorización
     (`docs/ROADMAP.md`, Fase 4).
-  - **4.2 (fotos en Storage, limpieza de metadatos y R7): reconstruida en
-    local el 2026-10-29**, en la rama `feature/phase4-2-rebuild` (desde
+  - **4.2 (fotos en Storage, limpieza de metadatos y R7): integrada en
+    `master` con el PR #28 (merge `6fe9a47`, 2026-11-05).** Historial:
+    reconstruida en local el 2026-10-29, en la rama `feature/phase4-2-rebuild` (desde
     `9391015`, la punta del PR #27), con commits locales **sin publicar**. La
     implementación original se perdió con el contenedor sin haberse
     publicado (`PROGRESS.md`, sesión 63).
@@ -317,16 +397,19 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
         **No está comprobado en Vercel ni en Netlify**;
     - en local: `test` 1302, `test:db` 812, `test:infra` 377 y E1 41/41
       (orientativo). **Sin validar en Supabase real, con la API de Storage
-      real ni en la CI**, ni en un despliegue;
+      real ni en la CI**, ni en un despliegue. Era el estado de entonces:
+      después pasaron la CI del PR #28 y el run 28 (IMG1–IMG7). El
+      despliegue sigue sin validar;
     - publicar la rama y validarla (D2, en un proyecto aislado) necesitan la
       decisión o la autorización del propietario;
     - **publicada el 2026-10-30, con autorización** (`PROGRESS.md`, sesión
       68): rama remota `feature/phase4-2-rebuild` en `181e57f` y PR #28 en
       borrador, apilado contra `claude/phase4-r8-upgrade-tool`, con la CI en
-      verde (run `41114709970`). Sin merge ni validación real.
-  - **4.3 (CRUD de habitaciones propias): en local (sesión 68)**, en la rama
-    `feature/phase4-3-rooms-crud`, apilada sobre la 4.2, con commits locales
-    **sin publicar**:
+      verde (run `41114709970`). Integrada después (PR #28, `6fe9a47`). Su
+      validación real es parcial (bloque de integración, arriba).
+  - **4.3 (CRUD de habitaciones propias): integrada en `master` con el PR
+    #30 (merge `4eb6d6f`, 2026-11-05).** Historial: en local en la sesión
+    68, en la rama `feature/phase4-3-rooms-crud`, apilada sobre la 4.2:
     - `/habitaciones`, `/habitaciones/nueva` y `/habitaciones/[id]/editar`:
       crear en borrador, listar, editar y cambiar el estado según R7 (opción
       A), integrado con las fotos y el borrado. Funciona sin JavaScript;
@@ -341,13 +424,15 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       ciudad de Barcelona», recurso `BarcelonaCiutat_Barris.json`, CC BY
       4.0; `docs/DATABASE.md`);
     - en local: `test` 1412, `test:db` 812, `test:infra` 377 y E1 47/47
-      (orientativo). Sin validar en Supabase real ni en la CI;
+      (orientativo). Sin validar en Supabase real ni en la CI (era el
+      estado de entonces: después pasaron la CI del PR #30 y el run 28, que
+      no prueba la interfaz del CRUD en un navegador real);
     - fuera de alcance: búsqueda, filtros, detalle público (R3, R4) y
       moderación (la búsqueda y el detalle llegan en la 4.4, abajo).
-  - **4.4 (búsqueda y detalle públicos): en local (sesión 71)**, en la rama
-    `feature/phase4-4-public-search` (apilada sobre la 4.3, desde
-    `ce803ae`), con commits locales **sin publicar**. R3 y R4 decididos por
-    el propietario el 2026-10-31:
+  - **4.4 (búsqueda y detalle públicos): integrada en `master` con el PR
+    #31 (merge `3bc7b4b`, 2026-11-05).** Historial: en local en la sesión
+    71, en la rama `feature/phase4-4-public-search` (apilada sobre la 4.3,
+    desde `ce803ae`). R3 y R4 decididos por el propietario el 2026-10-31:
     - **hallazgo grave corregido en local:** anon y authenticated tenían
       todos los privilegios sobre la vista actualizable
       `public_profile_previews`, y con ellos se escribía en `profiles` sin
@@ -375,7 +460,9 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       visitante las lea;
     - en local: `test` 1536, `test:db` 886, `test:infra` 401 y E1 55/55
       (orientativo). **Sin validar en Supabase real, en la CI ni en un
-      despliegue**; el E2 no la cubre;
+      despliegue**; el E2 no la cubre. Era el estado de entonces: después
+      pasaron la CI del PR #31 y el run 28 (suite SQL con `tests/db/22` y
+      `23`). El despliegue y el E2 siguen sin validar;
     - las dos migraciones no tocan las copias congeladas de R8 (D3) ni sus
       pins; su validación en real seguirá D2, con autorización.
   - R8 (decisión del 2026-10-17: antes de decidir el merge del PR #26): la
@@ -392,26 +479,34 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       4**;
     - pendiente: no hubo ninguna aprobación del Environment, aunque D4 las
       preveía (causa sin determinar; hay que revisarlo antes de cualquier
-      otro run). La limpieza no tiene una comprobación independiente. El
-      merge de los PR #26 y #27 está sin decidir, y la congelación de D3
-      sigue vigente;
-    - `roomly-validation-3` va por delante de `master` hasta el merge del PR
-      #26. Cada run, `dry_run` o `apply`, necesita autorización explícita
+      otro run). La limpieza no tiene una comprobación independiente. Los PR
+      #26 y #27 ya están integrados (`5cfcc83` y `5843ea1`, 2026-11-05). La
+      congelación de D3 sigue vigente;
+    - desde esos merges, `master` lleva ventaja a `roomly-validation-3`, que
+      no tiene evidencia de las migraciones de la 4.2 a la 4.4. Cada run,
+      `dry_run` o `apply`, necesita autorización explícita
       (`docs/SUPABASE_VALIDATION.md`, «Resultado: run 21»).
-- **Hotfix de seguridad `public_profile_previews` (2026-10-31): solo en
-  local**, rama `hotfix/public-profile-previews-write-lockdown` (desde
-  `master`): migración `20261014120000` (`d76220c`) y, en la sesión 73,
-  guardas generales de vistas, propuesta de privilegios por defecto sin
-  aplicar y runbook del incidente revisado
+- **Hotfix de seguridad `public_profile_previews` (2026-10-31): integrado en
+  `master` con el PR #29 (merge `e18435e`, 2026-11-04)**, desde la rama
+  `hotfix/public-profile-previews-write-lockdown`: migración `20261014120000`
+  (`d76220c`) y, en la sesión 73, guardas generales de vistas, propuesta de
+  privilegios por defecto sin aplicar y runbook del incidente revisado
   (`docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md`).
-  - Sin push, PR ni merge, y **no aplicado en ningún proyecto real**.
-  - Potencialmente afectados: `roomly-validation` (Fase 1),
-    `roomly-validation-2b` (`uwxb…`) y `roomly-validation-3`. Ninguno
-    inspeccionado; ninguna evidencia, ni a favor ni en contra, de
-    explotación real. No digas que un proyecto está a salvo sin haberlo
-    verificado.
-  - Integrarlo con la Fase 4.4 exige los ajustes de `docs/TESTING.md`,
-    «Ajustes pendientes al integrar la Fase 4.4».
+  - Se propagó a las ramas de la Fase 4 antes de sus merges (`ffb03d4`,
+    `fd88531`, `d6fdf48`, `ed341c2` y `38dffb1`).
+  - Contención (sesiones 74 y 75, ejecutada por el propietario a mano): en
+    los dos proyectos de validación activos se aplicó `20261014120000` y la
+    verificación del runbook dio correcto. El proyecto histórico de la Fase
+    1 sigue pausado, sin inspeccionar ni corregir. **No puede descartarse
+    una explotación anterior.** El inventario está des-identificado a
+    propósito (sesión 75): no añadas qué proyecto está en cada estado. No
+    digas que un proyecto está a salvo sin haberlo verificado.
+  - En `roomly-validation-4`, el run 28 pasó PR10b (un usuario no se pone
+    `role = 'admin'` ni borra perfiles por la vista).
+  - En `master`, los tests ya esperan el rechazo: PV8 en `tests/db/13` y la
+    lectura de la vista en `tests/db/23` (42501). La sección «Ajustes
+    pendientes al integrar la Fase 4.4» de `docs/TESTING.md` sigue escrita
+    como pendiente. Queda fuera de este cambio, que solo toca documentación.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -655,14 +750,14 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
     dentro del GRANT y que ningún archivo de la app nombra `room_addresses`.
     Los límites de longitud de los textos solo están en la aplicación
     (`docs/SECURITY.md`, «CRUD de habitaciones propias»).
-- `room_images` y Storage (Fase 4.2, solo en local): ningún cliente escribe
+- `room_images` y Storage (Fase 4.2, integrada con el PR #28): ningún cliente escribe
   fotos (sin políticas de escritura ni GRANT en `room_images`, y ninguna
   política en `storage.objects`). El bucket `room-images` es privado y las
   fotos se sirven con URL firmadas. El trigger `trg_room_images_integrity`
   aplica la ruta, el límite de 8, las habitaciones retiradas o eliminadas y
   las cuentas desactivadas **también a service_role**. No abras la escritura
   de clientes ni hagas público el bucket sin una decisión explícita.
-  - Lectura (sesión 71, en local): `room_images_select_public` (R7, todos
+  - Lectura (sesión 71, PR #31): `room_images_select_public` (R7, todos
     los roles) y `room_images_select_own` (solo authenticated). Ninguna
     política de lectura que se aplique a anon puede leer `rooms.owner_id`
     en una subconsulta: anon no tiene SELECT en esa columna.
@@ -717,18 +812,23 @@ en `roomly-validation-3`, runs 16 y 18. Los servicios del servidor (SVC/GC)
 se validaron en el run 19, sin el runtime completo de Next.js
 (`docs/SUPABASE_VALIDATION.md`). Las migraciones de la Fase 4 se aplicaron
 en ese mismo proyecto con R8 en el run 21 (`apply`), seguido del preflight,
-la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. La 4.2 (`tests/db/19`,
+la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. En
+`roomly-validation-4` (instalación limpia, D2), el run 27 aplicó las 19
+migraciones y pasó P0–P6, pero falló en `tests/db/19`. El run 28 (`154a0f1`)
+pasó la suite SQL completa, la api-suite 71/71 con IMG1–IMG7 y AU3/AU5, sin
+`migrate` ni E2. Es una evidencia parcial que no cierra la Fase 4 (ver «Estado
+actual»). Lo que sigue describe las pruebas locales de cada subfase. La 4.2 (`tests/db/19`,
 `20`, `21`, `concurrency_room_images.sh` y `concurrency_room_delete.sh`, el
-preflight de la 4.2 y la conciliación) solo se ha probado en local, y el
+preflight de la 4.2 y la conciliación) se probó primero en local, y el
 tamaño de la subida, con E1 (`upload-size.spec.ts`); sus Server Actions, la interfaz y
 el borrado, con tests unitarios y E1 (`room-photos.spec.ts`, contra el
 Storage simulado del mock). El CRUD de la 4.3 (sesión 68), con tests
 unitarios y estáticos y E1 (`rooms-crud.spec.ts`, con el INSERT y el UPDATE
-de `rooms` emulados en el mock), solo en local. La búsqueda y el detalle
+de `rooms` emulados en el mock). La búsqueda y el detalle
 públicos de la 4.4 (sesión 71), con `tests/db/22` y `23`, el preflight
 vigente, tests unitarios (con la prueba de N+1 de 1 frente a 20 resultados)
 y E1 (`public-rooms.spec.ts`, con el GRANT por columnas de anon y R7
-emulados en el mock), solo en local. E2E: E1
+emulados en el mock). E2E: E1
 (`npm run test:e2e`, Supabase simulado; desde el PR #19 incluye D1 sobre el
 build de E1) corre en local y
 en CI; el entorno cloud de Claude Code no puede descargar el navegador de
@@ -769,14 +869,19 @@ api-suite (D6 = B), y desde el run 19 también los servicios
 `saveQuestionnaireAnswers` y `getCandidates` (SVC/GC). El runtime completo
 de Next.js con la clave real no está validado.
 Todavía no hay intereses («Me interesa», Fase 5), «Ver perfil» de
-terceros, chat ni admin real. De la 4.2, publicada en el PR #28 (borrador,
-sin merge): la gestión de fotos de una habitación propia y su borrado
-seguro, solo desde el servidor (sesiones 64 y 65), sin validar en real. De
-la 4.3, en local y sin publicar (sesión 68): el CRUD de habitaciones propias
-(crear en borrador, listar, editar y cambiar el estado), sin validar en
-real. De la 4.4, en local y sin publicar (sesión 71): la búsqueda y el
-detalle públicos de habitaciones (`/[city]/habitaciones`), sin sesión, sin
-validar en real.
+terceros, chat ni admin real.
+
+Fase 4, **integrada en `master` pero sin validar ni cerrar** (PR #26–#33;
+ver «Estado actual»):
+- 4.2 (PR #28): la gestión de fotos de una habitación propia y su borrado
+  seguro, solo desde el servidor (sesiones 64 y 65);
+- 4.3 (PR #30): el CRUD de habitaciones propias (crear en borrador, listar,
+  editar y cambiar el estado);
+- 4.4 (PR #31): la búsqueda y el detalle públicos de habitaciones
+  (`/[city]/habitaciones`), sin sesión.
+
+Su validación real es parcial: los runs 27 y 28 en `roomly-validation-4`, sin
+E2, sin el runtime completo de Next.js y sin un despliegue.
 
 ## Funcionalidades pendientes
 
@@ -811,9 +916,19 @@ borrado de cuenta (H6).
   antes del primer despliegue.
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.
-- Fase 4.2 (reconstruida en local, sin publicar): cuándo se publica la rama
-  y cómo se valida (D2, un proyecto aislado); y la documentación de los runs
-  23 y 24, que estaba en el stash perdido y no se ha recuperado
+- Fase 4 tras los merges (PR #26–#33, 2026-11-04 a 2026-11-09):
+  - V1 está confirmada en el run 28. Falta lo que V1 no cubre: el E2, la
+    conciliación, una comprobación independiente de la limpieza y el
+    comportamiento de las aprobaciones del Environment, que no detuvieron
+    ningún job;
+  - cuándo y cómo se comprueban los criterios de cierre de la Fase 4;
+  - si `roomly-validation-3` recibe las migraciones de la 4.2 a la 4.4, o se
+    retira;
+  - actualizar `docs/SUPABASE_VALIDATION.md`, `docs/ROADMAP.md` y
+    `docs/TESTING.md` con los runs 23–28 y los merges.
+- Fase 4.2 (historial; integrada después con el PR #28): cuándo se publicaba
+  la rama y cómo se validaba (D2, un proyecto aislado); y la documentación de
+  los runs 23 y 24, que estaba en el stash perdido y no se ha recuperado
   (`PROGRESS.md`, sesión 63).
   - Estrategia de publicación definida por el propietario (2026-10-30),
     **sin ejecutar** (`PROGRESS.md`, sesión 67):
@@ -823,11 +938,9 @@ borrado de cuenta (H6).
       no los 16 heredados de los PR #26 y #27.
   - El push, la rama remota y el PR necesitan una autorización separada.
   - Ejecutada el 2026-10-30 con esa autorización: PR #28 en borrador
-    (`PROGRESS.md`, sesión 68). Su merge sigue sin decidir.
-- Fase 4.3 (CRUD, en local, sin publicar): cuándo se publica su rama y su PR
-  (apilado sobre el PR #28). La atribución de los barrios en el onboarding y
-  en `/preferencias` (sesión 69) y en `/explorar` (sesión 70) ya está hecha
-  en local.
+    (`PROGRESS.md`, sesión 68). Integrado el 2026-11-05 (`6fe9a47`).
+- Fase 4.3 (CRUD): ya integrada (PR #30, `4eb6d6f`). La atribución de los barrios en el onboarding y
+  en `/preferencias` (sesión 69) y en `/explorar` (sesión 70) entró con ella.
 - Desde la sesión 65 (el DELETE directo de `rooms` ya está cerrado, con
   `20261030120000`):
   - repetir en un despliegue (staging) la medición del cuerpo de una subida
@@ -835,11 +948,13 @@ borrado de cuenta (H6).
     se ha podido consultar ni comprobar. Si fuera menor, bajar
     `ROOM_IMAGE_MAX_BYTES` (R5) o cambiar de modelo de subida
     (`docs/SECURITY.md`, «Tamaño real de la subida»).
-- Fase 4.4 (búsqueda y detalle públicos, en local, sin publicar; sesión 71):
-  - **aplicar en los proyectos reales la corrección de
-    `public_profile_previews`** (`20261031120100`) y revisar si alguien
-    escribió a través de la vista: necesita autorización (Claude no se
-    conecta a Supabase);
+- Fase 4.4 (búsqueda y detalle públicos; integrada con el PR #31, sesión 71):
+  - la corrección de `public_profile_previews`: el hotfix `20261014120000`
+    se aplicó a mano en los dos proyectos activos (sesión 74). El histórico
+    de la Fase 1 sigue sin inspeccionar, y no puede descartarse que alguien
+    escribiera antes a través de la vista. `20261031120100` está en
+    `roomly-validation-4` (run 27). Ningún otro proyecto real tiene evidencia
+    de esa migración;
   - si authenticated conserva el SELECT de la vista o se borra (H4: la app
     no la usa);
   - si se revocan a anon los privilegios por defecto de Supabase que
@@ -847,5 +962,6 @@ borrado de cuenta (H6).
     y TRIGGER no los expone PostgREST);
   - si la búsqueda acepta parámetros de seguimiento (`utm_*`, `fbclid`): hoy
     el esquema estricto los rechaza;
-  - cuándo se publica la rama y su PR (apilado sobre la 4.3), y cómo se
-    validan sus dos migraciones (D2).
+  - la rama y su PR ya están integrados (PR #31, `3bc7b4b`). Sus dos
+    migraciones están en `roomly-validation-4` (run 27) y la suite SQL pasó
+    en el run 28. Falta lo que se indica en «Estado actual».

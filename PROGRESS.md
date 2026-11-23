@@ -6,6 +6,148 @@ próximos pasos.**
 
 ---
 
+## 2026-11-23 — Sesión 76: estado documental de la Fase 4 tras los merges (solo documentación)
+
+**Contexto.** `CLAUDE.md` seguía describiendo la 4.2–4.4 y el hotfix de
+`public_profile_previews` como «en local, sin publicar», y la última entrada de
+este archivo (sesión 75) es anterior a los merges. El propietario autorizó una
+actualización **solo documental** de `CLAUDE.md` y `PROGRESS.md`, en rama y PR
+propios, sin merge.
+
+**Comprobación inicial.**
+- Rama `claude/project-thread-vzrx2t` con el árbol limpio, en `154a0f1`, igual
+  que `origin/master`.
+- No hay ningún PR abierto.
+- 19 migraciones en `supabase/migrations/`.
+
+**Merges verificados en Git** (commit de merge en `origin/master`; fecha de
+GitHub, en UTC):
+
+| PR | Contenido | Merge | Fecha |
+|---|---|---|---|
+| #29 | hotfix `public_profile_previews` (`20261014120000`) | `e18435e` | 2026-11-04 |
+| #26 | Fase 4.1 | `5cfcc83` | 2026-11-05 |
+| #27 | R8 | `5843ea1` | 2026-11-05 |
+| #28 | Fase 4.2, fotos | `6fe9a47` | 2026-11-05 |
+| #30 | Fase 4.3, CRUD | `4eb6d6f` | 2026-11-05 |
+| #31 | Fase 4.4, búsqueda y detalle públicos | `3bc7b4b` | 2026-11-05 |
+| #32 | guarda F1, allow-list `-3`/`-4` (D2) | `9ed20ed` | 2026-11-08 |
+| #33 | `tests/db/19` y `helpers.sql` frente a la restricción de borrado directo de Storage | `154a0f1` | 2026-11-09 |
+
+- El hotfix se propagó a las ramas 4.x antes de sus merges (`ffb03d4`,
+  `fd88531`, `d6fdf48`, `ed341c2` y `38dffb1`).
+- La CI de los PR #28, #30 y #31 estaba en verde (lint, typecheck, test y
+  build, `db-security` y `e2e-local`).
+
+**Validación real: lo que hay y lo que no.** Fuente: la API de GitHub Actions y
+los logs de los jobs, leídos el 2026-11-23. Claude no se conectó a Supabase ni
+lanzó ningún workflow.
+- Runs 23 y 24 (2026-10-23, rama `claude/phase4-r8-upgrade-tool`): `failure`.
+  Siguen sin documentar (sesión 63).
+- Run 25 (`42127037909`, `3bc7b4b`): `failure`. La guarda terminó sin ejecutar
+  ningún paso y el resto se omitió. Causa sin determinar.
+- Run 26 (`42128834666`, `3bc7b4b`): `cancelled`. La guarda se canceló sin
+  ejecutar ningún paso. No se sabe si esperaba una aprobación.
+- **Run 27** (`42519140423`, `9ed20ed`, 2026-11-08): `failure`.
+  - La guarda verificó `roomly-validation-4`.
+  - `migrate` aplicó las 19 migraciones y el seed en una transacción, y
+    P0–P6 pasaron.
+  - La suite SQL falló en `19_room_images_storage.sql` («Direct deletion from
+    storage tables is not allowed. Use the Storage API instead.»), y ese
+    archivo se revirtió.
+  - La api-suite, AU3/AU5 y el E2 se omitieron.
+  - **No es una validación completa ni un E2E.** El PR #33 corrige el test.
+- **Run 28** (`44842885713`, `154a0f1`, 2026-11-21, lanzado por
+  `tackiie416`): `success` en `roomly-validation-4`.
+  - Entradas: `apply_migrations=false`, `run_e2e_real=false`,
+    `phase4_upgrade=none`.
+  - En verde: la guarda, P0–P6, la suite SQL completa (cada archivo con
+    ROLLBACK; al terminar, «sin usuarios de test»), la api-suite 71/71 (con
+    IMG1–IMG7, la API de Storage real y PR10b del hotfix) y AU3/AU5.
+  - `migrate`, R8 y el E2 se omitieron. El esquema es el del run 27, y entre
+    `9ed20ed` y `154a0f1` solo cambian tests.
+- **V1 y D5: V1 CONFIRMADA en el run 28** (segunda comprobación de esta misma
+  sesión, por encargo del propietario). En el primer borrador del PR #34 constaba
+  como pendiente, porque el repositorio no registra ni la tupla de D5 ni el
+  nombre V1. El propietario dio después la tupla autorizada, y se contrastó así:
+  - **Evento, actor y estado** (`get_workflow_run`): `workflow_dispatch` de
+    `.github/workflows/supabase-validation.yml`, lanzado por `tackiie416` (actor
+    y triggering_actor), `run_attempt` 1, `completed`/`success`. Duró del
+    2026-11-21T00:18:02Z al 00:26:04Z.
+  - **SHA y rama:** `master`, `154a0f1a6891a3fce8c0c23071e8fde459eed700`, que es
+    el SHA esperado.
+  - **Inputs.** La API REST del run no conserva los inputs de un
+    `workflow_dispatch`. Salen del log del job «Guarda de destino», que imprime
+    el `env` de cada paso. Según el workflow, ese `env` es `${{ inputs.* }}` sin
+    transformar:
+    - `CONFIRM`/`ROOMLY_CONFIRM_PROJECT=roomly-validation-4`;
+    - `APPLY_MIGRATIONS=false`;
+    - `PHASE4_UPGRADE=none`;
+    - `RUN_E2E_REAL=false`;
+    - `PHASE4_UPGRADE_CONFIRM` vacío.
+
+    Coinciden los cinco con la tupla autorizada. El workflow del run es el
+    mismo que el de esta rama: no hay diff en `.github/`.
+  - **Environment:** cada job declara `environment: ${{ inputs.confirm_project
+    }}`. La variable del Environment `SUPABASE_VALIDATION_MARKER` valía
+    `roomly-validation-4`, y la guarda imprimió «destino verificado como
+    roomly-validation-4 (coherencia local + marca del proyecto)». La
+    configuración del Environment no se ha leído.
+  - **Jobs:**
+    - en verde: la guarda, P0–P6, la suite SQL, la api-suite (71/71, con
+      IMG1–IMG7) y AU3/AU5;
+    - omitidos: `migrate` y `phase4-upgrade`, por sus condiciones `if`, y
+      `e2e-real` (`run_e2e_real=false`);
+    - ninguno falló.
+  - **Aprobaciones:** ningún job esperó una. Todos empezaron unos 4 s después
+    de crearse. Esta sesión no ha determinado si eso es lo que se pretendía con
+    los Required reviewers (B1, pendiente desde los runs 21 y 22).
+  - **Lo que V1 no es:** que sus jobs pasaran no valida la Fase 4 entera. La
+    tupla no incluía `migrate` (el esquema es el del run 27) ni el E2, y los
+    pendientes de abajo siguen abiertos. Que D5 esté autorizada no significaba
+    que se hubiera despachado: el despacho es el run 28.
+- Siguen sin evidencia:
+  - el E2 con la Fase 4;
+  - la conciliación de fotos antes y después de las suites (el workflow no
+    tiene ningún job que la ejecute);
+  - una comprobación independiente de la limpieza;
+  - el runtime de Next.js con la clave real;
+  - un despliegue, incluido el tamaño real de la subida de 4 MiB;
+  - el comportamiento de las aprobaciones del Environment.
+- `roomly-validation-3` sigue sin evidencia de las migraciones de la 4.2 a la
+  4.4.
+
+**Qué se cambió.** Solo `CLAUDE.md` y esta entrada.
+- En «Estado actual», un bloque nuevo con la integración y la validación
+  parcial.
+- Las subfases 4.1–4.4, R8 y el hotfix figuran como integradas. Su historial
+  «en local» se conserva y se marca como el estado de entonces.
+- Se actualizaron «Seguridad», «Testing», «Funcionalidades terminadas» (la Fase
+  4 integrada, pero sin validar ni cerrar) y «Pendiente de decisión humana».
+- Se conservan las decisiones, los riesgos aceptados y los pendientes vigentes.
+
+**Qué no se cambió.**
+- Ni código, ni migraciones, ni tests, ni workflows, ni configuración.
+- Ni secretos ni Environments.
+- Nada en Supabase, en Mailtrap ni en `roomly-validation-2`.
+- La v1 del cuestionario.
+- `docs/SUPABASE_VALIDATION.md`, `docs/ROADMAP.md` y `docs/TESTING.md` siguen
+  sin los runs 23–28 ni los merges. Su sección «Ajustes pendientes al integrar
+  la Fase 4.4» sigue escrita como pendiente, aunque los tests de `master` ya
+  esperan el rechazo (PV8 en `tests/db/13`, `tests/db/23`).
+
+**Fase 4: no está cerrada.** Sus criterios de cierre no se han comprobado.
+
+**Próximos pasos (cada uno con su autorización):**
+1. Decidir qué falta, después de V1 (run 28), para dar por buena la
+   validación real de la Fase 4.
+2. Actualizar `docs/SUPABASE_VALIDATION.md`, `docs/ROADMAP.md` y
+   `docs/TESTING.md`.
+3. Decidir el E2 con la Fase 4, la conciliación y el destino de
+   `roomly-validation-3`.
+
+---
+
 ## 2026-11-04 — Sesión 75: inventario de contención des-identificado (misma rama del hotfix, PR #29)
 
 **Qué se hizo.** Tras la revisión de seguridad del PR #29, se corrigió la
