@@ -252,7 +252,14 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     autorización explícita.
 - **Fase 4 (Rooms): en curso desde el 2026-10-13**, con la autorización
   expresa del propietario. Iniciarla no autoriza el lanzamiento. **No está
-  validada ni cerrada.**
+  cerrada.** El alcance del cierre técnico está aceptado (2026-11-23;
+  `docs/ROADMAP.md`, «Alcance del cierre» de la Fase 4, y `PROGRESS.md`,
+  sesión 77): falta solo la declaración expresa del propietario. Fuera del
+  cierre, como tareas posteriores: el E2 con la Fase 4 (no ejecutado), la
+  inspección, la conciliación y la limpieza verificada de
+  `roomly-validation-4`, `roomly-validation-3` y «C-8» (abierto). Requisitos
+  previos: B1 antes de cualquier run nuevo; runtime, despliegue y 4 MiB antes
+  del primer despliegue.
   - **Integración en `master` (verificada en Git el 2026-11-23; sesión 76 de
     `PROGRESS.md`).** Los PR de la Fase 4 y el hotfix ya no están «en local»:
     - PR #29, hotfix de `public_profile_previews`: merge `e18435e`
@@ -269,8 +276,9 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
       restricción de Supabase que prohíbe borrar directamente en las tablas
       de Storage: merge `154a0f1` (2026-11-09). Solo cambia tests.
     - `master` (`154a0f1`) tiene 19 migraciones. **Integrar no es validar
-      ni cerrar:** los criterios de cierre de la Fase 4 (`docs/ROADMAP.md`)
-      no se han comprobado y nadie ha declarado la fase cerrada.
+      ni cerrar:** los criterios de aceptación de la Fase 4 se comprobaron
+      después (`docs/ROADMAP.md`, «Cumplimiento de los criterios de
+      aceptación (Fase 4)»), y nadie ha declarado la fase cerrada.
   - **Validación real de la Fase 4 en `roomly-validation-4`: evidencias
     parciales.** Lo que dicen la API de GitHub Actions y los logs, leídos
     el 2026-11-23 (sin conectar con Supabase):
@@ -871,8 +879,8 @@ de Next.js con la clave real no está validado.
 Todavía no hay intereses («Me interesa», Fase 5), «Ver perfil» de
 terceros, chat ni admin real.
 
-Fase 4, **integrada en `master` pero sin validar ni cerrar** (PR #26–#33;
-ver «Estado actual»):
+Fase 4, integrada en `master` (PR #26–#33), con sus criterios de aceptación
+cumplidos y validación real parcial, **sin cerrar** (ver «Estado actual»):
 - 4.2 (PR #28): la gestión de fotos de una habitación propia y su borrado
   seguro, solo desde el servidor (sesiones 64 y 65);
 - 4.3 (PR #30): el CRUD de habitaciones propias (crear en borrador, listar,
@@ -916,16 +924,19 @@ borrado de cuenta (H6).
   antes del primer despliegue.
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.
-- Fase 4 tras los merges (PR #26–#33, 2026-11-04 a 2026-11-09):
-  - V1 está confirmada en el run 28. Falta lo que V1 no cubre: el E2, la
-    conciliación, una comprobación independiente de la limpieza y el
-    comportamiento de las aprobaciones del Environment, que no detuvieron
-    ningún job;
-  - cuándo y cómo se comprueban los criterios de cierre de la Fase 4;
+- Fase 4: la declaración expresa del cierre técnico, con el alcance aceptado
+  el 2026-11-23.
+- Fase 4, tareas posteriores al alcance del cierre (2026-11-23), cada una con
+  su autorización:
+  - «C-8» (prioridad alta): inspeccionar o retirar el proyecto histórico de la
+    Fase 1 y rotar su clave. Sigue abierto;
+  - B1 (prioridad alta): demostrar que la aprobación del Environment detiene
+    un job, antes de cualquier run nuevo;
+  - la conciliación y la limpieza independiente de `roomly-validation-4`,
+    antes de retirarlo;
   - si `roomly-validation-3` recibe las migraciones de la 4.2 a la 4.4, o se
     retira;
-  - actualizar `docs/SUPABASE_VALIDATION.md`, `docs/ROADMAP.md` y
-    `docs/TESTING.md` con los runs 23–28 y los merges.
+  - el E2 con la Fase 4.
 - Fase 4.2 (historial; integrada después con el PR #28): cuándo se publicaba
   la rama y cómo se validaba (D2, un proyecto aislado); y la documentación de
   los runs 23 y 24, que estaba en el stash perdido y no se ha recuperado

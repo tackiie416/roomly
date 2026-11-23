@@ -12,7 +12,7 @@
 - **E2E (Playwright)**: los 3 flujos completos que pide el brief
   (sección 39).
 
-## Estado actual (2026-10-11, Fase 3 integrada en `master` con la v2 del cuestionario; validada en Supabase real antes de la v2 y, en el run 19, los servicios SVC/GC; cerrada el 2026-10-13. La tabla incluye la Fase 4.2 reconstruida, solo en local, del 2026-10-29)
+## Estado actual (2026-10-11, Fase 3 integrada en `master` con la v2 del cuestionario; validada en Supabase real antes de la v2 y, en el run 19, los servicios SVC/GC; cerrada el 2026-10-13. La tabla incluye la Fase 4.2 reconstruida, solo en local, del 2026-10-29; la Fase 4, integrada en `master` y con validación real parcial, en «Fase 4 integrada en `master`»)
 
 **Qué demuestra cada capa** (no confundirlas):
 - `npm run test` (Vitest): lógica de la aplicación con un cliente Supabase
@@ -199,6 +199,24 @@ Detalle, con los niveles de evidencia, en `docs/SUPABASE_VALIDATION.md`
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
 
+## Fase 4 integrada en `master` (PR #26–#33) — resultados (2026-11-23)
+
+| Capa | Dónde | Resultado |
+|---|---|---|
+| Unitarios, lint, typecheck y build | CI de `master`, run `45245322252` (`b67f008`) | Verde |
+| `db-security` (`tests/db` y los ocho selftests) | Mismo run | Verde |
+| E1 (Supabase simulado) | Mismo run, `e2e-local` | Verde |
+| Instalación limpia y P0–P6 | Supabase real, `roomly-validation-4`, run 27 (`9ed20ed`) | Verde; la suite SQL falló en `tests/db/19`, corregido con el PR #33 |
+| Suite SQL completa, api-suite 71/71 (con IMG1–IMG7) y AU3/AU5 | Supabase real, `roomly-validation-4`, run 28 (`154a0f1`) | Verde |
+| E2 (real) con la Fase 4 | — | **No ejecutado** |
+| Runtime de Next.js con la clave real | — | **No validado** |
+| Conciliación de fotos y limpieza independiente | — | **Sin ejecutar** |
+
+No confundir las capas: E1 y los unitarios usan el Supabase simulado; la
+api-suite usa Supabase real desde el runner, sin la aplicación; IMG5 e IMG7
+comprueban Storage con su API, no los archivos físicos. El alcance del cierre
+técnico de la Fase 4 está en `docs/ROADMAP.md`.
+
 ## Guardas de vistas, privilegios por defecto y runbook del incidente (sesión 73, 2026-10-31; solo en local)
 
 Misma rama local `hotfix/public-profile-previews-write-lockdown`, sobre
@@ -311,41 +329,23 @@ rama; borrada al terminar):
   los unitarios, y su `test:infra` (402) no incluía las mutaciones P4 del
   hotfix en el preflight. Por eso no detectó el test de R8.
 
-### Ajustes pendientes al integrar la Fase 4.4
+### Ajustes al integrar la Fase 4.4 (aplicados en `master`)
 
-Ninguno se ha hecho en la rama 4.4. Todos se han probado en la copia
-temporal.
+Esta lista se escribió como pendiente en la sesión 73. Los seis ajustes de
+código están en `master` (comprobado el 2026-11-23 en `b67f008`):
 
-1. **`tests/db/13`, PV8:** tomar el bloque del hotfix (anon y authenticated
-   reciben 42501; la definición se comprueba como dueño).
-2. **`tests/db/23`, PR5:** «authenticated solo conserva SELECT» pasa a
-   «authenticated no tiene ningún privilegio», y «authenticated sigue
-   leyendo la vista» pasa a esperar 42501.
-3. **`tests/unit/validation-infra.test.ts`, test de R8 «fija exactamente las
-   3 primeras migraciones posteriores a la Fase 3»:** con el hotfix en
-   `20261014120000`, las tres primeras pasan a ser `20261013`, `20261014` y
-   `20261015`, y el test falla. Ajuste mínimo probado: excluir el hotfix del
-   cálculo (`.filter((f) => f !== "20261014120000_public_profile_previews_write_lockdown.sql")`).
-   **No cambia los pins ni las huellas de R8** ni las copias congeladas, pero
-   cambia la invariante de un test de R8: lo decide el propietario.
-4. **`tests/integration/supabase-validation.test.ts`, PR10:** la 4.4 solo
-   registra la lectura de anon (H3); tomar la versión del hotfix (42501 para
-   leer, actualizar y borrar) y añadir PR10b.
-5. **`package.json` (`test:infra`) y `ci.yml`:** conservar los dos lados
-   (los autotests de R8 y de la conciliación de la 4.4, y los dos nuevos). Un
-   test de la 4.4 exige que cada `*-selftest.sh` esté en los dos sitios.
-6. **`tests/supabase/preflight.sql` y `preflight-selftest.sh`:** conservar
-   los dos bloques de P4 (hotfix y `rooms`/`room_images` de la 4.4) y unir los
-   avisos y la cabecera.
-7. **Documentación de la 4.4** (PROGRESS, CLAUDE.md, SECURITY, DATABASE,
-   TESTING): conflictos previsibles; donde diga que authenticated conserva
-   SELECT sobre la vista («H4, decisión pendiente»), queda superado por el
-   hotfix. El comentario de `20261031120100` queda desfasado y se documenta,
-   sin reescribir la migración.
-
-**No ejecutado en esta sesión:** la CI, la api-suite (solo en el workflow
-manual), Supabase real, E1 y `build` (no cambia código de la aplicación). El
-`node_modules` es el de la rama 4.4 (no se reinstaló, para no usar la red).
+1. `tests/db/13`, PV8: anon y authenticated reciben 42501 al leer la vista.
+2. `tests/db/23`, PR5: authenticated ya no lee la vista (42501).
+3. `tests/unit/validation-infra.test.ts`: el test de R8 excluye el hotfix
+   (`R8_EXCLUDED_HOTFIX`), sin cambiar los pins ni las huellas de R8.
+4. `tests/integration/supabase-validation.test.ts`: PR10 con 42501 y PR10b
+   (pasó en real en el run 28).
+5. `package.json` (`test:infra`) y `ci.yml`: los ocho `*-selftest.sh` en los
+   dos sitios.
+6. `tests/supabase/preflight.sql`: P4 con el hotfix y con `rooms` y
+   `room_images` de la 4.4.
+7. Documentación: se actualizó con el PR #34 y con el del alcance del cierre
+   de la Fase 4 (`PROGRESS.md`, sesión 77).
 
 ## Hotfix `public_profile_previews` (2026-10-31; solo en local)
 
