@@ -6,6 +6,68 @@ próximos pasos.**
 
 ---
 
+## 2026-11-23 — Sesión 77: alcance del cierre técnico de la Fase 4 (solo documentación; la Fase 4 no está cerrada)
+
+**Contexto.** Los criterios «C1–C8» y las decisiones «D1–D7» mencionados
+durante el trabajo de la Fase 4 no aparecen en ninguna fuente recuperable: el
+historial de Git de las 22 ramas remotas, los PR y comentarios de GitHub y el
+registro de la sesión. El cierre se mide con los criterios escritos de
+`docs/ROADMAP.md`, como en la Fase 3.
+
+**Decisión del propietario (2026-11-23).** Aceptó expresamente («acepto»), en
+el hilo del proyecto, el texto de aceptación del paquete de cierre
+(`paquete-cierre-fase4.md`, versión del 2026-11-23, sobre `b67f008`; está en
+los archivos del proyecto, no en el repositorio). Lo que acepta:
+- los criterios obligatorios: los tres de `docs/ROADMAP.md`, la CI de `master`
+  en verde (run `45245322252`), la instalación real del run 27 y la
+  documentación de cierre (este cambio), con los límites de su evidencia;
+- las exclusiones: el E2 real con la Fase 4 (no ejecutado), los pasos 4, 7 y 8
+  del procedimiento D2 de la 4.2 (que queda incompleto), `roomly-validation-3`
+  y «C-8»; y que el run 28 se ejecutó sin B1 demostrada;
+- los requisitos previos: B1 antes de cualquier run nuevo; el runtime, el
+  despliegue y la medición de los 4 MiB antes del primer despliegue;
+- las tareas posteriores y los riesgos residuales (`docs/ROADMAP.md`, «Alcance
+  del cierre» de la Fase 4);
+- «C-8», como supuesto del paquete (la exposición de `public_profile_previews`
+  en el proyecto histórico de la Fase 1), **sigue abierto**, con prioridad
+  alta;
+- el cierre técnico no autoriza el lanzamiento;
+- un PR solo de documentación con estos cinco archivos, sin merge hasta su
+  revisión.
+
+**Esta aceptación no declara cerrada la Fase 4.** El propietario la declarará
+aparte, en un mensaje expreso.
+
+**Evidencia** (sobre `master` `b67f008`):
+- búsqueda paginada y sin N+1: tests unitarios y E1 en la CI (run
+  `45245322252`), con el Supabase simulado;
+- `room_addresses`: tests estáticos y, en Supabase real (run 28), RO9,
+  `tests/db/23`, `tests/db/15` y P3;
+- run 27: instalación limpia y P0–P6; run 28 (V1): suite SQL completa,
+  api-suite 71/71 y AU3/AU5.
+
+**Qué se cambió** (solo documentación):
+- `docs/ROADMAP.md`: «Cumplimiento de los criterios de aceptación (Fase 4)» y
+  «Alcance del cierre»; el pendiente de R8 sobre los PR #26 y #27.
+- `docs/SUPABASE_VALIDATION.md`: estado del 2026-11-23, «Resultado: runs
+  23–28, Fase 4», B1 **ya no figura como demostrada** (el texto anterior citaba
+  un run en `waiting` sin identificarlo) y el estado de los pasos del
+  procedimiento D2.
+- `docs/TESTING.md`: los ajustes de la 4.4, como aplicados, y la tabla de
+  resultados de la Fase 4 integrada.
+- `CLAUDE.md`: el estado de la Fase 4 y los pendientes de decisión humana.
+- Esta entrada.
+
+**Qué no se cambió:** código, migraciones, tests, workflows, configuración,
+secretos, Environments y proyectos de Supabase. Ningún run nuevo. Las copias
+congeladas de R8 (D3) y sus pins.
+
+**Próximos pasos (cada uno con su autorización):** «C-8» y B1 (prioridad
+alta); después, la conciliación y la limpieza de `-4`, `roomly-validation-3` y
+el E2; antes del despliegue, staging y los 4 MiB.
+
+---
+
 ## 2026-11-23 — Sesión 76: estado documental de la Fase 4 tras los merges (solo documentación)
 
 **Contexto.** `CLAUDE.md` seguía describiendo la 4.2–4.4 y el hotfix de

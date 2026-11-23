@@ -70,13 +70,53 @@ describe la 4.2, **fallaría contra él en P1**. Por eso R8 comprueba su
 llegada con una copia congelada del preflight de la 4.1 (ver «Copia congelada
 del preflight de la 4.1»). La Fase 4 se validará en un proyecto nuevo y aislado
 (D2), `roomly-validation-4`, con la instalación limpia de las 19 migraciones:
-la guarda F1 ya acepta la allow-list `roomly-validation-3`/`-4` (rama de
-trabajo, pendiente de revisión). Ver «Fase 4.2: proyecto de validación aislado
-(D2)».
+la guarda F1 acepta la allow-list `roomly-validation-3`/`-4` (integrada con
+el PR #32, `9ed20ed`). Ver «Fase 4.2: proyecto de validación aislado (D2)».
 
-Los resultados de los runs 13–22, más abajo, describen el esquema y las
+Estado (2026-11-23, Fase 4 integrada en `master`): la Fase 4 tiene
+**validación real parcial** en `roomly-validation-4`: instalación limpia en el
+run 27 y suites en el run 28 (V1). Sin E2, sin la conciliación, sin una
+comprobación independiente de la limpieza y sin el runtime de Next.js. Ver
+«Resultado: runs 23–28, Fase 4». El párrafo anterior
+describe el estado del 2026-10-29. El alcance del cierre técnico de la Fase 4,
+aceptado por el propietario el 2026-11-23, está en `docs/ROADMAP.md`.
+
+Los resultados de los runs 13–28, más abajo, describen el esquema y las
 suites **de cada momento**. La configuración vigente está en «Cómo se
 ejecuta», «Preflight P0–P6» y «Matriz de pruebas».
+
+## Resultado: runs 23–28, Fase 4 (2026-10-23 a 2026-11-21)
+
+Fuente: la API de GitHub Actions y los logs de los jobs, leídos el
+2026-11-23. Claude no se conectó a Supabase ni lanzó ningún workflow.
+Los runs 27 y 28 son de `roomly-validation-4`; de los runs 23–26 no consta
+que llegaran a conectar con ningún proyecto.
+
+| Run | Id | SHA | Fecha | Resultado | Qué prueba |
+|---|---|---|---|---|---|
+| 23 y 24 | — | rama `claude/phase4-r8-upgrade-tool` | 2026-10-23 | `failure` | Sin documentar: su registro estaba en el stash perdido (`PROGRESS.md`, sesión 63). |
+| 25 | `42127037909` | `3bc7b4b` | 2026-11-05 | `failure` | Nada: la guarda terminó sin ejecutar ningún paso. Causa sin determinar. |
+| 26 | `42128834666` | `3bc7b4b` | 2026-11-05 | `cancelled` | Nada: la guarda se canceló sin ejecutar ningún paso. No se sabe si esperaba una aprobación. |
+| 27 | `42519140423` | `9ed20ed` | 2026-11-08 | `failure` | La guarda verificó `roomly-validation-4`; `migrate` aplicó las 19 migraciones y el seed en una transacción; P0–P6 en verde. La suite SQL falló en `19_room_images_storage.sql` («Direct deletion from storage tables is not allowed»), y ese archivo se revirtió. Sin api-suite, AU3/AU5 ni E2. |
+| 28 (V1) | `44842885713` | `154a0f1` | 2026-11-21 | `success` | Sin `migrate`, sobre el esquema del run 27. Guarda, P0–P6, suite SQL completa (cada archivo con ROLLBACK; «sin usuarios de test» al terminar), api-suite 71/71 (con RO1–RO9, PR10b e IMG1–IMG7 contra la API de Storage real) y AU3/AU5. `migrate`, R8 y E2 omitidos. |
+
+**Run 28 = V1**, confirmado el 2026-11-23: `workflow_dispatch` lanzado por
+`tackiie416` sobre `master` `154a0f1a6891a3fce8c0c23071e8fde459eed700`,
+`run_attempt` 1. Los inputs salen del `env` impreso por la guarda (la API no
+los conserva): `confirm_project=roomly-validation-4`,
+`apply_migrations=false`, `phase4_upgrade=none`, `run_e2e_real=false` y
+`confirm_phase4_upgrade` vacío. Cada job usó el Environment
+`roomly-validation-4`, con `SUPABASE_VALIDATION_MARKER=roomly-validation-4`.
+
+**Qué no prueban:**
+- el E2 con la Fase 4 (no se ha ejecutado);
+- el runtime de Next.js: la api-suite llama a los servicios desde el runner;
+- la verificación física de los archivos de Storage: IMG5 e IMG7 comprueban
+  el borrado con la API (`download` falla, `list` vacío);
+- la conciliación de las fotos (ningún job la ejecuta) y una comprobación
+  independiente de la limpieza;
+- B1: ningún job del run 28 esperó una aprobación (todos empezaron unos 4 s
+  después de crearse).
 
 ## Resultado: run 22, prueba de la protección del Environment (2026-10-21)
 
@@ -1455,8 +1495,11 @@ no las copias de R8.
 1. **Requisitos previos (bloqueos B1 y B2):**
    - **B1:** la aprobación del Environment detiene de verdad el job,
      demostrado con un run que queda en `waiting` y se rechaza o cancela sin
-     ejecutar nada (el run 22 la dejó como no fiable; se dio por demostrada
-     con un run posterior en `waiting`).
+     ejecutar nada. **No está demostrada con una evidencia identificada:** el
+     run 22 la dejó como no fiable, el texto anterior citaba «un run
+     posterior en `waiting`» sin identificarlo, y en el run 28 ningún job
+     esperó una aprobación. Sigue como requisito previo de cualquier run
+     nuevo.
    - **B2:** el proyecto `roomly-validation-4` creado y aislado (sin datos
      reales, Auth cerrado, su marca en la BD), con secrets independientes de
      `-3` y `-2b`.
@@ -1495,6 +1538,13 @@ no las copias de R8.
 8. **Limpieza y cierre:** 0 usuarios `@test`, 0 objetos de prueba (borrados
    por la API de Storage) y la conciliación limpia. Después, rotar las claves
    y pausar o borrar el proyecto, según decida el propietario.
+
+Estado (2026-11-23): los pasos 2, 3, 5 y 6 tienen evidencia (proyecto con su
+marca, guarda F1, run 27 y run 28; el E2, no autorizado). Los pasos 4
+(inspección de solo lectura), 7 (conciliación) y 8 (limpieza verificada) no
+la tienen. El propietario los dejó fuera del cierre técnico de la Fase 4 el
+2026-11-23, como tareas posteriores; la conciliación y la limpieza son previas
+a retirar el proyecto. El paso 1 (B1) sigue sin demostrar.
 
 Diferencia `-3` / `-4`: `roomly-validation-3` es el camino de compatibilidad
 (R8 incremental, copias congeladas D3, pins); `roomly-validation-4` es la

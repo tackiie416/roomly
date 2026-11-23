@@ -528,10 +528,95 @@ la dirección exacta ni coordenadas, según R2).
 
 **Criterios de aceptación**: búsqueda paginada, sin N+1 verificado con
 tests, `room_addresses` nunca se serializa en ninguna respuesta pública.
-- Estado (sesión 71, **solo en local**): la búsqueda pública pagina por
-  cursor; la ausencia de N+1 la comprueban los tests unitarios con 1 y 20
-  resultados; `room_addresses` no se consulta ni se nombra en el código de
-  la aplicación (tests estáticos). Sin validar en Supabase real ni en la CI.
+- Estado (sesión 71): la búsqueda pública pagina por cursor; la ausencia de
+  N+1 la comprueban los tests unitarios con 1 y 20 resultados;
+  `room_addresses` no se consulta ni se nombra en el código de la aplicación
+  (tests estáticos).
+- Estado (2026-11-23, integrado en `master`): ver «Cumplimiento de los
+  criterios de aceptación (Fase 4)», abajo.
+
+**Cumplimiento de los criterios de aceptación (Fase 4)** (sobre `master`
+`b67f008`; detalle en `PROGRESS.md`, sesión 77):
+- **Búsqueda paginada: cumplido.** Cursor de 20 + 1, sin `count=exact`:
+  `tests/unit/services-room-search.test.ts`,
+  `tests/unit/public-rooms-pages.test.tsx` y E1
+  (`tests/e2e/local/public-rooms.spec.ts`), en la CI de `master` (run
+  `45245322252`). Son pruebas con el Supabase simulado; la búsqueda no se ha
+  ejecutado contra PostgREST real.
+- **Sin N+1 verificado con tests: cumplido.**
+  `tests/unit/services-room-search.test.ts` («sin N+1: las mismas peticiones
+  con 1 y con 20 resultados»), en la CI.
+- **`room_addresses` nunca se serializa en ninguna respuesta pública:
+  cumplido.**
+  - Aplicación: `tests/unit/room-search-static.test.ts` y
+    `tests/unit/rooms-crud-static.test.ts` (ningún archivo de la app la
+    nombra).
+  - Base de datos, en Supabase real (`roomly-validation-4`, run 28,
+    `44842885713`): RO9 de la api-suite (otro usuario, el admin y anon no
+    leen la dirección; la propietaria sí), `tests/db/23` (anon solo lee 20
+    columnas de `rooms`), `tests/db/15` y P3 del preflight. La api-suite la
+    ejecuta el runner, no la aplicación.
+- **Tests en verde** (regla 8): CI de `master` (run `45245322252`, sobre
+  `b67f008`).
+- **Esquema instalado en un proyecto real:** run 27 (`42519140423`,
+  `9ed20ed`), las 19 migraciones y el seed en una transacción, con P0–P6 en
+  verde. Entre `9ed20ed` y `b67f008` solo cambian tests (PR #33) y
+  documentación (PR #34).
+
+**Alcance del cierre** (aceptado por el propietario el 2026-11-23; detalle en
+`PROGRESS.md`, sesión 77). **La Fase 4 no está cerrada:** el propietario
+declarará el cierre aparte.
+- **Condiciones de cierre:** los tres criterios escritos, la CI en verde, la
+  instalación real del run 27 y la documentación de cierre. No se añaden
+  criterios.
+- **Fuera del cierre técnico, como tareas posteriores** (no bloquean):
+  - el E2 real con la Fase 4, que no se ha ejecutado;
+  - los pasos 4 (inspección de solo lectura), 7 (conciliación) y 8 (limpieza
+    verificada) del procedimiento D2 de la 4.2, que queda incompleto. La
+    conciliación y la limpieza son previas a retirar `roomly-validation-4`.
+    La evidencia de borrado de Storage (IMG5 e IMG7) es de la API, no una
+    verificación física de los archivos;
+  - `roomly-validation-3` (actualizarlo o retirarlo);
+  - «C-8»: según el supuesto del alcance aceptado, la exposición de
+    `public_profile_previews` en el proyecto histórico de la Fase 1.
+    **Abierto**, con prioridad alta; ese proyecto no se reactiva sin
+    inspección o retirada.
+- **Requisitos previos de otras actividades:**
+  - B1 (la aprobación del Environment detiene de verdad un job) antes de
+    cualquier run nuevo. No está demostrada con una evidencia identificada, y
+    el run 28 se ejecutó sin ella;
+  - el runtime de Next.js con la clave real, el despliegue y la medición de
+    la subida de 4 MiB (R5), antes del primer despliegue.
+- **Riesgos residuales aceptados:**
+  - el recorrido del navegador por la Fase 4 no está probado contra Supabase
+    real (sin E2), ni la búsqueda contra PostgREST real;
+  - un run se puede despachar sin una segunda aprobación (B1); lo mitigan la
+    guarda F1 y los inputs de confirmación;
+  - posibles objetos o usuarios de prueba huérfanos en `roomly-validation-4`,
+    un proyecto desechable y sin datos reales;
+  - `roomly-validation-3` sin la 4.2–4.4 (anon conservaría el SELECT de tabla
+    de `rooms`), sin datos reales;
+  - «C-8», mientras siga abierto;
+  - el límite del cuerpo de las peticiones del alojamiento, sin comprobar.
+- **Tareas posteriores** (cada una con su autorización):
+  1. alta: «C-8», inspeccionar (fases A–D del runbook) o retirar el proyecto
+     histórico de la Fase 1 y rotar su clave;
+  2. alta: B1, revisar la protección de los Environments `-3` y `-4` hasta
+     ver un run en `waiting` que se rechaza sin ejecutar nada;
+  3. media, después de B1: la conciliación antes y después, y la limpieza
+     independiente en `-4` (0 inconsistencias, 0 usuarios `@test`, 0 objetos
+     de prueba); después, rotar las claves y pausarlo;
+  4. media: `roomly-validation-3`, actualizarlo (después de B1) o retirarlo;
+  5. media, después de B1: el E2 con la Fase 4;
+  6. antes del despliegue: el runtime real (staging), la clave en el servidor
+     y la medición de los 4 MiB;
+  7. opcional, después de B1: un caso de la api-suite para la búsqueda
+     pública contra PostgREST real;
+  8. backlog: el mapa (R2), la confirmación de la atribución (R1) y la
+     revisión legal (Fase 3).
+- El cierre técnico **no** autoriza el lanzamiento ni el uso con personas
+  reales: siguen pendientes los requisitos previos de la Fase 3 y los de
+  arriba.
 
 **Inicio** (2026-10-13): el propietario autorizó expresamente iniciar la Fase
 4, tras una auditoría de su alcance (`PROGRESS.md`, sesión 42). El roadmap
@@ -899,8 +984,8 @@ demás siguen sin tomar:
       cualquier otro run;
     - la comprobación independiente de la limpieza;
     - el E2 con la Fase 4, con su autorización;
-    - la revisión y el merge de los PR #26 y #27. Hasta entonces sigue la
-      congelación de D3.
+    - los PR #26 y #27 ya están integrados (`5cfcc83` y `5843ea1`,
+      2026-11-05). La congelación de D3 sigue vigente.
 - **R9.** Qué significa `total_roommates`, que el esquema marca como ambigua.
   - **Decidido e implementado (2026-10-15, 4.1):** `total_roommates` es el
     número de personas con las que convivirá quien entre, sin contarse a sí
