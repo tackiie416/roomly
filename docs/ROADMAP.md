@@ -515,7 +515,7 @@ decisión o autorización):
 Fuera de la Fase 3, pendiente operativo: rotar las claves de `uwxb…` y
 pausarlo.
 
-## Fase 4 — Rooms — 🟡 EN CURSO (desde el 2026-10-13)
+## Fase 4 — Rooms — ✅ CERRADA (2026-11-24)
 
 CRUD de habitaciones, subida de fotos a Storage, búsqueda con filtros,
 página de detalle (con la ubicación aproximada: solo barrio y ciudad, nunca
@@ -564,8 +564,8 @@ tests, `room_addresses` nunca se serializa en ninguna respuesta pública.
   documentación (PR #34).
 
 **Alcance del cierre** (aceptado por el propietario el 2026-11-23; detalle en
-`PROGRESS.md`, sesión 77). **La Fase 4 no está cerrada:** el propietario
-declarará el cierre aparte.
+`PROGRESS.md`, sesión 77). El propietario declaró el cierre técnico aparte,
+con fecha 2026-11-24 (ver «Cierre de la Fase 4», abajo).
 - **Condiciones de cierre:** los tres criterios escritos, la CI en verde, la
   instalación real del run 27 y la documentación de cierre. No se añaden
   criterios.
@@ -617,6 +617,30 @@ declarará el cierre aparte.
 - El cierre técnico **no** autoriza el lanzamiento ni el uso con personas
   reales: siguen pendientes los requisitos previos de la Fase 3 y los de
   arriba.
+
+**Cierre de la Fase 4 (2026-11-24)** (detalle en `PROGRESS.md`, sesión 78).
+Es un cierre técnico: **no** autoriza el lanzamiento, el despliegue ni el uso
+con personas reales.
+- **Declaración expresa del propietario**, literal, escrita en el hilo del
+  proyecto (2026-11-23, 23:48 UTC), con fecha de cierre 2026-11-24:
+  «Declaro cerrada técnicamente la Fase 4 de ROOMLY con fecha 2026-11-24,
+  según el alcance aceptado e integrado en `master` con el PR
+  https://github.com/tackiie416/roomly/pull/35 (`9b666cd`). El cierre técnico
+  no autoriza el lanzamiento ni el uso con personas reales; «C-8» y las
+  tareas posteriores del alcance siguen abiertas.»
+- **Criterios de aceptación:** cumplidos, según «Cumplimiento de los criterios
+  de aceptación (Fase 4)», arriba. No se añaden criterios.
+- **Pruebas:**
+  - CI de `master` tras el PR #35 (run `45290318360`, sobre `9b666cd`):
+    `lint-typecheck-test-build`, `db-security` y `e2e-local` en verde;
+  - Supabase real: la instalación del run 27 (`42519140423`, P0–P6) y V1, el
+    run 28 (`44842885713`), en `roomly-validation-4`.
+- **Alcance aplicado:** el de «Alcance del cierre», arriba, sin cambios. Las
+  exclusiones, los requisitos previos, los riesgos residuales y las ocho
+  tareas posteriores siguen vigentes y abiertos. «C-8» **sigue abierto**, con
+  prioridad alta.
+- **Fase 5:** no empieza con este cierre, sino cuando el propietario lo
+  confirme expresamente.
 
 **Inicio** (2026-10-13): el propietario autorizó expresamente iniciar la Fase
 4, tras una auditoría de su alcance (`PROGRESS.md`, sesión 42). El roadmap

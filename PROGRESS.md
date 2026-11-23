@@ -6,6 +6,69 @@ próximos pasos.**
 
 ---
 
+## 2026-11-24 — Sesión 78: cierre técnico de la Fase 4 (solo documentación)
+
+**Declaración expresa del propietario.** Escrita en el hilo del proyecto el
+2026-11-23 a las 23:48 UTC, con fecha de cierre 2026-11-24. Texto literal:
+
+> «Declaro cerrada técnicamente la Fase 4 de ROOMLY con fecha 2026-11-24,
+> según el alcance aceptado e integrado en `master` con el PR
+> https://github.com/tackiie416/roomly/pull/35 (`9b666cd`). El cierre técnico
+> no autoriza el lanzamiento ni el uso con personas reales; «C-8» y las
+> tareas posteriores del alcance siguen abiertas.»
+
+En el mismo mensaje autorizó aplicar este registro y crear un commit local, y
+excluyó expresamente el push, el PR, el merge, el despliegue y cualquier
+validación contra servicios externos. La declaración no autoriza nada más.
+
+**Evidencia comprobada antes de la declaración (2026-11-23, solo lectura):**
+- PR #35 integrado: merge `9b666cdd3c580c9b43323f1ca766d6c3e437cf22`, con los
+  padres `b67f008` y `376b177`. Su árbol es idéntico al del head del PR y,
+  respecto a `b67f008`, solo cambian `CLAUDE.md`, `PROGRESS.md`,
+  `docs/ROADMAP.md`, `docs/SUPABASE_VALIDATION.md` y `docs/TESTING.md`.
+- CI de `master` sobre `9b666cd` (run `45290318360`, primer intento):
+  `success`, con `lint-typecheck-test-build`, `db-security` y `e2e-local` en
+  verde.
+- Los tres criterios de `docs/ROADMAP.md`, V1 (run 28, `44842885713`) y la
+  instalación del run 27 (`42519140423`), según la sesión 77.
+
+**Qué cambia (solo documentación):**
+- `docs/ROADMAP.md`: la cabecera de la Fase 4 pasa a «✅ CERRADA
+  (2026-11-24)» y se añade «Cierre de la Fase 4 (2026-11-24)», con la
+  declaración literal, las pruebas y el alcance aplicado. De «Alcance del
+  cierre» solo cambia la frase que decía que la fase no estaba cerrada.
+- `CLAUDE.md`: el estado de la Fase 4, «Testing», «Funcionalidades
+  terminadas» y «Funcionalidades pendientes» reflejan el cierre. De
+  «Pendiente de decisión humana» se quita solo la declaración; las tareas
+  posteriores se conservan.
+- Esta entrada.
+
+**Qué no cambia.** Código, tests, workflows, configuración, secretos,
+Environments y proyectos de Supabase. No se ha ejecutado ningún run. Siguen
+vigentes y **abiertos**, sin cambios:
+- «C-8», con prioridad alta;
+- B1, requisito previo de cualquier run nuevo;
+- el E2 real con la Fase 4, que no se ha ejecutado;
+- la conciliación y la limpieza verificada de `roomly-validation-4` (pasos 4,
+  7 y 8 del procedimiento D2 de la 4.2);
+- la decisión sobre `roomly-validation-3` (actualizarlo o retirarlo);
+- antes del primer despliegue: el runtime de Next.js con la clave real, la
+  clave en el servidor y la medición de los 4 MiB;
+- los riesgos residuales aceptados y las ocho tareas posteriores de «Alcance
+  del cierre» (`docs/ROADMAP.md`);
+- antes del uso con personas reales: los requisitos previos de la Fase 3,
+  incluidas las revisiones legales y la comprobación de a qué proyecto de
+  Supabase se conectan los Deploy Previews de Netlify.
+
+El cierre técnico **no** autoriza el despliegue, el lanzamiento ni el uso con
+personas reales. La Fase 5 requiere una confirmación expresa e independiente
+del propietario.
+
+**Próximos pasos** (cada uno con su autorización): «C-8» y B1 (prioridad
+alta); después, el resto de las tareas posteriores.
+
+---
+
 ## 2026-11-23 — Sesión 77: alcance del cierre técnico de la Fase 4 (solo documentación; la Fase 4 no está cerrada)
 
 **Contexto.** Los criterios «C1–C8» y las decisiones «D1–D7» mencionados
