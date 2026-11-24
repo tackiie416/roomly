@@ -250,12 +250,15 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
   - Runs nuevos contra `roomly-validation-3`: siempre con
     `apply_migrations=false`, y cada run, E2 o apertura del registro, con
     autorización explícita.
-- **Fase 4 (Rooms): en curso desde el 2026-10-13**, con la autorización
-  expresa del propietario. Iniciarla no autoriza el lanzamiento. **No está
-  cerrada.** El alcance del cierre técnico está aceptado (2026-11-23;
-  `docs/ROADMAP.md`, «Alcance del cierre» de la Fase 4, y `PROGRESS.md`,
-  sesión 77): falta solo la declaración expresa del propietario. Fuera del
-  cierre, como tareas posteriores: el E2 con la Fase 4 (no ejecutado), la
+- **Fase 4 (Rooms): CERRADA (2026-11-24).** Empezó el 2026-10-13 con la
+  autorización expresa del propietario. El cierre es técnico: **no** autoriza
+  el lanzamiento, el despliegue ni el uso con personas reales. El propietario
+  lo declaró expresamente, con fecha de cierre 2026-11-24, según el alcance
+  aceptado el 2026-11-23 e integrado con el PR #35 (`9b666cd`; CI de
+  `master`, run `45290318360`, en verde). Detalle: `docs/ROADMAP.md`,
+  «Alcance del cierre» y «Cierre de la Fase 4», y `PROGRESS.md`, sesiones 77
+  y 78. La Fase 5 no empieza sin su confirmación expresa. Fuera del cierre, y
+  abiertas, como tareas posteriores: el E2 con la Fase 4 (no ejecutado), la
   inspección, la conciliación y la limpieza verificada de
   `roomly-validation-4`, `roomly-validation-3` y «C-8» (abierto). Requisitos
   previos: B1 antes de cualquier run nuevo; runtime, despliegue y 4 MiB antes
@@ -278,7 +281,8 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - `master` (`154a0f1`) tiene 19 migraciones. **Integrar no es validar
       ni cerrar:** los criterios de aceptación de la Fase 4 se comprobaron
       después (`docs/ROADMAP.md`, «Cumplimiento de los criterios de
-      aceptación (Fase 4)»), y nadie ha declarado la fase cerrada.
+      aceptación (Fase 4)»), y el propietario declaró el cierre técnico, con
+      fecha 2026-11-24.
   - **Validación real de la Fase 4 en `roomly-validation-4`: evidencias
     parciales.** Lo que dicen la API de GitHub Actions y los logs, leídos
     el 2026-11-23 (sin conectar con Supabase):
@@ -824,8 +828,9 @@ la suite SQL `01`–`18`, la api-suite y AU3/AU5, sin E2. En
 `roomly-validation-4` (instalación limpia, D2), el run 27 aplicó las 19
 migraciones y pasó P0–P6, pero falló en `tests/db/19`. El run 28 (`154a0f1`)
 pasó la suite SQL completa, la api-suite 71/71 con IMG1–IMG7 y AU3/AU5, sin
-`migrate` ni E2. Es una evidencia parcial que no cierra la Fase 4 (ver «Estado
-actual»). Lo que sigue describe las pruebas locales de cada subfase. La 4.2 (`tests/db/19`,
+`migrate` ni E2. Es una evidencia parcial: la Fase 4 se cerró el 2026-11-24
+con el alcance aceptado, que deja fuera el E2 (ver «Estado actual»). Lo que
+sigue describe las pruebas locales de cada subfase. La 4.2 (`tests/db/19`,
 `20`, `21`, `concurrency_room_images.sh` y `concurrency_room_delete.sh`, el
 preflight de la 4.2 y la conciliación) se probó primero en local, y el
 tamaño de la subida, con E1 (`upload-size.spec.ts`); sus Server Actions, la interfaz y
@@ -880,7 +885,8 @@ Todavía no hay intereses («Me interesa», Fase 5), «Ver perfil» de
 terceros, chat ni admin real.
 
 Fase 4, integrada en `master` (PR #26–#33), con sus criterios de aceptación
-cumplidos y validación real parcial, **sin cerrar** (ver «Estado actual»):
+cumplidos y validación real parcial, **cerrada el 2026-11-24** (cierre
+técnico, no de lanzamiento; ver «Estado actual»):
 - 4.2 (PR #28): la gestión de fotos de una habitación propia y su borrado
   seguro, solo desde el servidor (sesiones 64 y 65);
 - 4.3 (PR #30): el CRUD de habitaciones propias (crear en borrador, listar,
@@ -893,9 +899,9 @@ E2, sin el runtime completo de Next.js y sin un despliegue.
 
 ## Funcionalidades pendientes
 
-Las Fases 4 a 9 — ver `docs/ROADMAP.md` — y los pendientes que deja la
-Fase 3 (ver «Estado actual»): sus requisitos previos al uso con personas
-reales y su backlog. Siguen fuera de alcance, por decisión
+Las Fases 5 a 9 — ver `docs/ROADMAP.md` —, las tareas posteriores al cierre
+de la Fase 4 y los pendientes que deja la Fase 3 (ver «Estado actual»): sus
+requisitos previos al uso con personas reales y su backlog. Siguen fuera de alcance, por decisión
 del usuario: Google y Apple OAuth (diferidos), foto de perfil (M3) y
 borrado de cuenta (H6).
 
@@ -924,8 +930,6 @@ borrado de cuenta (H6).
   antes del primer despliegue.
 - La migración `middleware.ts` → `proxy.ts` ya está hecha; el proxy corre
   en Node.js (no Edge). Su impacto en Vercel se medirá al desplegar.
-- Fase 4: la declaración expresa del cierre técnico, con el alcance aceptado
-  el 2026-11-23.
 - Fase 4, tareas posteriores al alcance del cierre (2026-11-23), cada una con
   su autorización:
   - «C-8» (prioridad alta): inspeccionar o retirar el proyecto histórico de la
