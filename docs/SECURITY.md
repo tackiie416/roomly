@@ -13,7 +13,7 @@ corregidas están en `docs/DATABASE.md`.
 | Habitaciones editables solo por su propietario | `rooms_{insert,update,delete}_own`, `room_addresses_{insert,update,delete}_own` y `room_images_{insert,update,delete}_own`, solo con la cuenta activa desde la Fase 4.0 (antes, `rooms_owner_write`, `room_addresses_owner_only` y `room_images_owner_write`, FOR ALL). Desde la Fase 4.1, en `rooms` solo las columnas del GRANT: sin `status` al crear, ni `deleted_at`, fechas, `approx_lat`/`approx_lng`, ni `id`/`owner_id` al editar. La dirección exacta va un paso más allá: `room_addresses_select_own`, ni siquiera visible para otros usuarios autenticados |
 | Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
 | Respuestas del test (Fase 3.1) | `compatibility_responses_select_own`: `authenticated` solo **lee** su fila; no tiene INSERT, UPDATE ni DELETE (GRANT). `anon`, ningún privilegio. Solo escribe el servidor (service_role, `lib/services/compatibility.ts`), y el trigger `trg_compatibility_responses_integrity` aplica S1–S6 y el bloqueo de cuentas eliminadas a todos los roles |
-| Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); hasta el hotfix `20261014120000`, los datos públicos de otros salían de la vista `public_profile_previews` (la sesión 71 ya le había retirado a anon el acceso, dejando solo el SELECT de authenticated); desde el hotfix (en local) **ningún cliente la lee ni escribe**, así que hoy no hay ninguna vía de cliente para datos de otras personas, y cómo darlos en el futuro está pendiente de decisión (ver «Hotfix: escritura en `profiles` a través de `public_profile_previews`»); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
+| Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); hasta el hotfix `20261014120000`, los datos públicos de otros salían de la vista `public_profile_previews` (la sesión 71 ya le había retirado a anon el acceso, dejando solo el SELECT de authenticated); desde el hotfix (integrado en `master` con el PR #29) **ningún cliente la lee ni escribe**, así que hoy no hay ninguna vía de cliente para datos de otras personas, y cómo darlos en el futuro está pendiente de decisión (ver «Hotfix: escritura en `profiles` a través de `public_profile_previews`»); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
 
 Las políticas (38 desde `20260930130000`, 37 desde `20261004120100`) están en
 `supabase/migrations/20260925120100_rls_policies.sql`, con 8 de ellas
@@ -24,12 +24,27 @@ esta tabla es el mapa de lectura rápida, no la fuente de la verdad. Los
 tests de regresión de seguridad están en `tests/db/` (ver
 `docs/TESTING.md`).
 
-## Hotfix: escritura en `profiles` a través de `public_profile_previews` (2026-10-31; solo en local)
+## Hotfix: escritura en `profiles` a través de `public_profile_previews` (2026-10-31)
 
-**Vulnerabilidad crítica de autorización**, corregida en la rama local
+**Vulnerabilidad crítica de autorización**, corregida en la rama
 `hotfix/public-profile-previews-write-lockdown` (desde `master`, `7818a15`)
-con la migración `20261014120000_public_profile_previews_write_lockdown.sql`.
-**No se ha aplicado en ningún proyecto real.**
+con la migración `20261014120000_public_profile_previews_write_lockdown.sql`
+(`d76220c`), integrada en `master` con el PR #29 (merge `e18435e`,
+2026-11-04).
+
+**Estado en los proyectos reales** (actualizado el 2026-11-24; antes decía
+que no se había aplicado en ninguno):
+- **Corregidos y verificados:** los dos proyectos de validación activos. El
+  propietario aplicó el hotfix a mano el 2026-11-04 y la verificación del
+  runbook (V1 y V2) dio correcto. La evidencia está fuera del repositorio
+  (ver «Contención», abajo, y `PROGRESS.md`, sesión 74). En
+  `roomly-validation-4`, además, el run 28 pasó PR10b.
+- **Sin inspeccionar:** el proyecto histórico de la Fase 1, pausado. No hay
+  evidencia directa de su estado: ni de que esté corregido ni de que sea
+  vulnerable. Se considera potencialmente afectado porque recibió la vista.
+- **Sin revisar:** las integraciones y los despliegues que podrían apuntar a
+  esos proyectos.
+- En ninguno puede descartarse una explotación anterior.
 
 - **Origen (Fase 0, `20260925120100_rls_policies.sql`).** La vista se creó
   para que las páginas públicas mostraran nombre y avatar sin abrir

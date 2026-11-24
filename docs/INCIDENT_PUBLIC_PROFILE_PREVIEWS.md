@@ -244,8 +244,9 @@ otras vistas o tablas, ni aplicar otras migraciones.
 - Si hay indicios de cambios o borrados: valora restaurar desde una copia o
   PITR, si existe. En los proyectos de validación lo normal es limpiar y
   recrear los datos de prueba.
-- `roomly-validation-2b` y `roomly-validation`: pausarlos o borrarlos, rotar
-  sus claves y quitar sus secrets donde estén (sección 9).
+- Los proyectos que ya no se usen: pausarlos o borrarlos, rotar sus claves y
+  quitar sus secrets donde estén. Qué proyectos son y en qué estado está cada
+  uno lo conserva el propietario fuera del repositorio (sección 9).
 - Deploy Preview de Netlify: comprobar a qué proyecto apunta y con qué clave
   (sección 9).
 - Registra el resultado en `PROGRESS.md` con las reglas de la sección 3.

@@ -338,8 +338,7 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     - `roomly-validation-3` sigue con la Fase 4 hasta la 4.1 (run 21): no hay
       evidencia de que tenga las migraciones de la 4.2 a la 4.4;
     - `docs/SUPABASE_VALIDATION.md`, `docs/ROADMAP.md` y `docs/TESTING.md`
-      siguen sin registrar los runs 23–28 y los merges. Actualizarlos es una
-      tarea aparte, con su autorización.
+      registran los runs 23–28 y los merges desde el PR #35 (`9b666cd`).
   - Más abajo se conserva el historial de cada subfase. Las frases «en local»
     y «sin publicar» describen el estado de entonces. El estado actual es el
     de este bloque.
@@ -516,9 +515,9 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
   - En `roomly-validation-4`, el run 28 pasó PR10b (un usuario no se pone
     `role = 'admin'` ni borra perfiles por la vista).
   - En `master`, los tests ya esperan el rechazo: PV8 en `tests/db/13` y la
-    lectura de la vista en `tests/db/23` (42501). La sección «Ajustes
-    pendientes al integrar la Fase 4.4» de `docs/TESTING.md` sigue escrita
-    como pendiente. Queda fuera de este cambio, que solo toca documentación.
+    lectura de la vista en `tests/db/23` (42501). Desde el PR #35
+    (`9b666cd`), esa sección de `docs/TESTING.md` se titula «Ajustes al
+    integrar la Fase 4.4 (aplicados en `master`)».
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -933,7 +932,17 @@ borrado de cuenta (H6).
 - Fase 4, tareas posteriores al alcance del cierre (2026-11-23), cada una con
   su autorización:
   - «C-8» (prioridad alta): inspeccionar o retirar el proyecto histórico de la
-    Fase 1 y rotar su clave. Sigue abierto;
+    Fase 1 y rotar su clave. Sigue abierto. **Su significado está pendiente
+    de confirmación del propietario:**
+    - hecho: no aparece en el repositorio antes del PR #35; lo introdujo el
+      propietario el 2026-11-23 («C-8 y los proyectos de validación
+      vulnerables conocidos»);
+    - hipótesis: que sea la exposición de `public_profile_previews` en el
+      proyecto histórico (supuesto S-1 del alcance aceptado), o el octavo de
+      los criterios C1–C8, que no se han encontrado;
+    - lagunas: el estado real del proyecto histórico (nadie lo ha
+      inspeccionado), si hubo explotación y a qué proyecto apuntan los
+      Deploy Previews y las demás integraciones;
   - B1 (prioridad alta): demostrar que la aprobación del Environment detiene
     un job, antes de cualquier run nuevo;
   - la conciliación y la limpieza independiente de `roomly-validation-4`,
