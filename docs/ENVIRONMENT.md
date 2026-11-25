@@ -104,6 +104,31 @@ usa).
 | `E2E_RUN_ID` | la pone el workflow | E2 | `e2e-<run_id>-<intento>`; no se configura |
 | `E2E_APP_URL` | la pone el workflow | E2 | `http://localhost:3000` |
 
+## Alojamiento: lo verificado y lo que no (sesión 80, 2026-11-25)
+
+Hechos comprobados desde el repositorio y la API de GitHub, sin entrar en
+ningún panel:
+- La documentación da Vercel como alojamiento previsto (`CLAUDE.md`,
+  `docs/ARCHITECTURE.md`, `README.md`). **No hay ningún proyecto de Vercel
+  conectado:** no hay `vercel.json` ni checks de Vercel en los PR.
+- **Netlify sí está conectado al repositorio:** cada PR recibe los checks
+  «Header rules», «Redirect rules» y «Pages changed» del sitio
+  `lovely-tulumba-009360`, es decir, un Deploy Preview. Ejemplo: el PR #38,
+  con los tres checks el 2026-11-25. No hay `netlify.toml`: la configuración
+  del build está en el panel de Netlify.
+- Ningún workflow de GitHub despliega (`ci.yml` y `supabase-validation.yml`).
+
+Sin verificar (necesita el panel de Netlify, y lo revisa el propietario):
+- con qué variables de entorno se construyen los Deploy Previews, a qué
+  proyecto de Supabase apuntan y si permiten registros reales;
+- si Auto Publishing sigue bloqueado (dato del propietario) y si hay un
+  dominio de producción publicado;
+- el límite real del cuerpo de las peticiones en Netlify (ver abajo).
+
+Mientras no se decida, el primer despliegue sigue pendiente de decisión
+(«Pendiente de decisión humana» en `CLAUDE.md`): Vercel, como dice la
+documentación, o Netlify, que es lo que hay conectado.
+
 ## Runtime del proxy
 
 `proxy.ts` (antes `middleware.ts`) se ejecuta en **Node.js**: es el único

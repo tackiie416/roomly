@@ -6,6 +6,66 @@ próximos pasos.**
 
 ---
 
+## 2026-11-25 — Sesión 80: Fase 5.1, «Me interesa» y match mutuo
+
+**Contexto.** El propietario autorizó expresamente empezar la Fase 5
+(«Autorizo expresamente a empezar la Fase 5 ("Me interesa" y match)»), con
+PR listos para revisión y sin merge. No autoriza Supabase remoto, migraciones
+remotas, secretos, despliegues ni uso con personas reales.
+
+**Qué se hizo (5.1):**
+- **Hallazgo de seguridad corregido.** `interests_insert_own` (Fase 0) dejaba
+  a cualquier usuario autenticado crear por PostgREST un interés hacia
+  cualquier perfil, también desactivado, admin o que no pasaba los filtros
+  duros. Lo cierra la migración `20261126120000`:
+  - sin escritura de clientes en `interests` y `matches` (authenticated solo
+    SELECT; anon nada); se eliminan `interests_insert_own` e
+    `interests_delete_own` (de 42 a 40 políticas);
+  - `trg_interests_integrity` y `trg_matches_integrity`, también para
+    service_role (17 triggers);
+  - `record_interest` y `withdraw_interest` (19 funciones), SECURITY
+    INVOKER, EXECUTE solo de service_role, con bloqueo por pareja y READ
+    COMMITTED obligatorio.
+- `lib/services/matching.ts`: `evaluateCounterparts` (las reglas de
+  `/explorar` para un conjunto de ids), con `getCandidates` reescrito sobre
+  las mismas piezas y sin cambio de comportamiento.
+- `lib/services/interests.ts` (quinto servicio con service_role, solo las dos
+  rpc): `sendInterest`, `withdrawInterest`, `getInterestOverview` y
+  `getInterestStates`. `ServiceErrorCode` gana `rate_limited`.
+- `app/actions/interests.ts` (`expressInterest`, `retractInterest`),
+  `components/interests/interest-actions.tsx`, avisos de lista cerrada
+  (`lib/interests/notices.ts`), «Me interesa» en `/explorar` y la página
+  `/matches`, añadida a las rutas protegidas y a la navegación.
+- Tests: `tests/db/26`, `tests/db/concurrency_interests.sh` (en `test:db`),
+  unitarios nuevos y actualizados, E1 `interests-flow.spec.ts` (mock con
+  intereses, matches y las dos rpc) y la api-suite IN1–IN3 (solo en el
+  workflow manual). Preflight, selftests y conteos actualizados.
+
+**Decisiones técnicas (reversibles, tomadas por Claude):**
+- interés entre personas desde `/explorar`; el contexto de habitación lo
+  admite la base de datos, pero no hay interfaz;
+- solo se envía un interés a quien saldría en `/explorar` (mismo
+  `not_found` para lo inexistente y lo no elegible);
+- el score del match lo calcula el motor en el servidor;
+- un interés se retira solo antes del match; deshacer un match queda para la
+  Fase 6;
+- favoritos y «Ver perfil» fuera de la 5.1 (necesitan decisión).
+
+**Pruebas en local:** `lint`, `typecheck` y `format:check` en verde; `test`
+1635/1635; `test:db` en verde (990 comprobaciones, con CI0–CI2); `test:infra`
+en verde; `build` en verde (`/matches` dinámica); E1 56/57. El que falla,
+`upload-size.spec.ts` («más de 5 MB»), también falla en local sin estos
+cambios y pasa en la CI del PR #38: es del entorno local.
+
+**Qué queda:** favoritos, «Ver perfil», interés con habitación en la
+interfaz, avisos por email, y aplicar y validar `20261126120000` en un
+proyecto real (autorización del propietario; hasta entonces el preflight
+vigente falla contra `roomly-validation-4`). Alojamiento: Netlify está
+conectado al repositorio (Deploy Previews de `lovely-tulumba-009360`) y
+Vercel no (`docs/ENVIRONMENT.md`, «Alojamiento»).
+
+---
+
 ## 2026-11-25 — Sesión 79: Next.js 16.4.6, verificación de la limpieza y registro de los PR #36 y #37
 
 **Contexto.** El propietario pidió acelerar el final de ROOMLY con autonomía

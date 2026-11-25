@@ -1240,7 +1240,7 @@ servicio o vista diseñada para ello; no se resuelve moviendo las columnas.
 
 **Habitaciones** — `rooms` (desde la Fase 4.4, con `published_at` y lectura de anon solo por 20 columnas), `room_images` (desde la Fase 4.2, solo la escribe el servidor; las fotos están en el bucket privado `room-images` de Storage y se sirven con URL firmadas), `room_addresses` (dirección exacta, aislada), `favorites`.
 
-**Interés y matching** — `interests` (unifica interés en persona e interés vía habitación), `matches` (creado solo desde el servidor).
+**Interés y matching** — `interests` (unifica interés en persona e interés vía habitación), `matches` (creado solo desde el servidor). Desde la Fase 5.1 (`20261126120000`), ningún cliente escribe en ninguna de las dos: el servidor usa `record_interest` y `withdraw_interest` (EXECUTE solo de service_role), y los triggers `trg_interests_integrity` y `trg_matches_integrity` exigen, también a service_role, cuentas activas con onboarding (no admin) y el interés mutuo para un match. Detalle en `docs/SECURITY.md`, «Fase 5.1».
 
 **Chat** — `conversations`, `conversation_participants` (tabla de unión, no columnas fijas — permite grupo más adelante), `messages`.
 

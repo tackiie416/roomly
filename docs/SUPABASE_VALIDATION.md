@@ -1604,6 +1604,15 @@ ROOMLY_RECONCILE_DB_URL='<URL de la base de datos>' bash tests/supabase/room-ima
 - Ejecutarlo contra un proyecto remoto necesita autorización: lee todas las
   rutas de las fotos.
 
+### Fase 5.1: la migración `20261126120000` no está en ningún proyecto (sesión 80)
+
+- `master` y la rama de la Fase 5.1 llevan ventaja a `roomly-validation-4`:
+  el preflight vigente exige 40 políticas, 17 triggers y 19 funciones, y
+  **fallará** contra ese proyecto hasta que se aplique la migración.
+- Aplicarla y validarla (con la api-suite, que ya trae IN1–IN3) necesita la
+  autorización expresa del propietario, como cada run. Claude no lo hace.
+- Tampoco está en `roomly-validation-3` (sigue en la 4.1).
+
 ### Verificación de la limpieza (paso 8 de D2; sesión 79)
 
 `tests/supabase/validation-cleanup-check.sh` comprueba, **solo leyendo**, que

@@ -518,6 +518,19 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     lectura de la vista en `tests/db/23` (42501). Desde el PR #35
     (`9b666cd`), esa sección de `docs/TESTING.md` se titula «Ajustes al
     integrar la Fase 4.4 (aplicados en `master`)».
+- **Fase 5 (Interest): EMPEZADA el 2026-11-25** con la autorización expresa
+  del propietario. La 5.1 («Me interesa» y match mutuo) está implementada en
+  la rama `claude/project-thread-1vffj7`, **sin merge y sin validar en
+  Supabase real** (`PROGRESS.md`, sesión 80; `docs/ROADMAP.md`, Fase 5):
+  - migración `20261126120000`: `interests` y `matches` sin escritura de
+    clientes (40 políticas), triggers de integridad también para
+    service_role y `record_interest`/`withdraw_interest` (EXECUTE solo de
+    service_role). No reabras la escritura de clientes;
+  - `/explorar` con «Me interesa» y la página `/matches`, sin JavaScript;
+  - pendientes de decisión: favoritos, «Ver perfil», interés con habitación
+    en la interfaz y deshacer un match (Fase 6). Aplicar la migración en un
+    proyecto real necesita autorización; hasta entonces el preflight vigente
+    falla contra `roomly-validation-4`.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -722,15 +735,18 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
     bloqueo de cuentas eliminadas **también a service_role**: el bloqueo
     RLS de cuentas eliminadas no le afecta, por BYPASSRLS.
   - No reabras la escritura de `authenticated`.
-- **service_role solo en cuatro servicios** (Fase 3, D17; ampliada en la 4.2
-  y en la sesión 65): `lib/services/matching.ts` (lectura cruzada de
+- **service_role solo en cinco servicios** (Fase 3, D17; ampliada en la 4.2,
+  en la sesión 65 y en la Fase 5.1): `lib/services/matching.ts` (lectura cruzada de
   candidatos, columnas explícitas, `CandidateDTO` con lista blanca),
   `lib/services/compatibility.ts` (escritura del test), desde la 4.2
   `lib/services/room-images.ts` (escritura de fotos en Storage y en
   `room_images`, y firma de URL de las filas que el usuario acaba de leer) y,
   desde la sesión 65, `lib/services/rooms.ts` (solo
   `rpc("delete_own_room")`, después de comprobar la sesión, la cuenta y la
-  propiedad con el cliente del usuario).
+  propiedad con el cliente del usuario) y, desde la Fase 5.1,
+  `lib/services/interests.ts` (solo `rpc("record_interest")` y
+  `rpc("withdraw_interest")`, después de comprobar con `evaluateCounterparts`
+  que la otra persona saldría en `/explorar`).
   - `tests/unit/admin-client-usage.test.ts` falla si otro archivo lo usa.
   - El estado propio se lee siempre con el cliente del usuario.
   - Las respuestas y `categoryScores` nunca salen del servidor.
@@ -880,7 +896,8 @@ candidatos compatibles con explicación (`/explorar`). El E2 real llega hasta
 api-suite (D6 = B), y desde el run 19 también los servicios
 `saveQuestionnaireAnswers` y `getCandidates` (SVC/GC). El runtime completo
 de Next.js con la clave real no está validado.
-Todavía no hay intereses («Me interesa», Fase 5), «Ver perfil» de
+Desde la Fase 5.1 (sesión 80, sin merge) hay «Me interesa» y matches
+(`/matches`); todavía no hay «Ver perfil» de
 terceros, chat ni admin real.
 
 Fase 4, integrada en `master` (PR #26–#33), con sus criterios de aceptación
