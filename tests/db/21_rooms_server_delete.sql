@@ -111,8 +111,8 @@ select roomly_test.ok(
    from pg_policies where schemaname = 'public' and tablename = 'rooms')
   = array['rooms_admin_all:ALL', 'rooms_insert_own:INSERT', 'rooms_select_active_public:SELECT',
           'rooms_select_own:SELECT', 'rooms_update_own:UPDATE']
-  and (select count(*) = 42 from pg_policies where schemaname = 'public'),
-  'DS0: sin rooms_delete_own: rooms tiene 5 políticas y public 42 (41 hasta dividir room_images_select en 20261031120100)');
+  and (select count(*) = 40 from pg_policies where schemaname = 'public'),
+  'DS0: sin rooms_delete_own: rooms tiene 5 políticas y public 40 (42 hasta la Fase 5.1; 41 hasta dividir room_images_select en 20261031120100)');
 select roomly_test.ok(
   (select not p.prosecdef
       and p.provolatile = 'v'

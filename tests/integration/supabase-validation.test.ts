@@ -1951,6 +1951,77 @@ describe("Candidatos de /explorar por el servicio del servidor (GC)", () => {
   });
 });
 
+// ===========================================================================
+// INTERESTS — Fase 5.1 (20261126120000). S y U ya tienen el onboarding
+// completo (SVC). Solo se ejecuta cuando la migración está aplicada.
+// ===========================================================================
+describe("Intereses y matches solo desde el servidor (IN)", () => {
+  it("IN1: un cliente no escribe en interests ni ejecuta las rpc", async () => {
+    const insert = await S()
+      .client.from("interests")
+      .insert({ from_user_id: S().id, to_user_id: U().id });
+    expectPgError(insert.error, "42501");
+    const rpc = await S().client.rpc("record_interest", {
+      p_from: S().id,
+      p_to: U().id,
+      p_score: 90,
+    });
+    expectPgError(rpc.error, "42501");
+    const withdraw = await S().client.rpc("withdraw_interest", {
+      p_from: S().id,
+      p_to: U().id,
+    });
+    expectPgError(withdraw.error, "42501");
+  });
+
+  it("IN2: con service_role, el segundo interés crea el match; no se retira con match", async () => {
+    const first = await service.rpc("record_interest", {
+      p_from: S().id,
+      p_to: U().id,
+      p_score: 90,
+    });
+    expectOk(first.error);
+    expect(first.data).toBe("sent");
+    const second = await service.rpc("record_interest", {
+      p_from: U().id,
+      p_to: S().id,
+      p_score: 90,
+    });
+    expectOk(second.error);
+    expect(second.data).toBe("matched");
+    const [low, high] = [S().id, U().id].sort();
+    const own = await S()
+      .client.from("matches")
+      .select("user_a_id, user_b_id, compatibility_score")
+      .eq("user_a_id", low)
+      .eq("user_b_id", high);
+    expectOk(own.error);
+    expect(own.data).toEqual([
+      { user_a_id: low, user_b_id: high, compatibility_score: 90 },
+    ]);
+    const withdraw = await service.rpc("withdraw_interest", {
+      p_from: S().id,
+      p_to: U().id,
+    });
+    expectOk(withdraw.error);
+    expect(withdraw.data).toBe("matched");
+  });
+
+  it("IN3: ni service_role crea un match sin interés mutuo, ni un interés hacia un admin", async () => {
+    const [low, high] = [A().id, B().id].sort();
+    const match = await service
+      .from("matches")
+      .insert({ user_a_id: low, user_b_id: high, compatibility_score: 50 });
+    expect(match.error?.message ?? "").toContain("match_not_mutual");
+    const toAdmin = await service.rpc("record_interest", {
+      p_from: S().id,
+      p_to: D().id,
+      p_score: 50,
+    });
+    expect(toAdmin.error?.message ?? "").toContain("interest_party_invalid");
+  });
+});
+
 describe("Auth redirects (AU2)", () => {
   const redirectHostOf = async (redirectTo: string) => {
     const { data, error } = await service.auth.admin.generateLink({

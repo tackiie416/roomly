@@ -3,9 +3,9 @@
 #
 # Crea una base de datos temporal, aplica el shim de Supabase, TODAS las
 # migraciones de supabase/migrations en orden, el seed, y ejecuta cada
-# tests/db/[0-9]*.sql y, después, tests/db/concurrency_room_images.sh y
-# tests/db/concurrency_room_delete.sh (dos sesiones a la vez). Cualquier
-# aserción fallida corta con exit != 0.
+# tests/db/[0-9]*.sql y, después, tests/db/concurrency_room_images.sh,
+# tests/db/concurrency_room_delete.sh y tests/db/concurrency_interests.sh
+# (dos sesiones a la vez). Cualquier aserción fallida corta con exit != 0.
 #
 # Conexión: variables estándar de libpq (PGHOST, PGPORT, PGUSER,
 # PGPASSWORD). El usuario debe poder crear bases de datos y roles.
@@ -55,6 +55,13 @@ echo "== concurrency_room_delete.sh"
 if ! bash "$ROOT/tests/db/concurrency_room_delete.sh" "$DB"; then
   failed=1
   echo "   >> concurrency_room_delete.sh FALLÓ"
+fi
+
+# Fase 5.1: dos personas se envían «Me interesa» a la vez (solo local).
+echo "== concurrency_interests.sh"
+if ! bash "$ROOT/tests/db/concurrency_interests.sh" "$DB"; then
+  failed=1
+  echo "   >> concurrency_interests.sh FALLÓ"
 fi
 
 if [ "$failed" -ne 0 ]; then
