@@ -1646,6 +1646,25 @@ cuanto exista.
   - No queda ninguna alerta pendiente. Esto describe la base de datos de
     avisos del 2026-10-29: vuelve a comprobarse con `npm audit` antes de cada
     despliegue.
+- **Revisión del 2026-11-25 (sesión 79).** `npm audit` volvió a dar avisos
+  en `next` 16.4.3: siete moderados, corregidos en 16.4.6
+  (GHSA-mfr8-8qww-v76h, GHSA-vc7v-qv4w-wrv8, GHSA-7qx7-33qx-rqx2,
+  GHSA-f3mh-rxg3-f5g2, GHSA-pc58-hwjq-p385, GHSA-rhh4-g77r-r9qj y
+  GHSA-vvgp-ww4w-46vf). Además, `next build` se negaba a terminar
+  (`SecurityFatalError`: la versión tiene una vulnerabilidad conocida), así
+  que **la CI de `master` habría fallado en el siguiente build**, aunque el
+  código no cambiara. También había un aviso moderado en `minimatch`, una
+  dependencia transitiva de desarrollo (de `typescript-eslint`).
+  - `next` y `eslint-config-next` pasan de 16.4.3 a 16.4.6, exactas, y
+    `npm audit fix`, sin `--force`, actualiza `minimatch` en el árbol de
+    desarrollo (con `typescript-eslint` 8.74.0). `react` y `react-dom` siguen
+    en 19.2.8.
+  - Aplicabilidad: la app no usa `use cache`, `unstable_cache`, `next/image`
+    ni rutas Edge (el proxy corre en Node.js). La de respuestas reenviadas en
+    instalaciones propias no aplica en Vercel. Se corrigen todas igualmente.
+  - Después: `npm audit` con 0 vulnerabilidades. Lint, typecheck, `test`,
+    `build` y E1 (55/55, con el límite de subida de 5 MB: 500 sin ejecutar
+    la acción, igual que con 16.4.3) en verde en local.
 
 ## RGPD — lo que es responsabilidad técnica y lo que no
 

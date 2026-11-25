@@ -116,8 +116,8 @@ tiempo de ejecución.
 
 - `next.config.ts` fija `experimental.serverActions.bodySizeLimit = "5mb"`,
   para que quepa una foto de habitación de 4 MiB con el multipart. Vale para
-  todas las Server Actions. Por encima, Next.js 16.4.3 no ejecuta la acción y
-  responde 500, no 413.
+  todas las Server Actions. Por encima, Next.js 16.4 no ejecuta la acción y
+  responde 500, no 413 (16.4.3 y, desde la sesión 79, 16.4.6, medido en E1).
 - `proxy.ts` copia el cuerpo hasta `experimental.proxyClientMaxBodySize`, 10
   MB por defecto, sin cambiar.
 - **Medido en local (sesión 65):** una foto de 4 194 304 bytes da un cuerpo
