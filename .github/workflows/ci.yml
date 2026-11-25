@@ -72,6 +72,9 @@ jobs:
       - run: bash tests/supabase/migration-upgrade-selftest.sh
       - run: bash tests/supabase/phase4-upgrade-selftest.sh
       - run: bash tests/supabase/room-images-reconcile-selftest.sh
+      # Verificación de la limpieza de un proyecto de validación (paso 8 de
+      # D2), de solo lectura; en local, nunca contra Supabase.
+      - run: bash tests/supabase/validation-cleanup-check-selftest.sh
       # Sesión 73: PROPUESTA de privilegios por defecto (no es una migración);
       # se prueba en bases locales efímeras y nada la aplica en Supabase.
       - run: bash tests/supabase/default-privileges-selftest.sh

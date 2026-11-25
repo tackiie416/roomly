@@ -199,6 +199,19 @@ Detalle, con los niveles de evidencia, en `docs/SUPABASE_VALIDATION.md`
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
 
+## Sesión 79 (2026-11-25): Next.js 16.4.6 y verificación de la limpieza, en local
+
+| Comprobación | Resultado |
+|---|---|
+| `lint`, `typecheck`, `format:check` | ✅ |
+| `test` | ✅ 1569/1569 (1564 + 5 de `validation-infra` para la verificación de la limpieza) |
+| `build` | ✅ con `next` 16.4.6. Con 16.4.3, `SecurityFatalError` (vulnerabilidad conocida) |
+| `test:db` | ✅ todos los tests de seguridad |
+| `test:infra` | ✅ todos los selftests, con `validation-cleanup-check-selftest.sh` (18 casos) |
+| E1 | ✅ 55/55 con Chromium preinstalado (orientativo). El límite de 5 MB sigue dando 500 sin ejecutar la acción |
+
+Sin Supabase real ni runs. La CI del PR es la referencia.
+
 ## Fase 4 integrada en `master` (PR #26–#33) — resultados (2026-11-23)
 
 | Capa | Dónde | Resultado |

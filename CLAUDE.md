@@ -602,7 +602,7 @@ npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (v
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
 npm run test:e2e:real         # E2: alta real contra roomly-validation-3 (solo desde el workflow manual)
-npm run test:infra            # auto-tests de guarda, runner SQL, preflight, actualización, R8, conciliación de fotos (4.2), propuesta de privilegios por defecto y runbook del incidente, contra PostgreSQL local
+npm run test:infra            # auto-tests de guarda, runner SQL, preflight, actualización, R8, conciliación de fotos (4.2), verificación de la limpieza, propuesta de privilegios por defecto y runbook del incidente, contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
 ```

@@ -1529,3 +1529,64 @@ describe("Fase 4.2 (D3): conciliación de las fotos, solo lectura", () => {
     }
   });
 });
+
+describe("Fase 4.2 (D2, paso 8): verificación de la limpieza, solo lectura", () => {
+  const sql = read("tests/supabase/validation-cleanup-check.sql").replace(/--.*$/gm, "");
+  const toolCode = read("tests/supabase/validation-cleanup-check.sh")
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+
+  it("el SQL solo lee: ni escrituras, ni DDL, ni control de transacciones, ni funciones con efectos", () => {
+    expect(sql).not.toMatch(
+      /\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|copy|vacuum|reindex|cluster|lock|call|comment|refresh|security\s+label|import|listen|notify)\b/i
+    );
+    expect(sql).not.toMatch(
+      /^\s*(begin|start\s+transaction|commit|end|rollback|abort|savepoint|release)\s*;/im
+    );
+    expect(sql).not.toMatch(
+      /\bset\s+(role|session|transaction|local)\b|set_config\s*\(/i
+    );
+    expect(sql).not.toMatch(
+      /\b(nextval|setval|pg_terminate_backend|pg_cancel_backend|lo_\w+|dblink|pg_advisory\w*)\s*\(/i
+    );
+    expect(sql).not.toMatch(/^\s*\\/m);
+    expect(sql).toMatch(
+      /CLEANUP NO VERIFICABLE: la marca de la base de datos no es la esperada/
+    );
+    expect(sql).toMatch(/CLEANUP NO VERIFICABLE: % tiene la RLS activa/);
+  });
+
+  it("solo muestra contadores: nunca emails, ids ni rutas", () => {
+    const selects = [...sql.matchAll(/^select '([a-z_]+)',\s*([^\n]+)/gm)];
+    expect(selects.length).toBeGreaterThan(10);
+    for (const [, name, expr] of selects) {
+      if (name === "marca") continue;
+      expect(`${name}: ${expr}`).toMatch(/count\(\*\)|to_regnamespace/);
+    }
+  });
+
+  it("el script lo envuelve en una transacción READ ONLY que termina en ROLLBACK, con la sesión en solo lectura", () => {
+    expect(toolCode).toContain(
+      'echo "begin transaction isolation level repeatable read read only;"'
+    );
+    expect(toolCode).toContain('echo "rollback;"');
+    expect(toolCode).not.toMatch(/\bcommit\b/i);
+    expect(toolCode).toContain("-c default_transaction_read_only=on");
+  });
+
+  it("solo acepta la marca de la allow-list y ningún modo de limpieza", () => {
+    expect(toolCode).toContain("roomly-validation-3 | roomly-validation-4) ;;");
+    const options = [...toolCode.matchAll(/^\s{4}(--[a-z-]+)\)/gm)].map((m) => m[1]);
+    expect(options).toEqual(["--expect-marker"]);
+    expect(toolCode).not.toMatch(
+      /\b(remove|createAdminClient|service_role|storage\.from|curl|SUPABASE_SERVICE_ROLE_KEY)\b/
+    );
+  });
+
+  it("nunca imprime la URL de la base de datos ni los errores de conexión de psql", () => {
+    expect(toolCode).not.toMatch(/echo[^\n]*DB_URL/);
+    expect(toolCode).toContain('roomly_sql_filter_output "$WORK/error.log"');
+    expect(toolCode).toContain('>"$WORK/report.tsv" 2>"$WORK/error.log"');
+  });
+});
