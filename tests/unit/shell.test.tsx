@@ -83,9 +83,10 @@ describe("Página de inicio pública", () => {
 });
 
 describe("Shell autenticado (app)", () => {
-  it("enlaza exactamente a /explorar, /test, /habitaciones, /perfil, /preferencias y /ajustes (ninguna ruta futura)", () => {
+  it("enlaza exactamente a /explorar, /matches, /test, /habitaciones, /perfil, /preferencias y /ajustes (ninguna ruta futura)", () => {
     expect(APP_NAV_LINKS.map((link) => link.href)).toEqual([
       "/explorar",
+      "/matches",
       "/test",
       "/habitaciones",
       "/perfil",
@@ -96,14 +97,15 @@ describe("Shell autenticado (app)", () => {
     const hrefs = [...html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
     expect(hrefs).toEqual([
       "/explorar",
+      "/matches",
       "/test",
       "/habitaciones",
       "/perfil",
       "/preferencias",
       "/ajustes",
     ]);
-    // Sin /matches (Fase 5), mensajes ni admin; /habitaciones desde la sesión 68 (CRUD propio).
-    expect(html).not.toMatch(/matches|mensajes|admin/);
+    // Sin mensajes ni admin (/matches desde la Fase 5.1); /habitaciones desde la sesión 68 (CRUD propio).
+    expect(html).not.toMatch(/mensajes|admin/);
   });
 
   it("el logout es el SignOutButton existente", () => {

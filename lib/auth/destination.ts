@@ -18,6 +18,8 @@ export const DEACTIVATED_PATH = "/cuenta-desactivada";
 export const TEST_PATH = "/test";
 /** Lista de candidatos (Fase 3.5, D13): exige el test completado. */
 export const EXPLORE_PATH = "/explorar";
+/** Fase 5.1: matches e intereses enviados y recibidos. */
+export const MATCHES_PATH = "/matches";
 
 export type ProfileStatus = ProfileState["status"];
 

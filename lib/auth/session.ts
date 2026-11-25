@@ -14,6 +14,7 @@ import { getOwnQuestionnaire, type OwnQuestionnaire } from "@/lib/services/compa
 import {
   DEACTIVATED_PATH,
   EXPLORE_PATH,
+  MATCHES_PATH,
   ONBOARDING_PREFERENCES_PATH,
   ONBOARDING_PROFILE_PATH,
   TEST_PATH,
@@ -189,7 +190,7 @@ class QuestionnaireUnavailableError extends Error {
  * estado, también para editar uno completado.
  */
 export async function requireQuestionnaire(
-  currentPath: typeof TEST_PATH | typeof EXPLORE_PATH
+  currentPath: typeof TEST_PATH | typeof EXPLORE_PATH | typeof MATCHES_PATH
 ): Promise<OwnQuestionnaire> {
   await requireCompleteProfile(currentPath);
   const result = await getCurrentQuestionnaire();
@@ -202,12 +203,14 @@ export async function requireQuestionnaire(
 }
 
 /**
- * `/explorar`: exige el test completado en la versión vigente. Sin test, en
+ * `/explorar` y `/matches` (Fase 5.1): exigen el test completado en la versión vigente. Sin test, en
  * borrador o desactualizado → 307 a `/test` (que nunca redirige según el
  * estado del test, así que no hay bucle).
  */
-export async function requireCompletedQuestionnaire(): Promise<OwnQuestionnaire> {
-  const questionnaire = await requireQuestionnaire(EXPLORE_PATH);
+export async function requireCompletedQuestionnaire(
+  currentPath: typeof EXPLORE_PATH | typeof MATCHES_PATH = EXPLORE_PATH
+): Promise<OwnQuestionnaire> {
+  const questionnaire = await requireQuestionnaire(currentPath);
   if (questionnaire.status !== "completed") redirect(TEST_PATH);
   return questionnaire;
 }

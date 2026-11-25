@@ -20,6 +20,8 @@ export type ServiceErrorCode =
   | "not_found"
   | "conflict"
   | "forbidden"
+  /** Fase 5: el límite de la base de datos (30 intereses en 24 h). */
+  | "rate_limited"
   | "unknown";
 
 export type FieldErrors = Record<string, string[]>;

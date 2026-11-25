@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireCompletedQuestionnaire } from "@/lib/auth/session";
-import { EXPLORE_PATH, TEST_PATH } from "@/lib/auth/destination";
+import { EXPLORE_PATH, MATCHES_PATH, TEST_PATH } from "@/lib/auth/destination";
 import { getCandidates, type CandidateDTO } from "@/lib/services/matching";
+import { getInterestStates, type InterestState } from "@/lib/services/interests";
+import { interestNotice } from "@/lib/interests/notices";
+import { InterestActions } from "@/components/interests/interest-actions";
 import { NeighborhoodsAttribution } from "@/components/rooms/neighborhoods-attribution";
 import { Card } from "@/components/ui/card";
 
@@ -12,7 +15,9 @@ import { Card } from "@/components/ui/card";
  * no, 307 a `/test`. Los candidatos salen de `getCandidates`, que solo
  * devuelve `CandidateDTO` (lista blanca): esta página no recibe ni puede
  * mostrar respuestas, fechas de nacimiento, presupuestos exactos ni
- * puntuaciones por categoría. Sin «Ver perfil» ni «Me interesa» (D14; Fase 5).
+ * puntuaciones por categoría. Sin «Ver perfil» (D14). Desde la Fase 5.1,
+ * cada tarjeta lleva «Me interesa» (o su estado: enviado, recibido o match),
+ * con formularios que funcionan sin JavaScript.
  * Si falta la clave de servicio o falla la consulta, error genérico (2.7).
  * Los nombres de las zonas salen del catálogo de barrios (R1): si alguna
  * tarjeta los muestra, debajo de la lista va su atribución (sesión 70).
@@ -43,7 +48,15 @@ function budgetText(range: CandidateDTO["budgetRange"]): string | null {
   return `Desde ${range.min} € al mes`;
 }
 
-function CandidateCard({ candidate }: { candidate: CandidateDTO }) {
+function CandidateCard({
+  candidate,
+  state,
+  page,
+}: {
+  candidate: CandidateDTO;
+  state: InterestState | undefined;
+  page: number;
+}) {
   const extra = candidate.neighborhoodsTotal - candidate.neighborhoods.length;
   const budget = budgetText(candidate.budgetRange);
   return (
@@ -104,6 +117,13 @@ function CandidateCard({ candidate }: { candidate: CandidateDTO }) {
             </ul>
           </div>
         ) : null}
+        <InterestActions
+          targetId={candidate.id}
+          name={candidate.fullName}
+          state={state}
+          back="explorar"
+          page={page}
+        />
       </Card>
     </li>
   );
@@ -115,10 +135,16 @@ export default async function ExplorePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await requireCompletedQuestionnaire();
-  const page = parsePage((await searchParams).pagina);
+  const params = await searchParams;
+  const page = parsePage(params.pagina);
+  const notice = interestNotice(params.aviso);
 
-  const result = await getCandidates(await createClient(), page);
-  if (!result.ok) throw new CandidatesUnavailableError();
+  const supabase = await createClient();
+  const [result, states] = await Promise.all([
+    getCandidates(supabase, page),
+    getInterestStates(supabase),
+  ]);
+  if (!result.ok || !states.ok) throw new CandidatesUnavailableError();
   const { candidates, total, totalPages, viewerAcceptsRoommates } = result.data;
   const pageHref = (n: number) =>
     n === 1 ? EXPLORE_PATH : `${EXPLORE_PATH}?pagina=${n}`;
@@ -136,6 +162,19 @@ export default async function ExplorePage({
           cuando quieras.
         </p>
       </div>
+
+      {notice ? (
+        <p
+          role="status"
+          data-testid="interest-notice"
+          className="rounded-[var(--radius)] border border-[var(--border)] p-3 text-sm"
+        >
+          {notice}{" "}
+          <Link href={MATCHES_PATH} className="underline">
+            Ver tus matches
+          </Link>
+        </p>
+      ) : null}
 
       {!viewerAcceptsRoommates ? (
         <p
@@ -169,7 +208,12 @@ export default async function ExplorePage({
           </p>
           <ul className="flex flex-col gap-4">
             {candidates.map((candidate) => (
-              <CandidateCard key={candidate.id} candidate={candidate} />
+              <CandidateCard
+                key={candidate.id}
+                candidate={candidate}
+                state={states.data.get(candidate.id)}
+                page={page}
+              />
             ))}
           </ul>
           {candidates.some((candidate) => candidate.neighborhoods.length > 0) ? (

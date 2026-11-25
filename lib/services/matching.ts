@@ -217,20 +217,23 @@ type Scored = {
   differences: string[];
 };
 
+/** Datos propios de quien mira, leídos con su cliente (RLS). */
+type Viewer = {
+  userId: string;
+  housing: HousingRow;
+  response: ResponseRow;
+  filter: HardFilterProfile;
+};
+
 /**
- * Página `page` (desde 1) de candidatos de la sesión, por score descendente
- * y, a igual score, por id ascendente. Sin límite total.
+ * Quien mira: sesión, perfil activo con el onboarding completo, test
+ * completado en la versión vigente y ciudad. Mismos errores que antes de la
+ * Fase 5 (`getCandidates`).
  */
-export async function getCandidates(
-  supabase: DbClient,
-  page: number,
-  deps: MatchingDeps = DEFAULT_DEPS
-): Promise<ServiceResult<CandidatePage>> {
+async function loadViewer(supabase: DbClient): Promise<ServiceResult<Viewer>> {
   const userId = await getSessionUserId(supabase);
   if (!userId) return fail("unauthenticated");
-  const currentPage = Number.isInteger(page) && page >= 1 ? page : 1;
 
-  // --- Datos propios: cliente del usuario (RLS) ---
   const [profileRead, housingRead, responseRead] = await Promise.all([
     supabase
       .from("profiles")
@@ -262,34 +265,26 @@ export async function getCandidates(
   const ownHousing = housingRead.data as HousingRow | null;
   if (!ownHousing || ownHousing.city_id === null) return fail("forbidden");
 
-  const viewerFilter = toFilterProfile(ownHousing);
-  const empty: CandidatePage = {
-    candidates: [],
-    page: currentPage,
-    pageSize: CANDIDATES_PAGE_SIZE,
-    total: 0,
-    totalPages: 0,
-    viewerAcceptsRoommates: acceptsRoommates(viewerFilter),
-  };
-  if (!empty.viewerAcceptsRoommates) return ok(empty);
+  return ok({
+    userId,
+    housing: ownHousing,
+    response: ownResponse as ResponseRow,
+    filter: toFilterProfile(ownHousing),
+  });
+}
 
-  // --- Lectura cruzada: service_role, una sola consulta, columnas explícitas ---
-  const { data, error } = await deps
-    .adminClient()
-    .from("profiles")
-    .select(CANDIDATE_SELECT)
-    .neq("id", userId)
-    .is("deleted_at", null)
-    .not("onboarding_completed_at", "is", null)
-    .neq("role", "admin")
-    .eq("housing_preferences.city_id", ownHousing.city_id)
-    .eq("compatibility_responses.questionnaire_version", CURRENT_QUESTIONNAIRE_VERSION)
-    .not("compatibility_responses.completed_at", "is", null);
-  if (error) return mapDbError(error);
-
-  const viewerInput = toCompatibilityInput(ownHousing, ownResponse as ResponseRow);
+/**
+ * Elegibilidad (`isEligibleCandidate`), filtros duros (si se piden) y score
+ * de cada fila leída con service_role. Las filas que no pasan se descartan.
+ */
+function scoreRows(
+  viewer: Viewer,
+  rows: CandidateRow[],
+  requireHardFilters: boolean
+): Scored[] {
+  const viewerInput = toCompatibilityInput(viewer.housing, viewer.response);
   const scored: Scored[] = [];
-  for (const row of (data ?? []) as unknown as CandidateRow[]) {
+  for (const row of rows) {
     const housing = one(row.housing_preferences);
     const response = one(row.compatibility_responses);
     if (!housing || !response) continue;
@@ -302,13 +297,14 @@ export async function getCandidates(
         questionnaireVersion: response.questionnaire_version,
         questionnaireCompletedAt: response.completed_at,
       },
-      userId,
+      viewer.userId,
       CURRENT_QUESTIONNAIRE_VERSION
     );
     if (!eligible) continue;
     if (
+      requireHardFilters &&
       !passesHardFilters(
-        viewerFilter,
+        viewer.filter,
         toFilterProfile(housing),
         MATCH_WEIGHTS.budgetGapRef
       )
@@ -333,26 +329,23 @@ export async function getCandidates(
       differences: reasons("difference"),
     });
   }
+  return scored;
+}
 
-  scored.sort(
-    (x, y) =>
-      y.score - x.score || (x.row.id < y.row.id ? -1 : x.row.id > y.row.id ? 1 : 0)
-  );
-  const total = scored.length;
-  const totalPages = Math.ceil(total / CANDIDATES_PAGE_SIZE);
-  const slice = scored.slice(
-    (currentPage - 1) * CANDIDATES_PAGE_SIZE,
-    currentPage * CANDIDATES_PAGE_SIZE
-  );
-
-  // --- Nombres solo para la página: tablas de referencia, cliente del usuario ---
+/** `CandidateDTO` campo a campo, con los nombres de universidades y barrios (cliente del usuario). */
+async function toCandidateDTOs(
+  supabase: DbClient,
+  viewer: Viewer,
+  scored: Scored[],
+  today: string
+): Promise<ServiceResult<CandidateDTO[]>> {
   const universityIds = [
     ...new Set(
-      slice.map((s) => s.housing.university_id).filter((id): id is string => !!id)
+      scored.map((s) => s.housing.university_id).filter((id): id is string => !!id)
     ),
   ];
   const neighborhoodIds = [
-    ...new Set(slice.flatMap((s) => s.housing.preferred_neighborhood_ids ?? [])),
+    ...new Set(scored.flatMap((s) => s.housing.preferred_neighborhood_ids ?? [])),
   ];
   const [universitiesRead, neighborhoodsRead] = await Promise.all([
     universityIds.length > 0
@@ -377,28 +370,141 @@ export async function getCandidates(
     ])
   );
 
-  const today = deps.today();
-  const candidates = slice.map((s): CandidateDTO => {
-    const zones = pickNeighborhoods(
-      s.housing.preferred_neighborhood_ids ?? [],
-      ownHousing.preferred_neighborhood_ids ?? [],
-      neighborhoodNames
-    );
-    return {
-      id: s.row.id,
-      fullName: s.row.full_name,
-      age: ageOn(s.row.date_of_birth, today),
-      university: s.housing.university_id
-        ? (universityNames.get(s.housing.university_id) ?? null)
-        : null,
-      neighborhoods: zones.shown,
-      neighborhoodsTotal: zones.total,
-      budgetRange: toBudgetRange(s.housing.budget_min, s.housing.budget_max),
-      score: s.score,
-      strengths: s.strengths,
-      differences: s.differences,
-    };
-  });
+  return ok(
+    scored.map((s): CandidateDTO => {
+      const zones = pickNeighborhoods(
+        s.housing.preferred_neighborhood_ids ?? [],
+        viewer.housing.preferred_neighborhood_ids ?? [],
+        neighborhoodNames
+      );
+      return {
+        id: s.row.id,
+        fullName: s.row.full_name,
+        age: ageOn(s.row.date_of_birth, today),
+        university: s.housing.university_id
+          ? (universityNames.get(s.housing.university_id) ?? null)
+          : null,
+        neighborhoods: zones.shown,
+        neighborhoodsTotal: zones.total,
+        budgetRange: toBudgetRange(s.housing.budget_min, s.housing.budget_max),
+        score: s.score,
+        strengths: s.strengths,
+        differences: s.differences,
+      };
+    })
+  );
+}
 
-  return ok({ ...empty, candidates, total, totalPages });
+function byScoreThenId(x: Scored, y: Scored): number {
+  return y.score - x.score || (x.row.id < y.row.id ? -1 : x.row.id > y.row.id ? 1 : 0);
+}
+
+/**
+ * Página `page` (desde 1) de candidatos de la sesión, por score descendente
+ * y, a igual score, por id ascendente. Sin límite total.
+ */
+export async function getCandidates(
+  supabase: DbClient,
+  page: number,
+  deps: MatchingDeps = DEFAULT_DEPS
+): Promise<ServiceResult<CandidatePage>> {
+  const viewerRead = await loadViewer(supabase);
+  if (!viewerRead.ok) return viewerRead;
+  const viewer = viewerRead.data;
+  const currentPage = Number.isInteger(page) && page >= 1 ? page : 1;
+
+  const empty: CandidatePage = {
+    candidates: [],
+    page: currentPage,
+    pageSize: CANDIDATES_PAGE_SIZE,
+    total: 0,
+    totalPages: 0,
+    viewerAcceptsRoommates: acceptsRoommates(viewer.filter),
+  };
+  if (!empty.viewerAcceptsRoommates) return ok(empty);
+
+  // --- Lectura cruzada: service_role, una sola consulta, columnas explícitas ---
+  const { data, error } = await deps
+    .adminClient()
+    .from("profiles")
+    .select(CANDIDATE_SELECT)
+    .neq("id", viewer.userId)
+    .is("deleted_at", null)
+    .not("onboarding_completed_at", "is", null)
+    .neq("role", "admin")
+    .eq("housing_preferences.city_id", viewer.housing.city_id as string)
+    .eq("compatibility_responses.questionnaire_version", CURRENT_QUESTIONNAIRE_VERSION)
+    .not("compatibility_responses.completed_at", "is", null);
+  if (error) return mapDbError(error);
+
+  const scored = scoreRows(viewer, (data ?? []) as unknown as CandidateRow[], true);
+  scored.sort(byScoreThenId);
+  const total = scored.length;
+  const totalPages = Math.ceil(total / CANDIDATES_PAGE_SIZE);
+  const slice = scored.slice(
+    (currentPage - 1) * CANDIDATES_PAGE_SIZE,
+    currentPage * CANDIDATES_PAGE_SIZE
+  );
+
+  const dtos = await toCandidateDTOs(supabase, viewer, slice, deps.today());
+  if (!dtos.ok) return dtos;
+  return ok({ ...empty, candidates: dtos.data, total, totalPages });
+}
+
+/** Máximo de personas por evaluación concreta (intereses y matches de una página). */
+export const MAX_COUNTERPARTS = 200;
+
+export type Counterparts = {
+  viewerId: string;
+  /** Solo las personas que pasan: elegibles y, si se piden, los filtros duros. */
+  byId: Map<string, CandidateDTO>;
+};
+
+/**
+ * Fase 5: las mismas reglas que `/explorar`, para un conjunto concreto de
+ * personas (la destinataria de un «Me interesa», o las de los intereses y
+ * matches propios). Con `requireHardFilters`, solo pasan quienes saldrían en
+ * `/explorar` (así no se puede enviar un interés ni ver a nadie por su id);
+ * sin él (matches ya hechos), basta con que la cuenta siga siendo elegible.
+ * Una sola consulta con service_role, con las mismas columnas explícitas; lo
+ * que sale es `CandidateDTO`, nunca la fila.
+ */
+export async function evaluateCounterparts(
+  supabase: DbClient,
+  ids: readonly string[],
+  options: { requireHardFilters: boolean },
+  deps: MatchingDeps = DEFAULT_DEPS
+): Promise<ServiceResult<Counterparts>> {
+  const viewerRead = await loadViewer(supabase);
+  if (!viewerRead.ok) return viewerRead;
+  const viewer = viewerRead.data;
+  const unique = [...new Set(ids)].filter((id) => id !== viewer.userId);
+  if (unique.length > MAX_COUNTERPARTS) return fail("validation");
+  if (unique.length === 0) return ok({ viewerId: viewer.userId, byId: new Map() });
+
+  const { data, error } = await deps
+    .adminClient()
+    .from("profiles")
+    .select(CANDIDATE_SELECT)
+    .in("id", unique)
+    .neq("id", viewer.userId)
+    .is("deleted_at", null)
+    .not("onboarding_completed_at", "is", null)
+    .neq("role", "admin")
+    .eq("compatibility_responses.questionnaire_version", CURRENT_QUESTIONNAIRE_VERSION)
+    .not("compatibility_responses.completed_at", "is", null);
+  if (error) return mapDbError(error);
+
+  const scored = scoreRows(
+    viewer,
+    (data ?? []) as unknown as CandidateRow[],
+    options.requireHardFilters
+  );
+  scored.sort(byScoreThenId);
+  const dtos = await toCandidateDTOs(supabase, viewer, scored, deps.today());
+  if (!dtos.ok) return dtos;
+  return ok({
+    viewerId: viewer.userId,
+    byId: new Map(dtos.data.map((dto) => [dto.id, dto])),
+  });
 }

@@ -6,12 +6,20 @@ import type { CandidateDTO, CandidatePage } from "@/lib/services/matching";
 const mocks = vi.hoisted(() => ({
   getCandidates: vi.fn(),
   requireCompletedQuestionnaire: vi.fn(),
+  getInterestStates: vi.fn(),
 }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({}) }));
 vi.mock("@/lib/auth/session", () => ({
   requireCompletedQuestionnaire: mocks.requireCompletedQuestionnaire,
 }));
 vi.mock("@/lib/services/matching", () => ({ getCandidates: mocks.getCandidates }));
+vi.mock("@/lib/services/interests", () => ({
+  getInterestStates: mocks.getInterestStates,
+}));
+vi.mock("@/app/actions/interests", () => ({
+  expressInterest: async () => {},
+  retractInterest: async () => {},
+}));
 
 import ExplorePage from "@/app/(app)/explorar/page";
 import { NEIGHBORHOODS_SOURCE } from "@/components/rooms/neighborhoods-attribution";
@@ -62,6 +70,8 @@ beforeEach(() => {
   mocks.getCandidates.mockReset();
   mocks.requireCompletedQuestionnaire.mockReset();
   mocks.requireCompletedQuestionnaire.mockResolvedValue(undefined);
+  mocks.getInterestStates.mockReset();
+  mocks.getInterestStates.mockResolvedValue({ ok: true, data: new Map() });
 });
 
 describe("/explorar: atribución de los barrios del catálogo", () => {
@@ -147,13 +157,78 @@ describe("/explorar: el resto de la página no cambia", () => {
     expect(html).toContain("Por qué encajáis");
     expect(html).toContain("Página 2 de 2");
     expect(html).toContain('href="/explorar"');
-    expect(html).not.toMatch(/Ver perfil|Me interesa/);
+    expect(html).not.toMatch(/Ver perfil/);
+    // Fase 5.1: «Me interesa», con la página para volver a ella.
+    expect(html).toContain("Me interesa");
+    expect(html).toContain('name="targetId" value="c1"');
+    expect(html).toContain('name="volver" value="explorar"');
+    expect(html).toContain('name="pagina" value="2"');
   });
 
   it("si falla el servicio, error genérico sin detalles", async () => {
     mocks.getCandidates.mockResolvedValue({ ok: false, error: "unknown" });
     await expect(render()).rejects.toThrow(
       "No hemos podido cargar los compañeros compatibles. Vuelve a intentarlo en un momento."
+    );
+  });
+});
+
+describe("/explorar: «Me interesa» (Fase 5.1)", () => {
+  const three = () =>
+    pageWith({
+      candidates: [
+        candidate({ id: "c1", fullName: "Persona Uno" }),
+        candidate({ id: "c2", fullName: "Persona Dos" }),
+        candidate({ id: "c3", fullName: "Persona Tres" }),
+        candidate({ id: "c4", fullName: "Persona Cuatro" }),
+      ],
+      total: 4,
+      totalPages: 1,
+    });
+
+  it("cada tarjeta muestra su estado: sin interés, enviado, recibido o match", async () => {
+    three();
+    mocks.getInterestStates.mockResolvedValue({
+      ok: true,
+      data: new Map([
+        ["c2", "sent"],
+        ["c3", "received"],
+        ["c4", "matched"],
+      ]),
+    });
+    const html = await render();
+    expect(html).toContain('Me interesa<span class="sr-only"> (Persona Uno)</span>');
+    expect(html).toContain("Le has enviado «Me interesa»");
+    expect(html).toContain(
+      'Retirar<span class="sr-only"> el interés en Persona Dos</span>'
+    );
+    expect(html).toContain("Te ha mostrado interés");
+    expect(html).toContain("Hacer match");
+    expect(html).toContain("✓ Tenéis un match");
+    // Sin la página 1 en el formulario.
+    expect(html).not.toContain('name="pagina"');
+  });
+
+  it("muestra solo avisos conocidos", async () => {
+    three();
+    expect(await render()).not.toContain('data-testid="interest-notice"');
+    const withNotice = renderToStaticMarkup(
+      await ExplorePage({ searchParams: Promise.resolve({ aviso: "match" }) })
+    );
+    expect(withNotice).toContain("¡Tenéis un match!");
+    expect(withNotice).toContain('href="/matches"');
+    const unknown = renderToStaticMarkup(
+      await ExplorePage({ searchParams: Promise.resolve({ aviso: "<script>" }) })
+    );
+    expect(unknown).not.toContain('data-testid="interest-notice"');
+    expect(unknown).not.toContain("&lt;script&gt;");
+  });
+
+  it("si fallan los estados de interés, error genérico", async () => {
+    three();
+    mocks.getInterestStates.mockResolvedValue({ ok: false, error: "unknown" });
+    await expect(render()).rejects.toThrow(
+      "No hemos podido cargar los compañeros compatibles."
     );
   });
 });
