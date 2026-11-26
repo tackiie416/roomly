@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireCompletedQuestionnaire } from "@/lib/auth/session";
-import { EXPLORE_PATH, MATCHES_PATH } from "@/lib/auth/destination";
+import { EXPLORE_PATH, MATCHES_PATH, MESSAGES_PATH } from "@/lib/auth/destination";
 import {
   getInterestOverview,
   type InterestState,
@@ -12,13 +12,17 @@ import { interestNotice } from "@/lib/interests/notices";
 import { InterestActions } from "@/components/interests/interest-actions";
 import { personPath } from "@/lib/interests/paths";
 import { Card } from "@/components/ui/card";
+import { UndoMatch } from "@/components/chat/undo-match";
+import { conversationPath } from "@/lib/chat/paths";
 
 /**
  * Matches e intereses (`/matches`, Fase 5.1). Mismo guard que `/explorar`:
  * onboarding completo y test vigente completado. Cada persona sale como
  * `CandidateDTO` (lista blanca, lib/services/matching.ts): nunca respuestas,
- * fechas de nacimiento ni datos de contacto. El chat es de la Fase 6, así que
- * un match todavía no abre ninguna conversación.
+ * fechas de nacimiento ni datos de contacto. Cada match tiene su chat
+ * (Fase 6) y se puede deshacer. Un interés por habitación (Fase 6) dice por
+ * qué habitación es: así las dos personas saben quién publica y quién se
+ * interesa, sin que el detalle público lo muestre.
  */
 
 class MatchesUnavailableError extends Error {
@@ -26,6 +30,16 @@ class MatchesUnavailableError extends Error {
     super("No hemos podido cargar tus matches. Vuelve a intentarlo en un momento.");
     this.name = "MatchesUnavailableError";
   }
+}
+
+function roomText(person: MatchSummary | InterestSummary, state: InterestState) {
+  if (!("room" in person) || !person.room) return null;
+  const title = person.room.title
+    ? `«${person.room.title}»`
+    : "una habitación que ya no está publicada";
+  return state === "received"
+    ? `Le interesa tu habitación ${title}`
+    : `Por su habitación ${title}: es quien la publica`;
 }
 
 function PersonCard({
@@ -37,6 +51,8 @@ function PersonCard({
   state: InterestState;
   detail: string;
 }) {
+  const room = roomText(person, state);
+  const chat = "conversationId" in person ? person.conversationId : null;
   return (
     <li>
       <Card className="flex flex-col gap-3" data-testid={`person-${state}`}>
@@ -52,6 +68,11 @@ function PersonCard({
               {person.university ? ` · ${person.university}` : ""}
             </p>
             <p className="text-xs text-[var(--muted)]">{detail}</p>
+            {room ? (
+              <p className="mt-1 text-sm" data-testid="room-context">
+                {room}
+              </p>
+            ) : null}
           </div>
           <p className="text-right">
             <span className="text-2xl font-medium">{person.score}%</span>
@@ -72,10 +93,24 @@ function PersonCard({
             state={state}
             back="matches"
           />
-          <Link href={personPath(person.id)} className="text-sm underline">
-            Ver perfil<span className="sr-only"> de {person.fullName}</span>
-          </Link>
+          <span className="flex flex-wrap items-center gap-4 text-sm">
+            {chat ? (
+              <Link
+                href={conversationPath(chat)}
+                className="underline"
+                data-testid="open-chat"
+              >
+                Abrir chat<span className="sr-only"> con {person.fullName}</span>
+              </Link>
+            ) : null}
+            <Link href={personPath(person.id)} className="underline">
+              Ver perfil<span className="sr-only"> de {person.fullName}</span>
+            </Link>
+          </span>
         </div>
+        {state === "matched" ? (
+          <UndoMatch targetId={person.id} name={person.fullName} />
+        ) : null}
       </Card>
     </li>
   );
@@ -131,8 +166,11 @@ export default async function MatchesPage({
         ) : (
           <>
             <p className="text-sm text-[var(--muted)]">
-              El chat todavía no está disponible: por ahora, el match solo indica que os
-              interesáis mutuamente.
+              Con un match ya podéis escribiros: abre el chat desde su tarjeta o desde{" "}
+              <Link href={MESSAGES_PATH} className="underline">
+                Mensajes
+              </Link>
+              .
             </p>
             <ul className="flex flex-col gap-4">
               {matches.map((m) => (

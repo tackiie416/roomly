@@ -12,11 +12,17 @@ import {
   TEST_PATH,
   loginPath,
 } from "@/lib/auth/destination";
-import { sendInterest, withdrawInterest } from "@/lib/services/interests";
+import {
+  sendInterest,
+  sendRoomInterest,
+  undoMatch,
+  withdrawInterest,
+} from "@/lib/services/interests";
 import type { ServiceResult } from "@/lib/services/result";
 import type { InterestNoticeCode } from "@/lib/interests/notices";
 import { personPath } from "@/lib/interests/paths";
 import { uuidSchema } from "@/lib/validation/common";
+import { publicRoomPath } from "@/lib/validation/room-search";
 
 /**
  * Server Actions de «Me interesa» (Fase 5.1). Orquestación fina sobre
@@ -118,4 +124,74 @@ export async function retractInterest(formData: FormData): Promise<void> {
   redirect(
     returnPath(formData, result.data.status === "withdrawn" ? "retirado" : "no-enviado")
   );
+}
+
+/**
+ * Deshacer un match (Fase 6). Del navegador solo llegan `targetId` y
+ * `volver`; termina en `/matches` con el aviso (el chat ya está cerrado).
+ */
+export async function undoMatchAction(formData: FormData): Promise<void> {
+  await requireActiveProfile(MATCHES_PATH);
+  const extra = [...new Set(formData.keys())].some(
+    (key) => !["targetId", "volver"].includes(key) && !key.startsWith("$ACTION_")
+  );
+  if (extra) redirect(`${MATCHES_PATH}?aviso=error`);
+
+  const result = await undoMatch(await createClient(), formData.get("targetId"));
+  if (!result.ok) {
+    redirectForAccount(result, MATCHES_PATH);
+    redirect(`${MATCHES_PATH}?aviso=${errorNotice(result.error)}`);
+  }
+  revalidatePath(EXPLORE_PATH, "layout");
+  revalidatePath(MATCHES_PATH);
+  revalidatePath("/mensajes", "layout");
+  const notice: InterestNoticeCode =
+    result.data.status === "undone" ? "deshecho" : "sin-match";
+  redirect(`${MATCHES_PATH}?aviso=${notice}`);
+}
+
+const CITY_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * «Me interesa esta habitación» (Fase 6), desde el detalle público. Del
+ * navegador llegan `roomId` y `ciudad` (solo para volver a la página tras el
+ * login o si falla). Con éxito termina en `/matches`, donde las dos personas
+ * se ven; el detalle público no cambia.
+ */
+export async function expressRoomInterest(formData: FormData): Promise<void> {
+  const room = uuidSchema.safeParse(formData.get("roomId"));
+  const city = formData.get("ciudad");
+  const roomPage =
+    room.success && typeof city === "string" && CITY_SLUG.test(city)
+      ? publicRoomPath(city, room.data)
+      : MATCHES_PATH;
+  await requireCompletedQuestionnaire(roomPage);
+  const extra = [...new Set(formData.keys())].some(
+    (key) => !["roomId", "ciudad"].includes(key) && !key.startsWith("$ACTION_")
+  );
+  if (extra) redirect(`${MATCHES_PATH}?aviso=error`);
+
+  const result = await sendRoomInterest(await createClient(), formData.get("roomId"));
+  if (!result.ok) {
+    redirectForAccount(result, roomPage);
+    if (result.error === "forbidden") redirect(TEST_PATH);
+    const notice: InterestNoticeCode =
+      result.error === "validation" && room.success
+        ? "habitacion-propia"
+        : result.error === "rate_limited"
+          ? "limite"
+          : result.error === "not_found" || result.error === "validation"
+            ? "habitacion-no-disponible"
+            : "error";
+    redirect(`${MATCHES_PATH}?aviso=${notice}`);
+  }
+  revalidatePath(EXPLORE_PATH, "layout");
+  revalidatePath(MATCHES_PATH);
+  const notice: InterestNoticeCode =
+    result.data.status === "matched"
+      ? "match"
+      : result.data.status === "already_sent"
+        ? "habitacion-ya-enviado"
+        : "habitacion-enviado";
+  redirect(`${MATCHES_PATH}?aviso=${notice}`);
 }

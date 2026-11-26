@@ -20,6 +20,8 @@ export const TEST_PATH = "/test";
 export const EXPLORE_PATH = "/explorar";
 /** Fase 5.1: matches e intereses enviados y recibidos. */
 export const MATCHES_PATH = "/matches";
+/** Fase 6: chat entre matches. */
+export const MESSAGES_PATH = "/mensajes";
 
 export type ProfileStatus = ProfileState["status"];
 

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireCompletedQuestionnaire } from "@/lib/auth/session";
-import { EXPLORE_PATH, MATCHES_PATH } from "@/lib/auth/destination";
+import { EXPLORE_PATH, MATCHES_PATH, MESSAGES_PATH } from "@/lib/auth/destination";
 import { getPersonPage } from "@/lib/services/interests";
 import type { SeekingStatus } from "@/lib/services/matching";
 import { interestNotice } from "@/lib/interests/notices";
@@ -185,8 +185,11 @@ export default async function PersonPage({
         />
         {state === "matched" ? (
           <p className="text-sm text-[var(--muted)]">
-            El chat todavía no está disponible: por ahora, el match solo indica que os
-            interesáis mutuamente.
+            Ya podéis escribiros: tenéis el chat en{" "}
+            <Link href={MESSAGES_PATH} className="underline">
+              Mensajes
+            </Link>
+            .
           </p>
         ) : null}
       </Card>

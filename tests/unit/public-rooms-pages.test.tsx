@@ -409,6 +409,23 @@ describe("detalle público", () => {
     expect(serverMock.created).toBe(0);
   });
 
+  it("Fase 6: «Me interesa esta habitación» solo envía la habitación y la ciudad, sin la propietaria", async () => {
+    visitorWorld({ room: detailRow });
+    const html = await renderDetail(roomId(1));
+    expect(html).toContain("Me interesa esta habitación");
+    const form = html.match(/<form[\s\S]*?<\/form>/)?.[0] ?? "";
+    const names = [...form.matchAll(/name="([^"]+)"/g)].map((m) => m[1]);
+    expect(names.filter((name) => !name.startsWith("$ACTION"))).toEqual([
+      "roomId",
+      "ciudad",
+    ]);
+    expect(form).toContain(`value="${roomId(1)}"`);
+    expect(form).toContain('value="barcelona"');
+    // La página sigue sin leer la sesión ni saber de quién es la habitación.
+    expect(html).not.toMatch(/owner_id|ownerId|full_name/);
+    expect(serverMock.created).toBe(0);
+  });
+
   it("404 indistinguible: id no válido, habitación no pública o inexistente, ciudad inexistente", async () => {
     visitorWorld({ room: null });
     await expect(renderDetail("no-es-un-uuid")).rejects.toEqual(notFoundError);

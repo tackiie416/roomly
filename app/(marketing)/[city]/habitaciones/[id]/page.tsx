@@ -7,6 +7,8 @@ import { createPublicClient } from "@/lib/supabase/public";
 import { getPublicRoom, type PublicRoomDetail } from "@/lib/services/room-search";
 import { publicRoomPath, roomSearchPath } from "@/lib/validation/room-search";
 import { NeighborhoodsAttribution } from "@/components/rooms/neighborhoods-attribution";
+import { Button } from "@/components/ui/button";
+import { expressRoomInterest } from "@/app/actions/interests";
 import {
   bedroomsText,
   formatEuros,
@@ -24,6 +26,10 @@ import {
  * id no es válido, la ciudad no existe o no está activa, o la habitación no
  * existe, es de otra ciudad o no es pública (borrador, pausada, alquilada,
  * retirada, eliminada o de una cuenta desactivada).
+ *
+ * «Me interesa esta habitación» (Fase 6) es un formulario con su Server
+ * Action: la página no lee la sesión ni sabe de quién es la habitación; solo
+ * después, en `/matches`, se ven las dos personas.
  *
  * Muestra solo `PublicRoomDetail` (lista blanca): ni la propietaria, ni
  * coordenadas, ni dirección (R2: barrio y ciudad). Los textos libres los
@@ -234,6 +240,25 @@ export default async function PublicRoomPage({ params }: PageProps) {
       <TextBlock title="Descripción" text={room.description} />
       <TextBlock title="Normas de la vivienda" text={room.houseRules} />
       <TextBlock title="Preferencias de convivencia" text={room.roommatePreferences} />
+
+      <section
+        className="flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] p-6"
+        aria-labelledby="room-interest-heading"
+      >
+        <h2 id="room-interest-heading" className="font-medium">
+          ¿Te interesa?
+        </h2>
+        <p className="text-sm text-[var(--muted)]">
+          Necesitas una cuenta con el test de convivencia hecho. Al enviarlo, en tus
+          Matches verás quién publica la habitación, y esa persona verá tu perfil. Aquí no
+          se muestra a nadie.
+        </p>
+        <form action={expressRoomInterest}>
+          <input type="hidden" name="roomId" value={room.id} />
+          <input type="hidden" name="ciudad" value={room.city.slug} />
+          <Button type="submit">Me interesa esta habitación</Button>
+        </form>
+      </section>
 
       {room.neighborhood ? <NeighborhoodsAttribution /> : null}
     </main>
