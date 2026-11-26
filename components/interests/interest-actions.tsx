@@ -17,7 +17,7 @@ export function InterestActions({
   targetId: string;
   name: string;
   state: InterestState | undefined;
-  back: "explorar" | "matches";
+  back: "explorar" | "matches" | "perfil";
   page?: number;
 }) {
   const hidden = (

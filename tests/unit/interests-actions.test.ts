@@ -62,7 +62,7 @@ describe("expressInterest", () => {
     mocks.sendInterest.mockResolvedValue({ ok: true, data: { status } });
     expect(await redirectOf(expressInterest(form({ targetId: TARGET })))).toBe(url);
     expect(mocks.sendInterest).toHaveBeenCalledWith({ client: true }, TARGET);
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/explorar");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/explorar", "layout");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/matches");
   });
 
@@ -87,6 +87,19 @@ describe("expressInterest", () => {
         )
       )
     ).toBe("/explorar?aviso=match");
+  });
+
+  it("vuelve al perfil de esa persona, solo con un UUID válido", async () => {
+    mocks.sendInterest.mockResolvedValue({ ok: true, data: { status: "sent" } });
+    expect(
+      await redirectOf(expressInterest(form({ targetId: TARGET, volver: "perfil" })))
+    ).toBe(`/explorar/${TARGET}?aviso=enviado`);
+    mocks.sendInterest.mockResolvedValue({ ok: false, error: "validation" });
+    expect(
+      await redirectOf(
+        expressInterest(form({ targetId: "../../admin", volver: "perfil" }))
+      )
+    ).toBe("/explorar?aviso=no-disponible");
   });
 
   it.each([

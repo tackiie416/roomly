@@ -1694,7 +1694,7 @@ function handleTest(req, res, url) {
         full_name: q.get("name") ?? "Candidata",
         date_of_birth: q.get("birth") ?? "2001-03-15",
         avatar_url: null,
-        bio: null,
+        bio: q.get("bio"),
         seeking_status: "looking_for_room",
         role: q.get("role") ?? "user",
         email_notifications_enabled: true,
