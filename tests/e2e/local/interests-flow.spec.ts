@@ -34,7 +34,7 @@ async function viewerWithTest(page: Page, label: string) {
   await completeOnboarding(page, `Viewer ${label}`);
   await answerQuestions(page, IDS, 1);
   await page.getByRole("button", { name: "Guardar respuestas" }).click();
-  await expect(page).toHaveURL(`${APP}/explorar`);
+  await expect(page).toHaveURL(`${APP}/explorar?test=completado`);
   return email;
 }
 
@@ -47,6 +47,16 @@ test("«Me interesa», match mutuo, /matches y retirar un interés", async ({ pa
     version: CURRENT_QUESTIONNAIRE_VERSION,
     questionIds: IDS,
     answer: 1,
+    bio: "Me encanta cocinar los domingos.",
+    birth: "2001-03-15",
+  });
+  // No pasa los filtros duros: su perfil da 404, como un id inexistente.
+  const far = await seedCandidate({
+    name: "Lejana Interés",
+    version: CURRENT_QUESTIONNAIRE_VERSION,
+    questionIds: IDS,
+    answer: 1,
+    budgetMin: 900,
   });
   const berta = await seedCandidate({
     name: "Berta Interés",
@@ -58,6 +68,34 @@ test("«Me interesa», match mutuo, /matches y retirar un interés", async ({ pa
   const viewerId = (await userState(email)).profile?.id as string;
   await expect(page.getByTestId("candidate")).toHaveCount(2);
   await expect(appNav(page).getByRole("link", { name: "Matches" })).toBeVisible();
+
+  // 0. «Ver perfil» de Ana (Fase 5.2): su texto, sin datos privados.
+  await card(page, "Ana Interés")
+    .getByRole("link", { name: /^Ver perfil/ })
+    .click();
+  await expect(page).toHaveURL(`${APP}/explorar/${ana}`);
+  const profile = page.getByTestId("person-profile");
+  await expect(profile).toContainText("Me encanta cocinar los domingos.");
+  await expect(profile).toContainText("Busca habitación");
+  await expect(appNav(page).getByRole("link", { name: "Explorar" })).toHaveAttribute(
+    "aria-current",
+    "page"
+  );
+  const profileHtml = await (await page.request.get(`${APP}/explorar/${ana}`)).text();
+  expect(profileHtml).not.toContain("2001-03-15");
+  expect(profileHtml).not.toMatch(/@roomly-e1\.test/);
+  for (const hidden of [far, "00000000-0000-4000-8000-000000000000", "no-es-un-id"]) {
+    const response = await page.request.get(`${APP}/explorar/${hidden}`);
+    expect(response.status()).toBe(404);
+    expect(await response.text()).not.toContain("Lejana Interés");
+  }
+  // «Me interesa» desde el perfil vuelve al perfil.
+  await profile.getByRole("button", { name: /^Me interesa/ }).click();
+  await expect(page).toHaveURL(`${APP}/explorar/${ana}?aviso=enviado`);
+  await expect(profile).toContainText("Le has enviado «Me interesa»");
+  await profile.getByRole("button", { name: /^Retirar/ }).click();
+  await expect(page).toHaveURL(`${APP}/explorar/${ana}?aviso=retirado`);
+  await page.goto("/explorar");
 
   // 1. «Me interesa» a Ana: enviado, sin match.
   await card(page, "Ana Interés")
@@ -140,10 +178,10 @@ test("«Me interesa», match mutuo, /matches y retirar un interés", async ({ pa
     ).toBe(true);
   }
   expect(service.filter((e) => e.path === "/rest/v1/rpc/record_interest")).toHaveLength(
-    2
+    3
   );
   expect(service.filter((e) => e.path === "/rest/v1/rpc/withdraw_interest")).toHaveLength(
-    1
+    2
   );
   const userReads = log.filter(
     (entry) =>

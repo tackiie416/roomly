@@ -93,6 +93,11 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   await expect(
     page.getByText("Progreso guardado. Te faltan 26 preguntas para terminar.")
   ).toBeVisible();
+  // Backlog de la Fase 3: las que faltan, señaladas, y un enlace a la primera.
+  await expect(page.getByTestId("unanswered")).toHaveCount(26);
+  await expect(page.getByTestId("unanswered-summary")).toContainText(
+    "Te quedan 26 preguntas sin responder"
+  );
   let state = await userState(email);
   expect(state.compatibility).toMatchObject({
     questionnaire_version: CURRENT,
@@ -109,7 +114,8 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   // Completar → /explorar.
   await answerQuestions(page, IDS.slice(3), 1);
   await page.getByRole("button", { name: "Guardar respuestas" }).click();
-  await expect(page).toHaveURL(`${APP}/explorar`);
+  await expect(page).toHaveURL(`${APP}/explorar?test=completado`);
+  await expect(page.getByTestId("test-completed")).toContainText("tu test está completo");
   state = await userState(email);
   const completedAt = state.compatibility?.completed_at;
   expect(completedAt).not.toBeNull();
@@ -144,9 +150,9 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   for (const hidden of ["437", "612"]) {
     expect(html).not.toMatch(standalone(hidden));
   }
-  // Sin «Ver perfil» (D14); «Me interesa» desde la Fase 5.1 (su flujo, en
-  // interests-flow.spec.ts).
-  await expect(page.getByText("Ver perfil")).toHaveCount(0);
+  // «Me interesa» desde la Fase 5.1 y «Ver perfil» desde la 5.2 (sus flujos,
+  // en interests-flow.spec.ts).
+  await expect(page.getByRole("link", { name: /^Ver perfil/ })).toHaveCount(2);
   await expect(page.getByRole("button", { name: /^Me interesa/ })).toHaveCount(2);
   // Ninguna tarjeta muestra zonas: no hay atribución de barrios (sesión 70).
   await expect(page.getByTestId("neighborhoods-attribution")).toHaveCount(0);
@@ -162,7 +168,7 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   await expect(page.getByText("Ya has completado el test.")).toBeVisible();
   await page.locator(`input[name="${IDS[1]}"][value="3"]`).check();
   await page.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page).toHaveURL(`${APP}/explorar`);
+  await expect(page).toHaveURL(`${APP}/explorar?test=completado`);
   state = await userState(email);
   expect(state.compatibility?.completed_at).toBe(completedAt);
   expect(state.compatibility?.questionnaire_version).toBe(CURRENT);
@@ -241,7 +247,7 @@ test("test v1 completado: aviso, se conservan las 21 respuestas comunes y se com
   // La última → completado en la v2 y /explorar.
   await answerQuestions(page, NEW_IDS.slice(7), 1);
   await page.getByRole("button", { name: "Guardar respuestas" }).click();
-  await expect(page).toHaveURL(`${APP}/explorar`);
+  await expect(page).toHaveURL(`${APP}/explorar?test=completado`);
   state = await userState(email);
   expect(state.compatibility?.questionnaire_version).toBe(CURRENT);
   expect(state.compatibility?.completed_at).not.toBeNull();
@@ -264,8 +270,8 @@ test("el test funciona sin JavaScript", async ({ page, browser }) => {
   await p.goto(`${APP}/test`);
   await answerQuestions(p, IDS, 2);
   await p.getByRole("button", { name: "Guardar respuestas" }).click();
-  await expect(p).toHaveURL(`${APP}/explorar`);
-  expect(pathOf(p)).toBe("/explorar");
+  await expect(p).toHaveURL(`${APP}/explorar?test=completado`);
+  expect(pathOf(p)).toBe("/explorar?test=completado");
   const state = await userState(email);
   expect(state.compatibility?.completed_at).not.toBeNull();
   await noJs.close();

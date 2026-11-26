@@ -6,6 +6,7 @@ import { getCandidates, type CandidateDTO } from "@/lib/services/matching";
 import { getInterestStates, type InterestState } from "@/lib/services/interests";
 import { interestNotice } from "@/lib/interests/notices";
 import { InterestActions } from "@/components/interests/interest-actions";
+import { personPath } from "@/lib/interests/paths";
 import { NeighborhoodsAttribution } from "@/components/rooms/neighborhoods-attribution";
 import { Card } from "@/components/ui/card";
 
@@ -15,7 +16,7 @@ import { Card } from "@/components/ui/card";
  * no, 307 a `/test`. Los candidatos salen de `getCandidates`, que solo
  * devuelve `CandidateDTO` (lista blanca): esta página no recibe ni puede
  * mostrar respuestas, fechas de nacimiento, presupuestos exactos ni
- * puntuaciones por categoría. Sin «Ver perfil» (D14). Desde la Fase 5.1,
+ * puntuaciones por categoría. «Ver perfil» (`/explorar/<id>`) desde la Fase 5.2. Desde la Fase 5.1,
  * cada tarjeta lleva «Me interesa» (o su estado: enviado, recibido o match),
  * con formularios que funcionan sin JavaScript.
  * Si falta la clave de servicio o falla la consulta, error genérico (2.7).
@@ -71,7 +72,11 @@ function CandidateCard({
               {candidate.fullName.trim().charAt(0).toUpperCase()}
             </span>
             <div>
-              <h2 className="font-medium">{candidate.fullName}</h2>
+              <h2 className="font-medium">
+                <Link href={personPath(candidate.id)} className="hover:underline">
+                  {candidate.fullName}
+                </Link>
+              </h2>
               <p className="text-sm text-[var(--muted)]">
                 {candidate.age} años
                 {candidate.university ? ` · ${candidate.university}` : ""}
@@ -117,13 +122,18 @@ function CandidateCard({
             </ul>
           </div>
         ) : null}
-        <InterestActions
-          targetId={candidate.id}
-          name={candidate.fullName}
-          state={state}
-          back="explorar"
-          page={page}
-        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <InterestActions
+            targetId={candidate.id}
+            name={candidate.fullName}
+            state={state}
+            back="explorar"
+            page={page}
+          />
+          <Link href={personPath(candidate.id)} className="text-sm underline">
+            Ver perfil<span className="sr-only"> de {candidate.fullName}</span>
+          </Link>
+        </div>
       </Card>
     </li>
   );
@@ -138,6 +148,7 @@ export default async function ExplorePage({
   const params = await searchParams;
   const page = parsePage(params.pagina);
   const notice = interestNotice(params.aviso);
+  const testCompleted = params.test === "completado";
 
   const supabase = await createClient();
   const [result, states] = await Promise.all([
@@ -150,7 +161,7 @@ export default async function ExplorePage({
     n === 1 ? EXPLORE_PATH : `${EXPLORE_PATH}?pagina=${n}`;
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-8">
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 sm:p-8">
       <div>
         <h1 className="text-xl font-medium">Compañeros compatibles</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
@@ -162,6 +173,17 @@ export default async function ExplorePage({
           cuando quieras.
         </p>
       </div>
+
+      {testCompleted ? (
+        <p
+          role="status"
+          data-testid="test-completed"
+          className="rounded-[var(--radius)] border border-[var(--border)] p-3 text-sm"
+        >
+          Tus respuestas están guardadas y tu test está completo. Estos son tus compañeros
+          compatibles.
+        </p>
+      ) : null}
 
       {notice ? (
         <p

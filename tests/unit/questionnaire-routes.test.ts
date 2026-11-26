@@ -250,10 +250,10 @@ describe("submitQuestionnaire", () => {
     expect(writePayloads(user.calls)).toHaveLength(0);
   });
 
-  it("con las 29 respuestas → completado y redirige a /explorar", async () => {
+  it("con las 29 respuestas → completado y redirige a /explorar con la confirmación", async () => {
     as("complete", null);
     await expect(submitQuestionnaire({}, form(allAnswers()))).rejects.toEqual(
-      redirectsTo("/explorar")
+      redirectsTo("/explorar?test=completado")
     );
   });
 
@@ -306,7 +306,7 @@ describe("submitQuestionnaire", () => {
       completed_at: "2026-10-02T10:00:00Z",
     });
     await expect(submitQuestionnaire({}, form(allAnswers()))).rejects.toEqual(
-      redirectsTo("/explorar")
+      redirectsTo("/explorar?test=completado")
     );
     const [write] = writePayloads(admin.calls);
     expect(write.payload?.questionnaire_version).toBe(CURRENT);

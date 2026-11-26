@@ -4,7 +4,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   type CandidateDTO,
   MAX_COUNTERPARTS,
+  type PersonProfileDTO,
   evaluateCounterparts,
+  getPersonProfile,
   type MatchingDeps,
 } from "@/lib/services/matching";
 import {
@@ -269,7 +271,18 @@ export async function getInterestStates(
 ): Promise<ServiceResult<Map<string, InterestState>>> {
   const own = await getOwnInterestIds(supabase);
   if (!own.ok) return own;
-  const { userId, interests, matches } = own.data;
+  return ok(statesOf(own.data));
+}
+
+function statesOf({
+  userId,
+  interests,
+  matches,
+}: {
+  userId: string;
+  interests: InterestRow[];
+  matches: MatchRow[];
+}): Map<string, InterestState> {
   const states = new Map<string, InterestState>();
   for (const i of interests) {
     if (i.to_user_id === userId && !states.has(i.from_user_id)) {
@@ -284,5 +297,45 @@ export async function getInterestStates(
   for (const m of matches) {
     states.set(m.user_a_id === userId ? m.user_b_id : m.user_a_id, "matched");
   }
-  return ok(states);
+  return states;
+}
+
+export type PersonPage = {
+  profile: PersonProfileDTO;
+  state: InterestState | undefined;
+  matchedAt: string | null;
+};
+
+/**
+ * «Ver perfil» (Fase 5.2): el perfil y el estado de «Me interesa» con esa
+ * persona. Con match, se ve aunque ya no pase los filtros duros, con el score
+ * guardado del match; sin match, solo si saldría en `/explorar`. Cualquier
+ * otro caso (id no válido, inexistente, no elegible, uno mismo) es
+ * `not_found`, sin distinguir.
+ */
+export async function getPersonPage(
+  supabase: DbClient,
+  targetId: unknown,
+  deps: InterestsDeps = DEFAULT_DEPS
+): Promise<ServiceResult<PersonPage>> {
+  const parsed = uuidSchema.safeParse(targetId);
+  if (!parsed.success) return fail("not_found");
+  const own = await getOwnInterestIds(supabase);
+  if (!own.ok) return own;
+  const state = statesOf(own.data).get(parsed.data);
+  const match = own.data.matches.find(
+    (m) => m.user_a_id === parsed.data || m.user_b_id === parsed.data
+  );
+  const profile = await getPersonProfile(
+    supabase,
+    parsed.data,
+    { requireHardFilters: !match },
+    deps
+  );
+  if (!profile.ok) return profile;
+  return ok({
+    profile: match ? { ...profile.data, score: match.compatibility_score } : profile.data,
+    state,
+    matchedAt: match?.created_at ?? null,
+  });
 }

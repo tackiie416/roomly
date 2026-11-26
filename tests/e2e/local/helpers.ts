@@ -84,6 +84,8 @@ export async function seedCandidate(options: {
   budgetMin?: number;
   budgetMax?: number;
   neighborhoods?: string[];
+  /** «Sobre ti» (Fase 5.2, «Ver perfil»). */
+  bio?: string;
   /** Email de la cuenta (por defecto, uno único): para sembrarle habitaciones o entrar con ella. */
   email?: string;
 }): Promise<string> {
@@ -102,6 +104,7 @@ export async function seedCandidate(options: {
   if (options.budgetMax !== undefined)
     params.set("budget_max", String(options.budgetMax));
   if (options.neighborhoods) params.set("neighborhoods", options.neighborhoods.join(","));
+  if (options.bio) params.set("bio", options.bio);
   const response = await mock(`/__test/seed-candidate?${params}`);
   expect(response.status).toBe(200);
   return ((await response.json()) as { id: string }).id;

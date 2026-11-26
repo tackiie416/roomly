@@ -508,3 +508,79 @@ export async function evaluateCounterparts(
     byId: new Map(dtos.data.map((dto) => [dto.id, dto])),
   });
 }
+
+export type SeekingStatus =
+  "looking_for_room" | "has_room_looking_for_roommate" | "flexible";
+
+/**
+ * «Ver perfil» (Fase 5.2): `CandidateDTO` más lo que la persona escribió para
+ * que lo vean otras (sus textos «Sobre ti» y «Estudios», que los formularios
+ * avisan de que son visibles), qué busca y el mes desde el que quiere entrar.
+ * Nunca la fecha de nacimiento, los presupuestos exactos, las respuestas, el
+ * email ni `categoryScores`.
+ */
+export type PersonProfileDTO = CandidateDTO & {
+  bio: string | null;
+  fieldOfStudy: string | null;
+  seekingStatus: SeekingStatus;
+  /** `AAAA-MM`, solo el mes. */
+  moveInMonth: string | null;
+};
+
+const SEEKING_STATUSES: readonly SeekingStatus[] = [
+  "looking_for_room",
+  "has_room_looking_for_roommate",
+  "flexible",
+];
+
+/**
+ * Perfil de otra persona con las reglas de `/explorar` (D14 y Fase 5): con
+ * `requireHardFilters`, solo si quien mira la vería en `/explorar`; sin él
+ * (ya hay match), basta con que la cuenta siga siendo elegible. Si no pasa,
+ * `not_found`, igual que un id inexistente: no se puede enumerar perfiles.
+ * Dos consultas con service_role y columnas explícitas.
+ */
+export async function getPersonProfile(
+  supabase: DbClient,
+  id: string,
+  options: { requireHardFilters: boolean },
+  deps: MatchingDeps = DEFAULT_DEPS
+): Promise<ServiceResult<PersonProfileDTO>> {
+  const evaluated = await evaluateCounterparts(supabase, [id], options, deps);
+  if (!evaluated.ok) return evaluated;
+  const dto = evaluated.data.byId.get(id);
+  if (!dto) return fail("not_found");
+
+  const { data, error } = await deps
+    .adminClient()
+    .from("profiles")
+    .select(
+      "bio, seeking_status, housing_preferences!inner(field_of_study, move_in_date)"
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return mapDbError(error);
+  if (!data) return fail("not_found");
+  const row = data as unknown as {
+    bio: string | null;
+    seeking_status: string;
+    housing_preferences:
+      | { field_of_study: string | null; move_in_date: string | null }
+      | Array<{ field_of_study: string | null; move_in_date: string | null }>
+      | null;
+  };
+  const housing = one(row.housing_preferences);
+  const text = (value: string | null | undefined) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  };
+  if (!SEEKING_STATUSES.includes(row.seeking_status as SeekingStatus))
+    return fail("unknown");
+  return ok({
+    ...dto,
+    bio: text(row.bio),
+    fieldOfStudy: text(housing?.field_of_study),
+    seekingStatus: row.seeking_status as SeekingStatus,
+    moveInMonth: housing?.move_in_date ? housing.move_in_date.slice(0, 7) : null,
+  });
+}

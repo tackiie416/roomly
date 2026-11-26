@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   getInterestOverview,
+  getPersonPage,
   getInterestStates,
   sendInterest,
   withdrawInterest,
@@ -63,6 +64,8 @@ type Options = {
   interests?: unknown[];
   matches?: unknown[];
   rpc?: { data: unknown; error: { code?: string; message?: string } | null };
+  /** Fila de «Ver perfil» (bio, seeking_status, housing_preferences). */
+  extras?: unknown;
 };
 
 function setup(options: Options = {}) {
@@ -95,6 +98,18 @@ function setup(options: Options = {}) {
   const admin = createFakeSupabase({
     userId: null,
     respond: (call) => {
+      if (call.columns?.includes("bio"))
+        return {
+          data:
+            options.extras === undefined
+              ? {
+                  bio: "  Me gusta cocinar.  ",
+                  seeking_status: "looking_for_room",
+                  housing_preferences: { field_of_study: "", move_in_date: "2026-09-15" },
+                }
+              : options.extras,
+          error: null,
+        };
       const ids = (call.filters.find((f) => f.kind === "in")?.value ?? []) as string[];
       const rows = (options.people ?? [
         person(TARGET),
@@ -401,5 +416,88 @@ describe("evaluateCounterparts", () => {
         expect.objectContaining({ kind: "neq", column: "role", value: "admin" }),
       ])
     );
+  });
+});
+
+describe("getPersonPage («Ver perfil», Fase 5.2)", () => {
+  it("perfil de quien saldría en /explorar: DTO más bio, estudios, qué busca y el mes", async () => {
+    const s = setup();
+    const result = await getPersonPage(s.user.client, TARGET, s.deps);
+    if (!result.ok) throw new Error(result.error);
+    const { profile, state, matchedAt } = result.data;
+    expect(profile).toMatchObject({
+      id: TARGET,
+      bio: "Me gusta cocinar.",
+      fieldOfStudy: null,
+      seekingStatus: "looking_for_room",
+      moveInMonth: "2026-09",
+    });
+    expect(state).toBeUndefined();
+    expect(matchedAt).toBeNull();
+    expect(Object.keys(profile).sort()).toEqual(
+      [
+        "age",
+        "bio",
+        "budgetRange",
+        "differences",
+        "fieldOfStudy",
+        "fullName",
+        "id",
+        "moveInMonth",
+        "neighborhoods",
+        "neighborhoodsTotal",
+        "score",
+        "seekingStatus",
+        "strengths",
+        "university",
+      ].sort()
+    );
+    // Columnas explícitas en la lectura extra, filtrada por ese id.
+    const extra = s.admin.calls.find((c) => c.columns?.includes("bio"));
+    expect(extra?.columns).not.toContain("*");
+    expect(extra?.columns).not.toMatch(/email|date_of_birth|budget|answers/);
+    expect(extra?.filters).toEqual([{ kind: "eq", column: "id", value: TARGET }]);
+  });
+
+  it.each([
+    ["id no válido", "x"],
+    ["uno mismo", VIEWER],
+    ["inexistente o no elegible", "d0000000-0000-4000-8000-000000000009"],
+    ["no pasa los filtros duros y no hay match", FAR],
+  ])("%s: not_found indistinguible", async (_label, id) => {
+    const s = setup();
+    expect(await getPersonPage(s.user.client, id, s.deps)).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+    expect(s.admin.calls.some((c) => c.columns?.includes("bio"))).toBe(false);
+  });
+
+  it("con match se ve aunque ya no pase los filtros duros, con el score del match", async () => {
+    const s = setup({
+      matches: [
+        {
+          user_a_id: VIEWER,
+          user_b_id: FAR,
+          compatibility_score: 64,
+          created_at: "2026-11-20T10:00:00Z",
+        },
+      ],
+    });
+    const result = await getPersonPage(s.user.client, FAR, s.deps);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.state).toBe("matched");
+    expect(result.data.profile.score).toBe(64);
+    expect(result.data.matchedAt).toBe("2026-11-20T10:00:00Z");
+  });
+
+  it("un seeking_status desconocido es unknown (fallo cerrado)", async () => {
+    const s = setup({
+      extras: { bio: null, seeking_status: "otro", housing_preferences: null },
+    });
+    expect(await getPersonPage(s.user.client, TARGET, s.deps)).toEqual({
+      ok: false,
+      error: "unknown",
+    });
   });
 });

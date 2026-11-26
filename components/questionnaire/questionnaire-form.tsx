@@ -19,6 +19,10 @@ import {
  * Se puede guardar a medias (el servidor guarda el progreso); con las 29
  * respondidas, el servidor marca el test como completado y lleva a
  * `/explorar`. En las escalas de valoración solo se etiquetan los extremos.
+ *
+ * Backlog de la Fase 3 (sesión 81): con alguna respuesta ya marcada, cada
+ * pregunta sin responder lo indica («Sin responder») y un enlace lleva a la
+ * primera. Son anclas normales (`#q-<id>`): funcionan sin JavaScript.
  */
 
 const initialState: QuestionnaireFormState = {};
@@ -35,6 +39,12 @@ export function QuestionnaireForm({
   const [state, action] = useActionState(submitQuestionnaire, initialState);
   const values = state.values ?? initialValues;
   const errors = state.fieldErrors ?? {};
+  const isAnswered = (id: string) => {
+    const value = values[id];
+    return Array.isArray(value) ? value.length > 0 : Boolean(value);
+  };
+  const started = questions.some((question) => isAnswered(question.id));
+  const unanswered = started ? questions.filter((q) => !isAnswered(q.id)) : [];
 
   return (
     <form
@@ -42,6 +52,17 @@ export function QuestionnaireForm({
       action={action}
       className="flex flex-col gap-6"
     >
+      {unanswered.length > 0 ? (
+        <p className="text-sm" data-testid="unanswered-summary">
+          {unanswered.length === 1
+            ? "Te queda 1 pregunta sin responder: "
+            : `Te quedan ${unanswered.length} preguntas sin responder: `}
+          <a href={`#q-${unanswered[0].id}`} className="underline">
+            ir a la primera
+          </a>
+          .
+        </p>
+      ) : null}
       {questions.map((question, index) => {
         const options: number[] = [];
         for (let value = question.scale.min; value <= question.scale.max; value++)
@@ -58,11 +79,20 @@ export function QuestionnaireForm({
         return (
           <fieldset
             key={question.id}
+            id={`q-${question.id}`}
             aria-describedby={describedBy || undefined}
-            className="flex flex-col gap-2"
+            className="flex scroll-mt-20 flex-col gap-2"
           >
             <legend className="text-sm font-medium">
               {index + 1}. {question.text}
+              {started && !isAnswered(question.id) ? (
+                <span
+                  className="ml-2 rounded-[var(--radius)] border border-[var(--border)] px-1.5 py-0.5 text-xs font-normal text-[var(--muted)]"
+                  data-testid="unanswered"
+                >
+                  Sin responder
+                </span>
+              ) : null}
             </legend>
             {question.help ? (
               <p id={helpId} className={hintClass}>

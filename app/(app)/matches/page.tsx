@@ -10,6 +10,7 @@ import {
 } from "@/lib/services/interests";
 import { interestNotice } from "@/lib/interests/notices";
 import { InterestActions } from "@/components/interests/interest-actions";
+import { personPath } from "@/lib/interests/paths";
 import { Card } from "@/components/ui/card";
 
 /**
@@ -39,9 +40,13 @@ function PersonCard({
   return (
     <li>
       <Card className="flex flex-col gap-3" data-testid={`person-${state}`}>
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h3 className="font-medium">{person.fullName}</h3>
+            <h3 className="font-medium">
+              <Link href={personPath(person.id)} className="hover:underline">
+                {person.fullName}
+              </Link>
+            </h3>
             <p className="text-sm text-[var(--muted)]">
               {person.age} años
               {person.university ? ` · ${person.university}` : ""}
@@ -60,12 +65,17 @@ function PersonCard({
             ))}
           </ul>
         ) : null}
-        <InterestActions
-          targetId={person.id}
-          name={person.fullName}
-          state={state}
-          back="matches"
-        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <InterestActions
+            targetId={person.id}
+            name={person.fullName}
+            state={state}
+            back="matches"
+          />
+          <Link href={personPath(person.id)} className="text-sm underline">
+            Ver perfil<span className="sr-only"> de {person.fullName}</span>
+          </Link>
+        </div>
       </Card>
     </li>
   );
@@ -90,7 +100,7 @@ export default async function MatchesPage({
   const { matches, received, sent } = result.data;
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-8 p-8">
+    <main className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6 sm:p-8">
       <div>
         <h1 className="text-xl font-medium">Matches</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">

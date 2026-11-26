@@ -180,9 +180,12 @@ export function PreferencesForm({
           maxLength={120}
           defaultValue={text("field_of_study")}
           aria-invalid={Boolean(errors.field_of_study)}
-          aria-describedby={described("field_of_study")}
+          aria-describedby={described("field_of_study") ?? "field_of_study-hint"}
           className="mt-1"
         />
+        <p id="field_of_study-hint" className={`mt-1 ${hintClass}`}>
+          Lo verán en tu perfil las personas compatibles contigo y tus matches.
+        </p>
         <FieldError id="field_of_study-error" messages={errors.field_of_study} />
       </div>
 

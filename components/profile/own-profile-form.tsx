@@ -118,7 +118,8 @@ export function OwnProfileForm({
           className="mt-1 w-full rounded-[var(--radius)] border border-[var(--border)] bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         />
         <p id="bio-hint" className={hintClass}>
-          Hasta {BIO_MAX_LENGTH} caracteres. Déjalo vacío para borrarlo.
+          Hasta {BIO_MAX_LENGTH} caracteres. Lo verán en tu perfil las personas
+          compatibles contigo y tus matches. Déjalo vacío para borrarlo.
         </p>
         <FieldError id="bio-error" messages={errors.bio} />
       </div>

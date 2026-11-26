@@ -15,11 +15,14 @@ import {
 import { sendInterest, withdrawInterest } from "@/lib/services/interests";
 import type { ServiceResult } from "@/lib/services/result";
 import type { InterestNoticeCode } from "@/lib/interests/notices";
+import { personPath } from "@/lib/interests/paths";
+import { uuidSchema } from "@/lib/validation/common";
 
 /**
  * Server Actions de «Me interesa» (Fase 5.1). Orquestación fina sobre
  * lib/services/interests.ts: del navegador solo llegan `targetId`, la página
- * de vuelta (`volver`: `explorar` o `matches`) y, en `/explorar`, `pagina`.
+ * de vuelta (`volver`: `explorar`, `matches` o `perfil`, el de esa persona en
+ * `/explorar/<id>`) y, en `/explorar`, `pagina`.
  * Nunca el usuario, el score ni una habitación. Funcionan sin JavaScript:
  * terminan con un redirect a la página de origen con `?aviso=<código>`
  * (lib/interests/notices.ts).
@@ -27,8 +30,24 @@ import type { InterestNoticeCode } from "@/lib/interests/notices";
 
 const ALLOWED_FIELDS = new Set(["targetId", "volver", "pagina"]);
 
+/** Página de vuelta: solo rutas fijas, o el perfil de un UUID válido. */
+function backPath(formData: FormData): string {
+  const back = formData.get("volver");
+  if (back === "matches") return MATCHES_PATH;
+  if (back === "perfil") {
+    const target = uuidSchema.safeParse(formData.get("targetId"));
+    if (target.success) return personPath(target.data);
+  }
+  return EXPLORE_PATH;
+}
+
+/** Ruta del guard (para volver tras el login): la lista de origen. */
+function guardPath(formData: FormData): typeof EXPLORE_PATH | typeof MATCHES_PATH {
+  return formData.get("volver") === "matches" ? MATCHES_PATH : EXPLORE_PATH;
+}
+
 function returnPath(formData: FormData, notice: InterestNoticeCode): string {
-  const back = formData.get("volver") === "matches" ? MATCHES_PATH : EXPLORE_PATH;
+  const back = backPath(formData);
   const params = new URLSearchParams();
   const page = formData.get("pagina");
   if (back === EXPLORE_PATH && typeof page === "string" && /^[1-9]\d{0,5}$/.test(page)) {
@@ -62,7 +81,7 @@ function errorNotice(error: string): InterestNoticeCode {
 }
 
 export async function expressInterest(formData: FormData): Promise<void> {
-  const back = formData.get("volver") === "matches" ? MATCHES_PATH : EXPLORE_PATH;
+  const back = guardPath(formData);
   await requireCompletedQuestionnaire(back);
   if (hasExtraFields(formData)) redirect(returnPath(formData, "error"));
 
@@ -73,7 +92,7 @@ export async function expressInterest(formData: FormData): Promise<void> {
     if (result.error === "forbidden") redirect(TEST_PATH);
     redirect(returnPath(formData, errorNotice(result.error)));
   }
-  revalidatePath(EXPLORE_PATH);
+  revalidatePath(EXPLORE_PATH, "layout");
   revalidatePath(MATCHES_PATH);
   const notice: InterestNoticeCode =
     result.data.status === "matched"
@@ -85,7 +104,7 @@ export async function expressInterest(formData: FormData): Promise<void> {
 }
 
 export async function retractInterest(formData: FormData): Promise<void> {
-  const back = formData.get("volver") === "matches" ? MATCHES_PATH : EXPLORE_PATH;
+  const back = guardPath(formData);
   await requireActiveProfile(back);
   if (hasExtraFields(formData)) redirect(returnPath(formData, "error"));
 
