@@ -94,13 +94,13 @@ export default async function ConversationPage({
             </p>
           )}
         </div>
-        <Link
-          href={conversationPath(chat.id)}
-          className="text-sm underline"
-          data-testid="chat-refresh"
-        >
-          Actualizar
-        </Link>
+        {/* Un formulario GET (no un <Link>): siempre es una carga nueva de la
+            página, también con la caché del router de Next.js y sin JavaScript. */}
+        <form action={conversationPath(chat.id)} method="get">
+          <button type="submit" className="text-sm underline" data-testid="chat-refresh">
+            Actualizar
+          </button>
+        </form>
       </header>
 
       {notice ? (

@@ -47,6 +47,7 @@ test("estudiante nuevo: alta por magic link, onboarding, app y logout", async ({
   await expect(nav.getByRole("link")).toHaveText([
     "Explorar",
     "Matches",
+    "Mensajes",
     "Test",
     "Habitaciones",
     "Perfil",
