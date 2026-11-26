@@ -168,7 +168,9 @@ test("«Me interesa», match mutuo, /matches y retirar un interés", async ({ pa
   const service = log.filter((entry) => entry.apikeyIsService);
   for (const entry of service) {
     expect(
-      (entry.method === "GET" && entry.path === "/rest/v1/profiles") ||
+      (entry.method === "GET" &&
+        // Sesión 83: también los bloqueos (en los dos sentidos) de quien mira.
+        ["/rest/v1/profiles", "/rest/v1/user_blocks"].includes(entry.path)) ||
         (["POST", "PATCH"].includes(entry.method) &&
           entry.path === "/rest/v1/compatibility_responses") ||
         (entry.method === "POST" &&

@@ -287,3 +287,35 @@ export async function seedMessage(
   });
   return (await mock(`/__test/seed-message?${params}`)).status;
 }
+
+export type MockSafetyState = {
+  blocks: Array<{ blocker_id: string; blocked_id: string }>;
+  reports: Array<{
+    id: string;
+    reporter_id: string;
+    reported_user_id: string | null;
+    reason: string;
+    description: string | null;
+    status: string;
+    resolved_by: string | null;
+  }>;
+  adminLogs: Array<{ admin_id: string; action: string; target_id: string | null }>;
+};
+
+/** Sesión 83: bloqueos, reportes y registro de admin guardados en el mock. */
+export async function safetyState(): Promise<MockSafetyState> {
+  const response = await mock("/__test/safety");
+  expect(response.status).toBe(200);
+  return (await response.json()) as MockSafetyState;
+}
+
+/** Sesión 83: intenta sembrar un interés y devuelve el código de error, si lo hay. */
+export async function trySeedInterest(
+  fromId: string,
+  email: string
+): Promise<string | null> {
+  const params = new URLSearchParams({ from: fromId, email });
+  const response = await mock(`/__test/seed-interest?${params}`);
+  if (response.status === 200) return null;
+  return ((await response.json()) as { code: string }).code;
+}
