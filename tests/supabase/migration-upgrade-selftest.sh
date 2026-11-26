@@ -388,8 +388,8 @@ select roomly_test.expect_error(
   '23514', 'UP4: la fila antigua de una cuenta eliminada ya no se puede escribir');
 reset role;
 select roomly_test.ok(
-  (select count(*) = 40 from pg_policies where schemaname = 'public'),
-  'UP5: 40 políticas (42 hasta 20261126120000; 37 hasta la 4.0; 44 hasta la 4.2; 42 hasta 20261030120000; 41 hasta 20261031120100)');
+  (select count(*) = 42 from pg_policies where schemaname = 'public'),
+  'UP5: 42 políticas (40 hasta 20261128120000; 42 hasta 20261126120000; 37 hasta la 4.0; 44 hasta la 4.2; 42 hasta 20261030120000; 41 hasta 20261031120100)');
 select roomly_test.ok(
   (select published_at = created_at and updated_at = created_at
    from public.rooms where id = 'f1000000-0000-0000-0000-00000000000a')

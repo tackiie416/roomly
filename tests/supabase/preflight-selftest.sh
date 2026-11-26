@@ -268,8 +268,8 @@ fi
 echo "== el preflight no deja nada creado"
 if "${P[@]}" -At -c "select count(*) from pg_class where relpersistence = 't'" | grep -qx 0 \
   && run_with "select 1;" \
-  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "40" ]; then
-  echo "   ok - sin tablas temporales ni cambios; siguen 40 políticas"
+  && [ "$("${P[@]}" -At -c "select count(*) from pg_policies where schemaname = 'public'")" = "42" ]; then
+  echo "   ok - sin tablas temporales ni cambios; siguen 42 políticas"
 else
   echo "   FALLO: el preflight dejó restos"
   failed=1
