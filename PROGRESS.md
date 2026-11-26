@@ -6,6 +6,78 @@ próximos pasos.**
 
 ---
 
+## 2026-11-26 — Sesión 82: merges de #38 y #39, Fase 6 (chat entre matches) e interés por habitación
+
+**Contexto.** El propietario autorizó expresamente el merge del PR #38 y,
+después, el del #39, y pidió la Fase 6 completa en local, más el interés por
+habitación con la identidad solo para las dos personas. Sin Supabase remoto,
+sin secretos, sin despliegues y sin datos reales.
+
+**Qué se hizo.**
+- Merges, con el método normal y sin force push:
+  - PR #38 (`7a2101b`); CI de `master` en verde (run `45729318986`);
+  - antes, el #39 se reapuntó a `master` para que borrar la rama base no lo
+    cerrara; su rama se actualizó, su CI pasó y se integró (`6bb12e0`); CI de
+    `master` en verde (run `45729617505`).
+- Migración `20261127120000_chat_between_matches.sql` (en local, **sin
+  aplicar en ningún proyecto real**):
+  - una conversación por match (`uq_conversations_match`), abierta por
+    `trg_matches_open_conversation` al crearse el match, con sus dos
+    participantes, y cerrada (`closed_at`) por
+    `trg_matches_close_conversation` al borrarse. Las conversaciones antiguas
+    sin match quedan cerradas; las de los matches existentes se crean;
+  - `is_conversation_participant` exige además la conversación abierta y con
+    match: una conversación cerrada no se lee ni se escribe desde ningún
+    cliente;
+  - privilegios: anon y PUBLIC, nada en las tres tablas; authenticated,
+    SELECT, `UPDATE(last_read_at)` de su participación e
+    `INSERT(conversation_id, sender_id, content, client_token)` de mensajes;
+  - `trg_messages_integrity` (también para service_role): mensajes
+    inmutables, conversación abierta (FOR SHARE, serializa con
+    `undo_match`), remitente participante del match vigente, las dos cuentas
+    activas y 30 mensajes por minuto. `chk_messages_content_length` (2000) y
+    `uq_messages_sender_token` (un reenvío no duplica);
+  - `undo_match` y `room_interest_owner`, EXECUTE solo de service_role.
+  - Realtime: `messages` en la publicación `supabase_realtime` si existe.
+- Servidor:
+  - `lib/services/chat.ts`, **sin service_role**: lista de conversaciones con
+    no leídos, conversación con paginación por cursor (50 por página) y
+    marcado de lectura, y envío con `client_token`;
+  - `lib/services/interests.ts`: `undoMatch` y `sendRoomInterest` (dos rpc
+    más en el mismo servicio con service_role, D17 sin ampliar el número de
+    servicios); los intereses ligados a una habitación se ven en `/matches`
+    sin los filtros duros, solo entre las dos personas.
+- Interfaz, sin JavaScript: `/mensajes` y `/mensajes/<id>` (404
+  indistinguible), «Mensajes» en la navegación, «Abrir chat» y «Deshacer
+  match» en `/matches` y en el chat, y «Me interesa esta habitación» en el
+  detalle público, que sigue sin leer la sesión ni mostrar a la propietaria.
+  Realtime opcional con `NEXT_PUBLIC_CHAT_REALTIME` (por defecto `false`);
+  el respaldo es «Actualizar».
+
+**Tests (en local).** `test` 1734/1734 (70 archivos); `test:db` en verde, con
+`tests/db/27_chat.sql` (CH0–CH8) y `concurrency_chat.sh` (CC1–CC2), y
+`tests/db/02` adaptado; `test:infra` en verde (preflight con 21 triggers y 25
+funciones); E1 59/59 (orientativo, Chromium preinstalado), con
+`chat-flow.spec.ts` (2). Lint, typecheck y format en verde.
+
+**Problemas encontrados.**
+- «Actualizar» era un `<Link>` al mismo chat y, con la caché del router de
+  Next.js, no traía los mensajes nuevos. E1 lo detectó; ahora es un
+  formulario GET (carga completa, también sin JavaScript).
+- Una vez falló en local el test del 413 simulado de `upload-size.spec.ts`;
+  al repetirlo pasó (sin cambios en esa zona).
+
+**Decisiones técnicas.**
+- Los mensajes se conservan al deshacer un match, pero ningún cliente puede
+  leerlos. Cuánto tiempo se guardan es una decisión pendiente (RGPD).
+- El interés por habitación revela a quien publica a cualquier persona con
+  cuenta y el test hecho, por diseño del requisito. Se limita con el rate
+  limit de 30 intereses en 24 h y con `not_found` indistinguible.
+
+**Próximos pasos.** PR de la Fase 6 con la CI en verde; aplicar
+`20261126120000` y `20261127120000` en `roomly-validation-4` necesita
+autorización; reportar y bloquear (resto de la Fase 6) y avisos por email.
+
 ## 2026-11-26 — Sesión 81: Fase 5.2 («Ver perfil») y backlog del test
 
 **Contexto.** El propietario pidió seguir con la Fase 5 sin favoritos, con

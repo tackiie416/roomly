@@ -1242,7 +1242,7 @@ servicio o vista diseñada para ello; no se resuelve moviendo las columnas.
 
 **Interés y matching** — `interests` (unifica interés en persona e interés vía habitación), `matches` (creado solo desde el servidor). Desde la Fase 5.1 (`20261126120000`), ningún cliente escribe en ninguna de las dos: el servidor usa `record_interest` y `withdraw_interest` (EXECUTE solo de service_role), y los triggers `trg_interests_integrity` y `trg_matches_integrity` exigen, también a service_role, cuentas activas con onboarding (no admin) y el interés mutuo para un match. Detalle en `docs/SECURITY.md`, «Fase 5.1».
 
-**Chat** — `conversations`, `conversation_participants` (tabla de unión, no columnas fijas — permite grupo más adelante), `messages`.
+**Chat** — `conversations`, `conversation_participants` (tabla de unión, no columnas fijas — permite grupo más adelante), `messages`. Desde la Fase 6 (`20261127120000`), una conversación por match: la abre y la cierra (`closed_at`) la base de datos con triggers de `matches`; los mensajes tienen `client_token` (sin duplicados), 2000 caracteres como máximo y un trigger de integridad para todos los roles. Detalle en `docs/SECURITY.md`, «Fase 6».
 
 **Confianza y seguridad** — `reports`, `admin_action_logs`.
 

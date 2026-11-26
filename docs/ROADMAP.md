@@ -1061,10 +1061,9 @@ la Fase 5»). Detalle: `PROGRESS.md`, sesión 80.
   sin responder señaladas y confirmación al terminar el test).
 - **Pendiente de la Fase 5, con decisión del propietario:**
   - favoritos (`favorites`): excluidos por el propietario por ahora;
-  - el interés con contexto de habitación: la base de datos lo admite
-    (`p_room_id`, validado por el trigger), pero no hay interfaz;
-  - deshacer un match (se decide con el chat, Fase 6) y avisos por email de
-    intereses o matches;
+  - el interés con contexto de habitación y deshacer un match: hechos en la
+    sesión 82 (Fase 6);
+  - avisos por email de intereses o matches;
   - aplicar `20261126120000` en un proyecto real y validarla, con
     autorización (ver `docs/SUPABASE_VALIDATION.md`).
 
@@ -1072,6 +1071,16 @@ la Fase 5»). Detalle: `PROGRESS.md`, sesión 80.
 
 Conversaciones vía Supabase Realtime, mensajes, contador de no leídos,
 bloquear, reportar.
+
+**Estado (sesión 82, en local, sin merge ni validación real):** chat entre
+matches (`20261127120000`): una conversación por match, `/mensajes` con no
+leídos, paginación por cursor, envío sin duplicados, deshacer match (cierra
+el chat) y Realtime opcional (`NEXT_PUBLIC_CHAT_REALTIME`, con «Actualizar»
+como respaldo). También el interés por habitación de la Fase 5 («Me interesa
+esta habitación», la identidad solo en `/matches`). El criterio de la RLS lo
+cubren `tests/db/02` y `27`; «en tiempo real» depende de activar Realtime.
+Pendientes: bloquear y reportar, la retención de los mensajes tras deshacer
+un match y aplicar la migración en un proyecto real (con autorización).
 
 **Criterios de aceptación**: dos usuarios en un match pueden chatear en
 tiempo real; un tercer usuario no puede leer esa conversación ni aunque

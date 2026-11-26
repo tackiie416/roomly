@@ -532,8 +532,17 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     en `/explorar` o hay match; si no, 404 indistinguible), sin migraciones
     ni servicio nuevo con service_role. No le añadas campos sin decisión:
     nunca el email, la fecha de nacimiento ni los presupuestos exactos;
-  - pendientes de decisión: favoritos, interés con habitación
-    en la interfaz y deshacer un match (Fase 6). Aplicar la migración en un
+  - pendientes de decisión: favoritos.
+  - PR #38 y #39 integrados en `master` (`7a2101b` y `6bb12e0`, CI en verde).
+- **Fase 6 (Chat): EMPEZADA el 2026-11-26** (sesión 82, rama
+  `claude/project-thread-1vffj7`, sin merge y sin validar en Supabase real):
+  migración `20261127120000` (una conversación por match, abierta y cerrada
+  por triggers; mensajes con GRANT por columnas, `client_token` y
+  `trg_messages_integrity` para todos los roles; `undo_match` y
+  `room_interest_owner`, solo service_role), `/mensajes`, deshacer match e
+  interés por habitación (identidad solo en `/matches`). `chat.ts` no usa
+  service_role; no se lo des. Preflight: 21 triggers y 25 funciones.
+  Pendientes: bloquear, reportar y la retención de mensajes. Aplicar la migración en un
     proyecto real necesita autorización; hasta entonces el preflight vigente
     falla contra `roomly-validation-4`.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
@@ -749,8 +758,9 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   desde la sesión 65, `lib/services/rooms.ts` (solo
   `rpc("delete_own_room")`, después de comprobar la sesión, la cuenta y la
   propiedad con el cliente del usuario) y, desde la Fase 5.1,
-  `lib/services/interests.ts` (solo `rpc("record_interest")` y
-  `rpc("withdraw_interest")`, después de comprobar con `evaluateCounterparts`
+  `lib/services/interests.ts` (solo `rpc("record_interest")`,
+  `rpc("withdraw_interest")` y, desde la Fase 6, `rpc("undo_match")` y
+  `rpc("room_interest_owner")`, después de comprobar con `evaluateCounterparts`
   que la otra persona saldría en `/explorar`).
   - `tests/unit/admin-client-usage.test.ts` falla si otro archivo lo usa.
   - El estado propio se lee siempre con el cliente del usuario.
@@ -902,8 +912,8 @@ api-suite (D6 = B), y desde el run 19 también los servicios
 `saveQuestionnaireAnswers` y `getCandidates` (SVC/GC). El runtime completo
 de Next.js con la clave real no está validado.
 Desde la Fase 5.1 (sesión 80, sin merge) hay «Me interesa» y matches
-(`/matches`); todavía no hay «Ver perfil» de
-terceros, chat ni admin real.
+(`/matches`), desde la 5.2 «Ver perfil» y desde la Fase 6 (sin merge) el chat;
+todavía no hay admin real.
 
 Fase 4, integrada en `master` (PR #26–#33), con sus criterios de aceptación
 cumplidos y validación real parcial, **cerrada el 2026-11-24** (cierre
