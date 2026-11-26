@@ -28,6 +28,11 @@
 //           las FK (también la compuesta barrio ↔ ciudad) y el trigger de
 //           moderación H5. Un admin solo existe si un test lo crea con
 //           /__test/make-admin.
+//           Fase 5.1: interests y matches (authenticated solo lee las filas
+//           en las que participa; ningún cliente escribe) y, solo con
+//           service_role, rpc/record_interest y rpc/withdraw_interest con las
+//           reglas de 20261126120000 (cuentas válidas, rate limit de 30 en
+//           24 h, match al ser mutuo, sin retirar con match).
 //   Test  — /__test/*: el "buzón" (último enlace enviado a un email), reset,
 //           desactivar una cuenta (operación de servidor), leer el estado y,
 //           desde la Fase 4.2, sembrar una habitación y leer sus fotos y
@@ -225,6 +230,8 @@ function reset() {
     images: new Map(), // id → room_images
     objects: new Map(), // ruta en room-images → { body, contentType }
     signTokens: new Map(), // token → { path, expiresAt }
+    interests: [], // { from_user_id, to_user_id, room_id, created_at }
+    matches: [], // { id, user_a_id, user_b_id, room_id, compatibility_score, created_at }
     log: [],
   };
 }
@@ -808,10 +815,98 @@ const EMPTY_PREFS = {
   roommates_wanted_max: null,
 };
 
+// ---------------------------------------------------------------- Fase 5.1
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const pairOf = (a, b) => (a < b ? [a, b] : [b, a]);
+const findMatch = (a, b) => {
+  const [x, y] = pairOf(a, b);
+  return state.matches.find((m) => m.user_a_id === x && m.user_b_id === y);
+};
+const hasInterest = (from, to) =>
+  state.interests.some((i) => i.from_user_id === from && i.to_user_id === to);
+/** trg_interests_integrity: dos cuentas activas, con onboarding y no admin. */
+const interestParty = (id) => {
+  const p = state.profiles.get(id);
+  return (
+    p && p.deleted_at === null && p.onboarding_completed_at !== null && p.role !== "admin"
+  );
+};
+function recordInterest(body) {
+  const { p_from: from, p_to: to, p_score: score, p_room_id: roomId = null } = body;
+  if (!UUID_RE.test(from ?? "") || !UUID_RE.test(to ?? "") || from === to)
+    throw new DbError(
+      400,
+      "22004",
+      "interest_invalid: faltan las personas o son la misma"
+    );
+  if (!Number.isInteger(score) || score < 0 || score > 100)
+    throw new DbError(
+      400,
+      "22003",
+      "interest_score_invalid: el score tiene que estar entre 0 y 100"
+    );
+  if (findMatch(from, to)) return "matched";
+  let inserted = false;
+  if (!hasInterest(from, to)) {
+    // trg_interests_rate_limit (20260925120000) y trg_interests_integrity.
+    const since = Date.now() - 24 * 3600 * 1000;
+    const recent = state.interests.filter(
+      (i) => i.from_user_id === from && Date.parse(i.created_at) > since
+    ).length;
+    if (recent >= 30)
+      throw new DbError(400, "P0001", "rate_limit_exceeded: máximo 30 intereses en 24h");
+    if (!interestParty(from) || !interestParty(to))
+      throw new DbError(
+        400,
+        "23514",
+        "interest_party_invalid: alguna de las dos cuentas no puede enviar ni recibir intereses"
+      );
+    state.interests.push({
+      from_user_id: from,
+      to_user_id: to,
+      room_id: roomId,
+      created_at: new Date().toISOString(),
+    });
+    inserted = true;
+  }
+  if (!hasInterest(to, from)) return inserted ? "sent" : "already_sent";
+  const [a, b] = pairOf(from, to);
+  state.matches.push({
+    id: randomUUID(),
+    user_a_id: a,
+    user_b_id: b,
+    room_id: null,
+    compatibility_score: score,
+    created_at: new Date().toISOString(),
+  });
+  return "matched";
+}
+function withdrawInterest(body) {
+  const { p_from: from, p_to: to } = body;
+  if (!UUID_RE.test(from ?? "") || !UUID_RE.test(to ?? "") || from === to)
+    throw new DbError(
+      400,
+      "22004",
+      "interest_invalid: faltan las personas o son la misma"
+    );
+  if (findMatch(from, to)) return "matched";
+  const before = state.interests.length;
+  state.interests = state.interests.filter(
+    (i) => !(i.from_user_id === from && i.to_user_id === to)
+  );
+  return state.interests.length < before ? "withdrawn" : "not_found";
+}
+
 function handleService(req, res, url, body, table) {
   // service_role (BYPASSRLS): solo lo que usa la app en el servidor.
   if (table === "rpc/delete_own_room" && req.method === "POST") {
     return send(res, 200, deleteOwnRoom(body));
+  }
+  if (table === "rpc/record_interest" && req.method === "POST") {
+    return send(res, 200, recordInterest(body));
+  }
+  if (table === "rpc/withdraw_interest" && req.method === "POST") {
+    return send(res, 200, withdrawInterest(body));
   }
   if (table === "profiles" && req.method === "GET") {
     return respondRows(req, res, candidateRows(url), null);
@@ -1250,6 +1345,17 @@ function handleRest(req, res, url, body, uid, isService) {
     return respondRows(req, res, applyFilters(own, url), columns);
   }
 
+  if (table === "interests" || table === "matches") {
+    // interests_select_participant y matches_select_participant; sin INSERT,
+    // UPDATE ni DELETE para authenticated (20261126120000).
+    if (req.method !== "GET") throw denied(table);
+    const own =
+      table === "interests"
+        ? state.interests.filter((i) => i.from_user_id === uid || i.to_user_id === uid)
+        : state.matches.filter((m) => m.user_a_id === uid || m.user_b_id === uid);
+    return respondRows(req, res, applyFilters(own, url), columns);
+  }
+
   if (table === "rooms") return handleUserRooms(req, res, url, body, uid, columns);
   if (table === "room_images") {
     // room_images_select (R7): las fotos de las habitaciones que puede ver.
@@ -1556,6 +1662,21 @@ function handleTest(req, res, url) {
         updated_at: now,
       });
       return send(res, 200, { ok: true });
+    }
+    case "/__test/interests": {
+      // Fase 5.1: intereses y matches guardados (para comprobar el resultado).
+      return send(res, 200, { interests: state.interests, matches: state.matches });
+    }
+    case "/__test/seed-interest": {
+      // Fase 5.1: un «Me interesa» ya enviado por otra persona (datos de
+      // servidor). Parámetros: from (id) y to (email).
+      const to = findUser(email);
+      const from = url.searchParams.get("from");
+      if (!to || !state.profiles.get(from))
+        return send(res, 404, { error: "sin perfil" });
+      return send(res, 200, {
+        status: recordInterest({ p_from: from, p_to: to.id, p_score: 50 }),
+      });
     }
     case "/__test/seed-candidate": {
       // Otra persona que ya terminó onboarding y test (datos de servidor).

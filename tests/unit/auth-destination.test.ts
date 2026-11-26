@@ -185,6 +185,8 @@ describe("isProtectedPath (proxy)", () => {
     "/habitaciones/22222222-3333-4444-8555-666666666666/fotos",
     "/habitaciones/22222222-3333-4444-8555-666666666666/borrar",
     "/habitaciones/borrada",
+    // Fase 5.1: matches.
+    "/matches",
   ])("%s exige sesión", (path) => {
     expect(isProtectedPath(path)).toBe(true);
   });
@@ -200,6 +202,7 @@ describe("isProtectedPath (proxy)", () => {
     // Fase 4.4: búsqueda y detalle públicos (R4), sin sesión.
     "/barcelona/habitaciones/22222222-3333-4444-8555-666666666666",
     "/habitacionesx",
+    "/matchesx",
   ])("%s es pública", (path) => {
     expect(isProtectedPath(path)).toBe(false);
   });

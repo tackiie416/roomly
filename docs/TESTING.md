@@ -199,6 +199,19 @@ Detalle, con los niveles de evidencia, en `docs/SUPABASE_VALIDATION.md`
 Las secciones siguientes son el registro histórico de cada sesión; lo que
 dicen como "pendiente" puede estar ya superado por esta tabla.
 
+## Sesión 79 (2026-11-25): Next.js 16.4.6 y verificación de la limpieza, en local
+
+| Comprobación | Resultado |
+|---|---|
+| `lint`, `typecheck`, `format:check` | ✅ |
+| `test` | ✅ 1569/1569 (1564 + 5 de `validation-infra` para la verificación de la limpieza) |
+| `build` | ✅ con `next` 16.4.6. Con 16.4.3, `SecurityFatalError` (vulnerabilidad conocida) |
+| `test:db` | ✅ todos los tests de seguridad |
+| `test:infra` | ✅ todos los selftests, con `validation-cleanup-check-selftest.sh` (18 casos) |
+| E1 | ✅ 55/55 con Chromium preinstalado (orientativo). El límite de 5 MB sigue dando 500 sin ejecutar la acción |
+
+Sin Supabase real ni runs. La CI del PR es la referencia.
+
 ## Fase 4 integrada en `master` (PR #26–#33) — resultados (2026-11-23)
 
 | Capa | Dónde | Resultado |
@@ -1603,3 +1616,26 @@ La CI tampoco ejecuta `npm run test:supabase` (la api-suite real, SVC/GC
 incluidos). `lint` y `typecheck` cubren `tests/integration/` y
 `vitest.integration.config.ts`, pero esas pruebas solo corren en el
 workflow manual.
+
+## Fase 5.1 — «Me interesa» y match mutuo (sesión 80, en local)
+
+- `tests/db/26_interests_matches.sql` (IM0–IM9): privilegios y políticas,
+  INSERT directo de clientes rechazado (criterio de aceptación de la Fase 5),
+  triggers para service_role, `record_interest` y `withdraw_interest`, rate
+  limit y contexto de habitación.
+- `tests/db/concurrency_interests.sh` (CI0–CI2, solo local, en `test:db`):
+  envíos simultáneos con dos sesiones; con el control sin el bloqueo, la
+  carrera pierde el match.
+- Unitarios: `services-interests`, `interests-actions`, `matches-page`,
+  `explore-page` (estados de las tarjetas) y `admin-client-usage` (quinto
+  servicio, solo las dos rpc).
+- E1: `tests/e2e/local/interests-flow.spec.ts` (enviar, match mutuo,
+  `/matches`, retirar, y sin JavaScript). El mock emula `interests`,
+  `matches` y las dos rpc.
+- Resultados en local (orientativos frente a la CI): `test` 1635/1635,
+  `test:db` 990 comprobaciones en verde, `test:infra` en verde, `build` en
+  verde y E1 56/57. El que falla, `upload-size.spec.ts` («más de 5 MB»),
+  falla también en local sobre el commit anterior, sin estos cambios, y pasa
+  en la CI del PR #38: es del entorno local (Chromium preinstalado), no de la
+  Fase 5.
+

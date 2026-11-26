@@ -228,3 +228,23 @@ export async function makeAdmin(email: string): Promise<void> {
     (await mock(`/__test/make-admin?email=${encodeURIComponent(email)}`)).status
   ).toBe(200);
 }
+
+/** Fase 5.1: otra persona (por id) ya envió «Me interesa» a `email` (dato de servidor). */
+export async function seedInterest(fromId: string, email: string): Promise<string> {
+  const params = new URLSearchParams({ from: fromId, email });
+  const response = await mock(`/__test/seed-interest?${params}`);
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { status: string }).status;
+}
+
+export type MockInterestsState = {
+  interests: Array<{ from_user_id: string; to_user_id: string }>;
+  matches: Array<{ user_a_id: string; user_b_id: string; compatibility_score: number }>;
+};
+
+/** Fase 5.1: intereses y matches guardados en el mock. */
+export async function interestsState(): Promise<MockInterestsState> {
+  const response = await mock("/__test/interests");
+  expect(response.status).toBe(200);
+  return (await response.json()) as MockInterestsState;
+}

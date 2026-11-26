@@ -1594,6 +1594,52 @@ limitación conocida, no una garantía.
   los rechaza y la página muestra el aviso de filtros no válidos. Si se
   quieren aceptar, es una decisión de producto.
 
+## Fase 5.1 — «Me interesa» y match mutuo (20261126120000)
+
+**Hallazgo corregido.** Desde la Fase 0, `interests_insert_own` dejaba a
+cualquier usuario autenticado crear por PostgREST un interés hacia cualquier
+perfil: desactivado, admin, sin onboarding o que no pasaba los filtros duros.
+Era una vía de spam y de enumeración de ids. Y nada impedía a service_role
+crear un match sin interés mutuo.
+
+- **Privilegios:** anon y PUBLIC, nada sobre `interests` ni `matches`;
+  authenticated, solo SELECT (sus políticas de participante no cambian).
+  Ningún cliente escribe. Se eliminan `interests_insert_own` e
+  `interests_delete_own`, para que un GRANT futuro no reabra la escritura.
+- **Triggers para todos los roles (también service_role):**
+  - `trg_interests_integrity`: un interés no se modifica; las dos cuentas
+    existen, están activas, tienen el onboarding completo y no son admin
+    (bloqueadas con FOR SHARE); el contexto de habitación, si lo hay, es una
+    habitación activa de quien recibe;
+  - `trg_matches_integrity`: un match no se modifica y solo se crea con los
+    dos intereses y las dos cuentas activas.
+  - El rate limit de 30 intereses en 24 h (`trg_interests_rate_limit`) sigue.
+- **Funciones** `record_interest` y `withdraw_interest`: SECURITY INVOKER,
+  `search_path` vacío, EXECUTE solo de service_role. Serializan cada pareja
+  con `pg_advisory_xact_lock` y se niegan fuera de READ COMMITTED
+  (`interest_isolation`): con una instantánea de toda la transacción, quien
+  espera el bloqueo no vería el interés recién confirmado de la otra persona
+  y el match se perdería (`tests/db/concurrency_interests.sh`, CI0–CI2).
+- **Servidor (D17 ampliada):** `lib/services/interests.ts` es el quinto
+  servicio con service_role, solo para esas dos rpc
+  (`tests/unit/admin-client-usage.test.ts`). Antes de llamarlas comprueba la
+  sesión, la cuenta, el test vigente y que la otra persona saldría en
+  `/explorar` (`evaluateCounterparts`, con los mismos filtros duros). Un id
+  que no pasa da `not_found`, igual que uno inexistente: no se puede saber
+  por el error si un perfil existe. El score lo calcula el motor (regla 6),
+  nunca llega del navegador.
+- **Lo que sale del servidor:** solo `CandidateDTO` (lista blanca). Un match
+  no da acceso a datos de contacto: el chat es de la Fase 6.
+- **Riesgos y límites:**
+  - quien recibe un interés ve el nombre, la edad, la universidad y la
+    compatibilidad de quien lo envía, solo si esa persona también pasa sus
+    filtros duros (si no, no se muestra). Es el mismo DTO de `/explorar`;
+  - un match se sigue mostrando aunque la otra persona ya no pase los filtros
+    duros, mientras su cuenta sea elegible;
+  - sin validar en Supabase real: la migración no está aplicada en ningún
+    proyecto, y el preflight vigente fallará contra `roomly-validation-4`
+    hasta que se aplique (con autorización).
+
 ## Privacidad de ubicación
 
 `room_addresses.address_exact` en tabla separada, RLS restringida al
@@ -1646,6 +1692,25 @@ cuanto exista.
   - No queda ninguna alerta pendiente. Esto describe la base de datos de
     avisos del 2026-10-29: vuelve a comprobarse con `npm audit` antes de cada
     despliegue.
+- **Revisión del 2026-11-25 (sesión 79).** `npm audit` volvió a dar avisos
+  en `next` 16.4.3: siete moderados, corregidos en 16.4.6
+  (GHSA-mfr8-8qww-v76h, GHSA-vc7v-qv4w-wrv8, GHSA-7qx7-33qx-rqx2,
+  GHSA-f3mh-rxg3-f5g2, GHSA-pc58-hwjq-p385, GHSA-rhh4-g77r-r9qj y
+  GHSA-vvgp-ww4w-46vf). Además, `next build` se negaba a terminar
+  (`SecurityFatalError`: la versión tiene una vulnerabilidad conocida), así
+  que **la CI de `master` habría fallado en el siguiente build**, aunque el
+  código no cambiara. También había un aviso moderado en `minimatch`, una
+  dependencia transitiva de desarrollo (de `typescript-eslint`).
+  - `next` y `eslint-config-next` pasan de 16.4.3 a 16.4.6, exactas, y
+    `npm audit fix`, sin `--force`, actualiza `minimatch` en el árbol de
+    desarrollo (con `typescript-eslint` 8.74.0). `react` y `react-dom` siguen
+    en 19.2.8.
+  - Aplicabilidad: la app no usa `use cache`, `unstable_cache`, `next/image`
+    ni rutas Edge (el proxy corre en Node.js). La de respuestas reenviadas en
+    instalaciones propias no aplica en Vercel. Se corrigen todas igualmente.
+  - Después: `npm audit` con 0 vulnerabilidades. Lint, typecheck, `test`,
+    `build` y E1 (55/55, con el límite de subida de 5 MB: 500 sin ejecutar
+    la acción, igual que con 16.4.3) en verde en local.
 
 ## RGPD — lo que es responsabilidad técnica y lo que no
 

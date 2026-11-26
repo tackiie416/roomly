@@ -6,6 +6,135 @@ próximos pasos.**
 
 ---
 
+## 2026-11-25 — Sesión 80: Fase 5.1, «Me interesa» y match mutuo
+
+**Contexto.** El propietario autorizó expresamente empezar la Fase 5
+(«Autorizo expresamente a empezar la Fase 5 ("Me interesa" y match)»), con
+PR listos para revisión y sin merge. No autoriza Supabase remoto, migraciones
+remotas, secretos, despliegues ni uso con personas reales.
+
+**Qué se hizo (5.1):**
+- **Hallazgo de seguridad corregido.** `interests_insert_own` (Fase 0) dejaba
+  a cualquier usuario autenticado crear por PostgREST un interés hacia
+  cualquier perfil, también desactivado, admin o que no pasaba los filtros
+  duros. Lo cierra la migración `20261126120000`:
+  - sin escritura de clientes en `interests` y `matches` (authenticated solo
+    SELECT; anon nada); se eliminan `interests_insert_own` e
+    `interests_delete_own` (de 42 a 40 políticas);
+  - `trg_interests_integrity` y `trg_matches_integrity`, también para
+    service_role (17 triggers);
+  - `record_interest` y `withdraw_interest` (19 funciones), SECURITY
+    INVOKER, EXECUTE solo de service_role, con bloqueo por pareja y READ
+    COMMITTED obligatorio.
+- `lib/services/matching.ts`: `evaluateCounterparts` (las reglas de
+  `/explorar` para un conjunto de ids), con `getCandidates` reescrito sobre
+  las mismas piezas y sin cambio de comportamiento.
+- `lib/services/interests.ts` (quinto servicio con service_role, solo las dos
+  rpc): `sendInterest`, `withdrawInterest`, `getInterestOverview` y
+  `getInterestStates`. `ServiceErrorCode` gana `rate_limited`.
+- `app/actions/interests.ts` (`expressInterest`, `retractInterest`),
+  `components/interests/interest-actions.tsx`, avisos de lista cerrada
+  (`lib/interests/notices.ts`), «Me interesa» en `/explorar` y la página
+  `/matches`, añadida a las rutas protegidas y a la navegación.
+- Tests: `tests/db/26`, `tests/db/concurrency_interests.sh` (en `test:db`),
+  unitarios nuevos y actualizados, E1 `interests-flow.spec.ts` (mock con
+  intereses, matches y las dos rpc) y la api-suite IN1–IN3 (solo en el
+  workflow manual). Preflight, selftests y conteos actualizados.
+
+**Decisiones técnicas (reversibles, tomadas por Claude):**
+- interés entre personas desde `/explorar`; el contexto de habitación lo
+  admite la base de datos, pero no hay interfaz;
+- solo se envía un interés a quien saldría en `/explorar` (mismo
+  `not_found` para lo inexistente y lo no elegible);
+- el score del match lo calcula el motor en el servidor;
+- un interés se retira solo antes del match; deshacer un match queda para la
+  Fase 6;
+- favoritos y «Ver perfil» fuera de la 5.1 (necesitan decisión).
+
+**Pruebas en local:** `lint`, `typecheck` y `format:check` en verde; `test`
+1635/1635; `test:db` en verde (990 comprobaciones, con CI0–CI2); `test:infra`
+en verde; `build` en verde (`/matches` dinámica); E1 56/57. El que falla,
+`upload-size.spec.ts` («más de 5 MB»), también falla en local sin estos
+cambios y pasa en la CI del PR #38: es del entorno local.
+
+**Qué queda:** favoritos, «Ver perfil», interés con habitación en la
+interfaz, avisos por email, y aplicar y validar `20261126120000` en un
+proyecto real (autorización del propietario; hasta entonces el preflight
+vigente falla contra `roomly-validation-4`). Alojamiento: Netlify está
+conectado al repositorio (Deploy Previews de `lovely-tulumba-009360`) y
+Vercel no (`docs/ENVIRONMENT.md`, «Alojamiento»).
+
+---
+
+## 2026-11-25 — Sesión 79: Next.js 16.4.6, verificación de la limpieza y registro de los PR #36 y #37
+
+**Contexto.** El propietario pidió acelerar el final de ROOMLY con autonomía
+para el trabajo local de bajo riesgo: tests, correcciones, documentación,
+commits y PR. No autoriza merge, Supabase remoto, secretos, validaciones
+externas, despliegues ni resolver «C-8» por suposición.
+
+**Registro de los PR posteriores al cierre (verificado en GitHub y Git):**
+- PR #36: registro del cierre técnico, commit `ec4c37b`, merge
+  `50377a68e08736127fb40f6d13bd883cac083158`. CI de `master`: run
+  `45293801308`, 3/3 en verde.
+- PR #37: estado del hotfix y «C-8» pendiente de definición, commit `cec7bcd`,
+  merge `a3a547894810bfc154a2f3411ad94d48d031e550`, el 2026-11-24 a las
+  22:48 UTC. Solo cambia `CLAUDE.md`, `docs/SECURITY.md` y
+  `docs/INCIDENT_PUBLIC_PROFILE_PREVIEWS.md`. CI de `master`: run
+  `45504346756`, 3/3 en verde (`lint-typecheck-test-build`, `db-security` y
+  `e2e-local`).
+- Desde el run 28 (`154a0f1`) hasta `a3a5478` solo cambian documentos, y desde
+  el run 27 (`9ed20ed`) no cambia ninguna migración. El esquema de
+  `roomly-validation-4` sigue correspondiendo a `master`. No ha habido ningún
+  run de validación después del 28.
+
+**Defecto corregido: `next build` ya no terminaba.** Con `next` 16.4.3, el
+build se detiene con `SecurityFatalError`, porque la versión tiene una
+vulnerabilidad conocida. Son siete avisos moderados, corregidos en 16.4.6. La
+siguiente CI de `master` habría fallado sin ningún cambio de código.
+- `next` y `eslint-config-next` pasan a 16.4.6. `npm audit fix`, sin
+  `--force`, corrige además `minimatch`, una dependencia transitiva de
+  desarrollo. `npm audit` queda con 0 vulnerabilidades.
+- Detalle y aplicabilidad: `docs/SECURITY.md`, «Dependencias», revisión del
+  2026-11-25.
+
+**Herramienta nueva: verificación de la limpieza (paso 8 de D2), de solo
+lectura.**
+- `tests/supabase/validation-cleanup-check.{sh,sql}`, con su selftest de 18
+  casos en `test:infra` y en la CI, y 5 comprobaciones estáticas en
+  `validation-infra`.
+- Exige la marca de la allow-list antes de leer nada y solo muestra
+  contadores. Sale con 0 si está limpio, con 1 si quedan restos y con 2 si no
+  se puede verificar.
+- Uso, y los comandos para cerrar los pasos 7 y 8 en `roomly-validation-4`
+  con la fecha de referencia `2026-11-25T00:00:00Z`: ver
+  `docs/SUPABASE_VALIDATION.md`, «Verificación de la limpieza». Los ejecuta
+  el propietario: necesitan la URL de la base de datos.
+
+**Pruebas en local:**
+- `lint`, `typecheck` y `format:check` en verde;
+- `test`: 1569/1569;
+- `build` en verde con 16.4.6 (con 16.4.3 fallaba);
+- `test:db`, todos los tests de seguridad;
+- `test:infra`, todos los selftests, con el de la limpieza;
+- E1 55/55, con Chromium preinstalado (orientativo).
+
+**Discrepancias registradas, sin cambiar:**
+- las etiquetas «C-3» a «C-7» y «D-1» que usa el propietario no aparecen en
+  ninguna fuente del repositorio ni del proyecto. Como en la sesión 77, el
+  cierre se mide con los criterios escritos;
+- el hosting previsto es Vercel (`CLAUDE.md`, «Stack»), pero los PR generan
+  Deploy Previews en Netlify, y no hay configuración de ninguno de los dos en
+  el repositorio.
+
+**Qué no cambia.** Ni migraciones, ni código de la aplicación, ni secretos,
+Environments o proyectos de Supabase. No se ha ejecutado ningún run. Siguen
+abiertos «C-8», B1, el E2 con la Fase 4, los pasos 7 y 8 de `-4`, `-3`, los
+requisitos previos del despliegue y del uso con personas reales, y las Fases
+5 a 9.
+
+---
+
 ## 2026-11-24 — Sesión 78: cierre técnico de la Fase 4 (solo documentación)
 
 **Declaración expresa del propietario.** Escrita en el hilo del proyecto el

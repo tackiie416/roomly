@@ -1032,6 +1032,40 @@ impedir enumerar perfiles por id.
 directo a `matches` desde un cliente autenticado (sin pasar por el
 servicio) falla por RLS.
 
+### Estado (2026-11-25): Fase 5.1 implementada en local, sin merge ni validación real
+
+Autorizada por el propietario el 2026-11-25 («Autorizo expresamente a empezar
+la Fase 5»). Detalle: `PROGRESS.md`, sesión 80.
+
+- **Hecho (5.1, «Me interesa» y match mutuo):**
+  - migración `20261126120000`: `interests` y `matches` sin escritura de
+    clientes (authenticated solo SELECT de sus filas; anon nada), sin
+    `interests_insert_own` ni `interests_delete_own` (40 políticas), triggers
+    `trg_interests_integrity` y `trg_matches_integrity` (también para
+    service_role) y las funciones `record_interest` y `withdraw_interest`
+    (SECURITY INVOKER, EXECUTE solo de service_role, bloqueo por pareja y
+    READ COMMITTED obligatorio);
+  - `lib/services/interests.ts` (quinto servicio con service_role, solo para
+    esas dos rpc) y `evaluateCounterparts` en `lib/services/matching.ts`:
+    solo se envía un interés a quien saldría en `/explorar`, con el score del
+    motor de TypeScript;
+  - «Me interesa», «Hacer match» y «Retirar» en `/explorar`, y la página
+    `/matches` (matches, recibidos y enviados), sin JavaScript;
+  - **criterio de aceptación cumplido en local:** `tests/db/26` (IM1: INSERT
+    directo de `authenticated` en `interests` y `matches` rechazado, 42501) y
+    `tests/db/concurrency_interests.sh` (el match mutuo no se pierde con
+    envíos simultáneos). Sin validar en Supabase real.
+- **Pendiente de la Fase 5, con decisión del propietario:**
+  - favoritos (`favorites`): no se implementan en la 5.1;
+  - «Ver perfil» de terceros: falta decidir qué campos se muestran (la regla
+    de acceso de arriba ya está fijada);
+  - el interés con contexto de habitación: la base de datos lo admite
+    (`p_room_id`, validado por el trigger), pero no hay interfaz;
+  - deshacer un match (se decide con el chat, Fase 6) y avisos por email de
+    intereses o matches;
+  - aplicar `20261126120000` en un proyecto real y validarla, con
+    autorización (ver `docs/SUPABASE_VALIDATION.md`).
+
 ## Fase 6 — Chat
 
 Conversaciones vía Supabase Realtime, mensajes, contador de no leídos,

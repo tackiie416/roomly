@@ -513,6 +513,25 @@ export interface Database {
         Args: { p_room_id: string; p_user_id: string };
         Returns: string[];
       };
+      /**
+       * Fase 5.1 (20261126120000): envía un interés y, si es mutuo, crea el
+       * match, con la pareja bloqueada. Solo service_role tiene EXECUTE; la
+       * llama `sendInterest` (lib/services/interests.ts).
+       */
+      record_interest: {
+        Args: {
+          p_from: string;
+          p_to: string;
+          p_score: number;
+          p_room_id?: string | null;
+        };
+        Returns: "sent" | "already_sent" | "matched";
+      };
+      /** Fase 5.1: retira un interés enviado si no hay match. Solo service_role. */
+      withdraw_interest: {
+        Args: { p_from: string; p_to: string };
+        Returns: "withdrawn" | "not_found" | "matched";
+      };
     };
     Enums: {
       user_role: UserRole;

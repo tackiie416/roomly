@@ -248,7 +248,7 @@ async function submitWithoutClientCheck(page: Page, bytes: number) {
   }, bytes);
 }
 
-test("más de 5 MB llega a Next.js: lo rechaza antes de la acción (16.4.3 responde 500, no 413), sin guardar nada ni mostrar detalles", async ({
+test("más de 5 MB llega a Next.js: lo rechaza antes de la acción (Next.js 16.4 responde 500, no 413), sin guardar nada ni mostrar detalles", async ({
   page,
 }) => {
   const { roomId } = await ownerWithRoom(page, "limite-5mb");
@@ -262,7 +262,7 @@ test("más de 5 MB llega a Next.js: lo rechaza antes de la acción (16.4.3 respo
   console.log(
     `MEDICIÓN más de 5 MB: cuerpo enviado ${post.bodyBytes} bytes, estado de Next.js ${post.status}`
   );
-  // Next.js 16.4.3 corta el cuerpo al pasar de bodySizeLimit y responde 500
+  // Next.js 16.4 (medido con 16.4.3 y 16.4.6) corta el cuerpo al pasar de bodySizeLimit y responde 500
   // en las acciones con fetch (action-handler.js: «TODO: consider checking if
   // the error is an ApiError and change status code … 413»).
   expect(post.status).toBe(500);

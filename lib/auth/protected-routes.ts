@@ -15,6 +15,8 @@ export const PROTECTED_PREFIXES = [
   "/explorar",
   // Fase 4.2: fotos y borrado de las habitaciones propias.
   "/habitaciones",
+  // Fase 5.1: «Me interesa» y matches.
+  "/matches",
 ] as const;
 
 /** Coincide con el prefijo exacto o con una subruta (no con "/administracion"). */

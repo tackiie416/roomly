@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 
-// Fase 3.1 (D17) — service_role solo en el servidor y solo en cuatro servicios:
+// Fase 3.1 (D17) — service_role solo en el servidor y solo en cinco servicios:
 //   - lib/services/matching.ts: lectura cruzada de candidatos;
 //   - lib/services/compatibility.ts: escritura del test propio;
 //   - lib/services/room-images.ts (Fase 4.2, D17 ampliada): escritura de las
@@ -10,7 +10,10 @@ import path from "node:path";
 //     que emite URL de fotos, y nunca públicas;
 //   - lib/services/rooms.ts (sesión 65, D17 ampliada otra vez): solo
 //     `rpc("delete_own_room")`, el borrado de una habitación propia
-//     (20261030120000). Ni tablas ni Storage con el cliente admin.
+//     (20261030120000). Ni tablas ni Storage con el cliente admin;
+//   - lib/services/interests.ts (Fase 5.1, D17 ampliada): solo
+//     `rpc("record_interest")` y `rpc("withdraw_interest")` (20261126120000).
+//     Quién puede recibir un interés y el score los decide matching.ts.
 // Ningún otro archivo de la app (app/, components/, lib/, proxy.ts) puede
 // importar lib/supabase/admin.ts ni usar createAdminClient(); la clave solo
 // la leen lib/env.server.ts (server-only) y lib/supabase/admin.ts; ningún
@@ -21,6 +24,7 @@ import path from "node:path";
 
 const ALLOWED = [
   "lib/services/compatibility.ts",
+  "lib/services/interests.ts",
   "lib/services/matching.ts",
   "lib/services/room-images.ts",
   "lib/services/rooms.ts",
@@ -55,8 +59,8 @@ const APP_FILES = [
   ...(existsSync("proxy.ts") ? ["proxy.ts"] : []),
 ];
 
-describe("createAdminClient / service_role: solo en los cuatro servicios autorizados", () => {
-  it("solo lib/services/{matching,compatibility,room-images,rooms}.ts importan lib/supabase/admin", () => {
+describe("createAdminClient / service_role: solo en los cinco servicios autorizados", () => {
+  it("solo lib/services/{matching,compatibility,room-images,rooms,interests}.ts importan lib/supabase/admin", () => {
     const importers = APP_FILES.filter((file) =>
       /from\s+["']@\/lib\/supabase\/admin["']|require\(["']@\/lib\/supabase\/admin["']\)/.test(
         code(file)
@@ -65,7 +69,7 @@ describe("createAdminClient / service_role: solo en los cuatro servicios autoriz
     expect(importers).toEqual(ALLOWED);
   });
 
-  it("solo esos cuatro archivos (y la definición) mencionan createAdminClient", () => {
+  it("solo esos cinco archivos (y la definición) mencionan createAdminClient", () => {
     const users = APP_FILES.filter((file) =>
       code(file).includes("createAdminClient")
     ).sort();
@@ -93,7 +97,7 @@ describe("createAdminClient / service_role: solo en los cuatro servicios autoriz
     expect(admin).not.toMatch(/process\.env/);
   });
 
-  it("los cuatro servicios, el sanitizador de fotos, el cliente admin y la configuración privada son server-only", () => {
+  it("los cinco servicios, el sanitizador de fotos, el cliente admin y la configuración privada son server-only", () => {
     for (const file of [
       ...ALLOWED,
       "lib/images/sanitize-room-image.ts",
@@ -168,11 +172,33 @@ describe("fotos de habitaciones (Fase 4.2, D1): sin URL públicas ni Storage fue
     expect(rooms).toContain("adminClient: () => createAdminClient(),");
   });
 
-  it("delete_own_room solo la llama rooms.ts, y nadie más usa .rpc( con el cliente admin", () => {
+  it("delete_own_room solo la llama rooms.ts, y solo rooms.ts e interests.ts usan .rpc(", () => {
     const callers = APP_FILES.filter((file) => /delete_own_room/.test(code(file)));
     expect(callers).toEqual(["lib/services/rooms.ts"]);
-    const rpcUsers = APP_FILES.filter((file) => /\.rpc\(/.test(code(file)));
-    expect(rpcUsers).toEqual(["lib/services/rooms.ts"]);
+    const rpcUsers = APP_FILES.filter((file) => /\.rpc\(/.test(code(file))).sort();
+    expect(rpcUsers).toEqual(["lib/services/interests.ts", "lib/services/rooms.ts"]);
+  });
+
+  it("interests.ts usa el cliente admin solo para record_interest y withdraw_interest", () => {
+    const interests = code("lib/services/interests.ts");
+    expect(interests).not.toMatch(/\.storage\s*\.from\(/);
+    // Ninguna tabla con el cliente admin: las lecturas propias van con el del usuario.
+    expect(interests).not.toMatch(/interestsAdminClient\(\)\s*\.from\(/);
+    expect(interests.match(/\.interestsAdminClient\(\)/g)).toHaveLength(2);
+    expect(interests).toMatch(
+      /deps\.interestsAdminClient\(\)\.rpc\("record_interest", \{/
+    );
+    expect(interests).toMatch(
+      /deps\.interestsAdminClient\(\)\.rpc\("withdraw_interest", \{/
+    );
+    expect(interests.match(/\.rpc\(/g)).toHaveLength(2);
+    // createAdminClient solo en las dependencias por defecto.
+    expect(interests.match(/createAdminClient\(\)/g)).toHaveLength(2);
+    expect(interests).toContain("interestsAdminClient: () => createAdminClient(),");
+    const callers = APP_FILES.filter((file) =>
+      /record_interest|withdraw_interest/.test(code(file))
+    );
+    expect(callers).toEqual(["lib/services/interests.ts"]);
   });
 
   it("nada de la app borra habitaciones con DELETE: desde 20261030120000 solo delete_own_room", () => {

@@ -1537,7 +1537,10 @@ no las copias de R8.
    Después de la limpieza tiene que dar 0 inconsistencias.
 8. **Limpieza y cierre:** 0 usuarios `@test`, 0 objetos de prueba (borrados
    por la API de Storage) y la conciliación limpia. Después, rotar las claves
-   y pausar o borrar el proyecto, según decida el propietario.
+   y pausar o borrar el proyecto, según decida el propietario. Desde la sesión
+   79, la comprobación independiente la hace
+   `tests/supabase/validation-cleanup-check.sh`, de solo lectura (ver
+   «Verificación de la limpieza», abajo).
 
 Estado (2026-11-23): los pasos 2, 3, 5 y 6 tienen evidencia (proyecto con su
 marca, guarda F1, run 27 y run 28; el E2, no autorizado). Los pasos 4
@@ -1600,6 +1603,77 @@ ROOMLY_RECONCILE_DB_URL='<URL de la base de datos>' bash tests/supabase/room-ima
   con 2 («no verificable»), nunca con un resultado (sin verificar en real).
 - Ejecutarlo contra un proyecto remoto necesita autorización: lee todas las
   rutas de las fotos.
+
+### Fase 5.1: la migración `20261126120000` no está en ningún proyecto (sesión 80)
+
+- `master` y la rama de la Fase 5.1 llevan ventaja a `roomly-validation-4`:
+  el preflight vigente exige 40 políticas, 17 triggers y 19 funciones, y
+  **fallará** contra ese proyecto hasta que se aplique la migración.
+- Aplicarla y validarla (con la api-suite, que ya trae IN1–IN3) necesita la
+  autorización expresa del propietario, como cada run. Claude no lo hace.
+- Tampoco está en `roomly-validation-3` (sigue en la 4.1).
+
+### Verificación de la limpieza (paso 8 de D2; sesión 79)
+
+`tests/supabase/validation-cleanup-check.sh` comprueba, **solo leyendo**, que
+un proyecto de validación quedó vacío después de las suites. No limpia nada:
+no escribe, no borra y no tiene ningún modo de aplicación.
+
+```
+ROOMLY_CLEANUP_DB_URL='<URL de la base de datos>' bash tests/supabase/validation-cleanup-check.sh --expect-marker roomly-validation-4
+```
+
+- **Antes de leer nada**, exige que la marca de la base de datos (`comment on
+  database`) sea la de `--expect-marker`, que solo acepta
+  `roomly-validation-3` o `roomly-validation-4`. Si no coincide, sale con 2
+  sin contar nada.
+- **Qué cuenta:** los usuarios de prueba con los patrones de las suites
+  (`%@test` de la suite SQL y `roomly-val-…@example.com` de la api-suite), el
+  esquema `roomly_test`, las políticas `zz_test%`, todos los `auth.users`, los
+  objetos de Storage (del bucket `room-images` y de los demás) y las filas de
+  las tablas de usuario de `public`. Un proyecto de validación no tiene datos
+  reales (B2), así que cualquier fila es un resto de las pruebas. Las tablas de
+  referencia del seed no se cuentan.
+- **Salida:** 0 limpio (todo a 0); 1 quedan restos; 2 no verificable (entrada
+  no válida, marca distinta, conexión, permisos o una RLS que podría ocultar
+  filas al rol).
+- **Qué muestra:** la marca, el nombre de cada comprobación y su contador.
+  Nunca la URL, emails, ids ni rutas.
+- **Solo lectura, en tres niveles**, como la conciliación:
+  `default_transaction_read_only`, una transacción READ ONLY que termina en
+  ROLLBACK y un SQL que solo lee (`validation-infra`). Su selftest
+  (`validation-cleanup-check-selftest.sh`, en `test:infra` y en la CI)
+  comprueba además que una escritura añadida falla y que los datos no
+  cambian.
+- **Límite:** cuenta los metadatos de Storage (`storage.objects`), no los
+  archivos físicos.
+- Ejecutarlo contra un proyecto remoto necesita autorización.
+
+#### Cierre de los pasos 7 y 8 en `roomly-validation-4` (comandos del propietario)
+
+Tienen que ejecutarse en una máquina con `psql` y la URL de la base de datos
+de `roomly-validation-4`. Claude no los ejecuta. La conciliación «antes» de
+las suites ya no es posible, porque el run 28 ya se hizo; se registra como
+limitación. Fecha de referencia: `2026-11-25T00:00:00Z`. El run 28 terminó el
+2026-11-21 a las 00:26:04 UTC y no ha habido runs después, así que cualquier
+resto del run 28 tiene más de 24 h y cuenta como candidato, no como
+«reciente».
+
+```bash
+git fetch origin master && git checkout --detach origin/master
+read -rs DBURL   # conexión directa (puerto 5432), no el pooler en modo transacción
+ROOMLY_RECONCILE_DB_URL="$DBURL" bash tests/supabase/room-images-reconcile.sh \
+  --min-age-hours 24 --as-of 2026-11-25T00:00:00Z; echo "conciliación: salida $?"
+ROOMLY_CLEANUP_DB_URL="$DBURL" bash tests/supabase/validation-cleanup-check.sh \
+  --expect-marker roomly-validation-4; echo "limpieza: salida $?"
+unset DBURL
+```
+
+Resultado esperado: salida 0 en las dos. Las dos salidas son seguras de
+compartir: solo contienen rutas o contadores, nunca la URL. Con un 1, no se
+borra nada sin una decisión aparte. Con un 2, se revisa la conexión o el rol
+(tiene que poder ver todas las filas). Después, según decida el propietario:
+rotar las claves y pausar o borrar el proyecto.
 
 ### Fase 4: herramienta de actualización (R8)
 

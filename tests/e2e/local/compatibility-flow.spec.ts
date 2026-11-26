@@ -144,9 +144,10 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   for (const hidden of ["437", "612"]) {
     expect(html).not.toMatch(standalone(hidden));
   }
-  // Fase 3: sin «Ver perfil» ni «Me interesa».
+  // Sin «Ver perfil» (D14); «Me interesa» desde la Fase 5.1 (su flujo, en
+  // interests-flow.spec.ts).
   await expect(page.getByText("Ver perfil")).toHaveCount(0);
-  await expect(page.getByText("Me interesa")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Me interesa/ })).toHaveCount(2);
   // Ninguna tarjeta muestra zonas: no hay atribución de barrios (sesión 70).
   await expect(page.getByTestId("neighborhoods-attribution")).toHaveCount(0);
 
