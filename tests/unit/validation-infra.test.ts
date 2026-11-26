@@ -353,11 +353,11 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
     expect(cr).toEqual(["compatibility_responses.compatibility_responses_select_own"]);
   });
 
-  it("17 triggers, los mismos que crean las migraciones", () => {
+  it("21 triggers, los mismos que crean las migraciones", () => {
     const expected = preflightValues(
       /-- P6[\s\S]*?with expected\(tablename, tgname, fn\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.triggers.size).toBe(17);
+    expect(derived.triggers.size).toBe(21);
     expect([...expected].sort()).toEqual([...derived.triggers].sort());
   });
 

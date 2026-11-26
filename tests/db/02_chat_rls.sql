@@ -1,21 +1,48 @@
 -- C2 + C3 — Chat: fuga de mensajes entre conversaciones y recursión RLS
--- Escenario: A y B participan en la conversación 1; C participa en la 2.
+-- Escenario: A y B participan en la conversación 1; C participa en la 2
+-- (con match C–D; D no tiene fila de participante).
 -- Debe fallar si vuelve la tautología (cp.conversation_id = cp.conversation_id),
 -- si vuelve la recursión infinita, o si un tercero puede leer/escribir en 1.
 
+-- Desde la Fase 6 (20261127120000), un chat solo existe y solo se escribe
+-- con un match: A–B tienen el de la conversación 1 y C–D el de la 2 (D no
+-- interviene en este archivo). Las conversaciones se crean aquí con ids fijos,
+-- con el trigger que las abre desactivado solo durante la preparación.
 reset role;
 insert into auth.users (id, email) values
   ('20000000-0000-0000-0000-00000000000a', 'c2-a@test'),
   ('20000000-0000-0000-0000-00000000000b', 'c2-b@test'),
-  ('20000000-0000-0000-0000-00000000000c', 'c2-c@test');
+  ('20000000-0000-0000-0000-00000000000c', 'c2-c@test'),
+  ('20000000-0000-0000-0000-00000000000d', 'c2-d@test');
 insert into public.profiles (id, full_name, date_of_birth, seeking_status) values
   ('20000000-0000-0000-0000-00000000000a', 'A', '2000-01-01', 'looking_for_room'),
   ('20000000-0000-0000-0000-00000000000b', 'B', '2000-01-01', 'looking_for_room'),
-  ('20000000-0000-0000-0000-00000000000c', 'C', '2000-01-01', 'looking_for_room');
+  ('20000000-0000-0000-0000-00000000000c', 'C', '2000-01-01', 'looking_for_room'),
+  ('20000000-0000-0000-0000-00000000000d', 'D', '2000-01-01', 'looking_for_room');
+insert into public.housing_preferences (profile_id, city_id)
+  select p.id, c.id
+  from public.cities c
+  cross join (values
+    ('20000000-0000-0000-0000-00000000000a'::uuid), ('20000000-0000-0000-0000-00000000000b'),
+    ('20000000-0000-0000-0000-00000000000c'), ('20000000-0000-0000-0000-00000000000d')) p(id)
+  where c.slug = 'barcelona';
+update public.profiles set onboarding_completed_at = now()
+where id in ('20000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-00000000000b',
+             '20000000-0000-0000-0000-00000000000c', '20000000-0000-0000-0000-00000000000d');
+insert into public.interests (from_user_id, to_user_id) values
+  ('20000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-00000000000b'),
+  ('20000000-0000-0000-0000-00000000000b', '20000000-0000-0000-0000-00000000000a'),
+  ('20000000-0000-0000-0000-00000000000c', '20000000-0000-0000-0000-00000000000d'),
+  ('20000000-0000-0000-0000-00000000000d', '20000000-0000-0000-0000-00000000000c');
+alter table public.matches disable trigger trg_matches_open_conversation;
+insert into public.matches (id, user_a_id, user_b_id, compatibility_score) values
+  ('22000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-00000000000b', 70),
+  ('22000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-00000000000c', '20000000-0000-0000-0000-00000000000d', 70);
+alter table public.matches enable trigger trg_matches_open_conversation;
 -- Conversaciones y participantes: solo los crea el servidor (no hay INSERT de cliente).
-insert into public.conversations (id) values
-  ('21000000-0000-0000-0000-000000000001'),
-  ('21000000-0000-0000-0000-000000000002');
+insert into public.conversations (id, match_id) values
+  ('21000000-0000-0000-0000-000000000001', '22000000-0000-0000-0000-000000000001'),
+  ('21000000-0000-0000-0000-000000000002', '22000000-0000-0000-0000-000000000002');
 insert into public.conversation_participants (conversation_id, user_id) values
   ('21000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-00000000000a'),
   ('21000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-00000000000b'),
@@ -98,10 +125,12 @@ select roomly_test.expect_rows(
 select roomly_test.expect_rows(
   $$select 1 from public.conversation_participants where conversation_id = '21000000-0000-0000-0000-000000000001'$$, 0,
   'C NO ve quién participa en la conversación 1');
-select roomly_test.expect_error(
+-- Desde la Fase 6, el trigger de integridad (que va antes que el WITH CHECK
+-- de la RLS) es el primero en rechazarlo.
+select roomly_test.expect_error_prefix(
   $$insert into public.messages (conversation_id, sender_id, content)
     values ('21000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-00000000000c', 'intrusión')$$,
-  '42501', 'C2: C NO puede insertar mensajes en la conversación 1');
+  '23514', 'message_sender_invalid:', 'C2: C NO puede insertar mensajes en la conversación 1');
 select roomly_test.ok(
   not public.is_conversation_participant('21000000-0000-0000-0000-000000000001'),
   'is_conversation_participant(1) es false para C');
@@ -115,7 +144,8 @@ select roomly_test.expect_affected(
 -- ---------- Sin sesión ----------
 set role anon;
 select roomly_test.login(null);
-select roomly_test.expect_rows($$select 1 from public.messages$$, 0, 'anon no lee ningún mensaje');
+-- Desde la Fase 6, anon no tiene ningún privilegio sobre el chat.
+select roomly_test.expect_denied($$select 1 from public.messages$$, 'anon no lee ningún mensaje');
 
 reset role;
 select roomly_test.ok(
