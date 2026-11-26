@@ -1681,6 +1681,90 @@ crear un match sin interés mutuo.
   activarlo en un proyecto real hay que comprobar esa RLS con Realtime.
 - **Sin validar en Supabase real.**
 
+## Bloqueos, reportes y límites contra el abuso (20261128120000, sesión 83, en local)
+
+- **Bloquear:** `user_blocks` (una fila por quien bloquea y a quién).
+  authenticated solo lee **sus** bloqueos (`user_blocks_select_own`); nadie
+  lee los que le han hecho, así que la persona bloqueada no puede saber por
+  la app quién la ha bloqueado: para ella es como una cuenta que ya no está
+  disponible (404 y `not_found` indistinguibles). Ningún cliente escribe:
+  `block_user` y `unblock_user` (SECURITY INVOKER, EXECUTE solo de
+  service_role) las llama `lib/services/interests.ts`, que sigue siendo uno
+  de los cinco servicios con service_role (ahora con seis rpc).
+- **Qué hace un bloqueo, en la base de datos y para todos los roles:**
+  - `block_user` toma el mismo bloqueo por pareja que `record_interest`,
+    `withdraw_interest` y `undo_match`, borra el match (lo que cierra el
+    chat con `trg_matches_close_conversation`) y los intereses de los dos
+    sentidos;
+  - `trg_interests_abuse_limits` rechaza un interés con un bloqueo en
+    cualquier sentido (`interest_party_invalid`, el mismo error que una
+    cuenta no válida) y `trg_matches_not_blocked`, un match;
+  - sin match no hay conversación abierta, así que tampoco mensajes;
+  - `lib/services/matching.ts` excluye a las personas bloqueadas (en los dos
+    sentidos) de `/explorar`, de «Ver perfil», de `/matches` y de cualquier
+    interés (lectura de `user_blocks` con service_role, dentro del servicio
+    que ya la tenía);
+  - concurrencia: `tests/db/concurrency_blocks.sh` (CB1: un interés que
+    espera a un bloqueo abierto se rechaza; CB2: un bloqueo que espera a un
+    match abierto lo borra y cierra su chat).
+  - Desbloquear no devuelve nada. 50 bloqueos por cuenta en 24 h.
+- **Reportar:** solo a alguien que ya conoces por la app
+  (`knownCounterpart`: te saldría en `/explorar`, hay interés o match, o ya
+  la bloqueaste); cualquier otro id da `not_found`, así que no sirve para
+  comprobar si existe una cuenta. Lo inserta el cliente del usuario
+  (`reports_insert_own`), sin service_role. En la base de datos: seis
+  motivos (`chk_reports_reason`), 1000 caracteres, nunca a una misma, un
+  reporte abierto por persona y objetivo (`uq_reports_open_user`,
+  `uq_reports_open_room`), 10 en 24 h y cuenta activa
+  (`trg_reports_integrity`). La persona reportada no tiene ninguna política
+  de lectura.
+- **Revisión (admin):** `/admin/reportes`, con `requireAdmin()` en la página
+  y `reports_admin_all` en la base de datos. authenticated solo puede
+  actualizar `status`, `resolution_notes`, `resolved_by` y `resolved_at`
+  (GRANT por columnas); el trigger impide cambiar quién reporta, a quién,
+  el motivo, la descripción o la fecha, y fija `resolved_by = auth.uid()`.
+  Cada cambio queda en `admin_action_logs`, que desde esta migración **solo
+  se añade** (sin UPDATE ni DELETE para authenticated). La revisión muestra
+  nombres, nunca emails. Las acciones sobre la cuenta reportada son de la
+  Fase 7.
+- **Límites contra la enumeración de propietarias y el abuso de intereses:**
+  - `interest_log` (sin acceso de clientes) registra cada envío; los límites
+    se cuentan ahí, así que retirar y reenviar ya no los salta;
+  - 30 intereses en 24 h (el de antes, ahora sobre el registro);
+  - 10 intereses ligados a una habitación en 24 h, y 3 si la cuenta tiene
+    menos de 24 h (contra cuentas creadas en serie);
+  - 3 envíos a la misma persona en 30 días (contra el acoso con retirar y
+    reenviar);
+  - el aviso de un interés por habitación es el mismo tanto si es nuevo
+    como si ya lo habías enviado a esa persona;
+  - errores sin detalle: `limite`, `no-disponible` o el mismo aviso.
+- **Riesgos residuales (aceptados o pendientes de decisión):**
+  - quien publica una habitación sigue siendo identificable por cualquier
+    cuenta con el test hecho (requisito del interés por habitación); los
+    límites lo frenan, no lo impiden: con varias cuentas de más de 24 h se
+    pueden identificar unas 10 propietarias al día por cuenta, y quien
+    publica ve cada interés en `/matches`;
+  - en `/matches` se ve si dos habitaciones son de la misma persona (sale
+    una sola vez);
+  - no hay límite de intereses recibidos por persona, a propósito, para no
+    castigar a las habitaciones populares;
+  - sin CAPTCHA ni detección de automatización por IP: no hay
+    infraestructura para ello (Fase 8 o 9);
+  - quien bloquea primero impide que la otra persona la reporte desde la
+    app (para ella ya no existe). Hasta que haya un canal de soporte, es una
+    limitación conocida;
+  - `chk_reports_reason` y los índices únicos fallarían al aplicar la
+    migración en un proyecto que ya tuviera reportes con otros motivos o
+    duplicados abiertos (hoy no hay ninguna vía de la app que los cree);
+  - las FK de `reports` no tienen cascada: un perfil con reportes no se
+    puede borrar en Auth (ver `docs/PRIVACY_RETENTION.md`);
+  - la comprobación de limpieza del workflow no cubre las tablas nuevas.
+- **Conservación preparada, sin uso:** `purge_interest_log()` y
+  `purge_closed_conversation_messages(p_closed_before)` (no acepta menos de
+  30 días), solo service_role. No las llama nada; los plazos están
+  pendientes de decisión (`docs/PRIVACY_RETENTION.md`).
+- **Sin validar en Supabase real.**
+
 ## Privacidad de ubicación
 
 `room_addresses.address_exact` en tabla separada, RLS restringida al

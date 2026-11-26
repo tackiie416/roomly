@@ -6,6 +6,71 @@ próximos pasos.**
 
 ---
 
+## 2026-11-26 — Sesión 83: bloquear, reportar, límites contra el abuso de intereses y diseño de privacidad
+
+**Contexto.** El propietario pidió no hacer merge del PR #40 todavía y seguir
+con el trabajo independiente: bloquear y reportar, reducir la enumeración de
+propietarias (no basta el límite de 30 al día), y el diseño de borrado y
+conservación de datos sin inventar una política legal ni borrar nada. Sin
+Supabase remoto, sin migraciones reales, sin secretos ni despliegues.
+
+**Qué se hizo.** Rama `claude/fase6-bloqueo-reportes`, apilada sobre
+`claude/project-thread-1vffj7` (PR #40).
+- Migración `20261128120000_blocks_reports_abuse_limits.sql` (en local,
+  **sin aplicar en ningún proyecto real**):
+  - `user_blocks` (solo lectura de los propios) y `block_user` /
+    `unblock_user` (solo service_role, con el bloqueo por pareja): bloquear
+    borra el match (cierra el chat) y los intereses;
+  - `trg_interests_abuse_limits` y `trg_matches_not_blocked`: nada entre
+    personas bloqueadas, en ningún sentido y para ningún rol;
+  - `interest_log` y límites por registro: 30 en 24 h, 10 por habitación en
+    24 h (3 para cuentas de menos de 24 h) y 3 a la misma persona en 30 días;
+  - `reports`: motivos, longitud, sin autorreportes, un reporte abierto por
+    persona, 10 en 24 h, inmutable salvo la resolución, que fija el admin con
+    su cuenta; `admin_action_logs` solo de añadir;
+  - `purge_interest_log` y `purge_closed_conversation_messages` preparadas,
+    solo service_role, sin uso.
+- Servidor: `blockUser`, `unblockUser`, `listBlockedPeople` y
+  `knownCounterpart` en `lib/services/interests.ts` (dos rpc más, sin nuevo
+  servicio con service_role); exclusión de bloqueos en
+  `lib/services/matching.ts`; `lib/services/reports.ts` sin service_role.
+- Interfaz, sin JavaScript: «Bloquear» y «Reportar» en «Ver perfil» y en el
+  chat, `/reportar/<id>` (con «Bloquear también»), `/ajustes/bloqueos` y
+  `/admin/reportes` (abiertos y cerrados, resolver con notas).
+- El aviso de un interés por habitación ya no distingue nuevo de repetido.
+- `docs/PRIVACY_RETENTION.md`: inventario de datos personales, diseño del
+  borrado de cuenta (H6) y opciones de conservación de mensajes, con las
+  decisiones pendientes.
+
+**Tests (en local).** `test` 1798/1798 (73 archivos); `test:db` en verde, con
+`tests/db/28_blocks_reports.sql` (BR0–BR7, 61) y `concurrency_blocks.sh`
+(CB1–CB2); `test:infra` en verde (preflight con 20 tablas, 42 políticas, 25
+triggers y 33 funciones); E1 en local con `safety-flow.spec.ts` (2) y los
+flujos adaptados en verde (orientativo); `upload-size.spec.ts` falló de forma
+intermitente (sin cambios en esa zona). Lint, typecheck, format y build en
+verde.
+
+**Problemas encontrados.**
+- Las FK de `reports` (Fase 0) no tienen cascada: un perfil con reportes no
+  se puede borrar en Auth (23503). No se cambia sin decisión; documentado en
+  `docs/PRIVACY_RETENTION.md`.
+- `admin_action_logs` dependía de los privilegios por defecto y su política
+  es FOR ALL: un admin podía editar o borrar la auditoría. Corregido (solo
+  SELECT e INSERT de columnas).
+- El trigger de reportes rechazaba con su propio error un reporte en nombre
+  de otra persona; ahora deja que la RLS lo rechace (42501).
+
+**Decisiones técnicas.**
+- Bloquear se comporta como deshacer el match y además impide cualquier
+  relación nueva; para la persona bloqueada es una cuenta no disponible.
+- Solo se reporta a alguien que ya conoces por la app.
+- Sin límite de intereses recibidos (no castigar habitaciones populares).
+
+**Próximos pasos.** PR apilado con la CI en verde; decisiones del
+propietario sobre los plazos de conservación y las FK de `reports`; aplicar
+las migraciones de las Fases 5 y 6 en `roomly-validation-4` (con
+autorización).
+
 ## 2026-11-26 — Sesión 82: merges de #38 y #39, Fase 6 (chat entre matches) e interés por habitación
 
 **Contexto.** El propietario autorizó expresamente el merge del PR #38 y,

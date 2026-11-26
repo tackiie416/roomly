@@ -542,9 +542,19 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
   `room_interest_owner`, solo service_role), `/mensajes`, deshacer match e
   interés por habitación (identidad solo en `/matches`). `chat.ts` no usa
   service_role; no se lo des. Preflight: 21 triggers y 25 funciones.
-  Pendientes: bloquear, reportar y la retención de mensajes. Aplicar la migración en un
-    proyecto real necesita autorización; hasta entonces el preflight vigente
+  Pendientes: la retención de mensajes. Aplicar la migración en un proyecto real necesita autorización; hasta entonces el preflight vigente
     falla contra `roomly-validation-4`.
+  - Sesión 83 (rama `claude/fase6-bloqueo-reportes`, apilada sobre la de la
+    sesión 82, sin merge ni validación real): migración `20261128120000`
+    (`user_blocks`, `interest_log`, límites de intereses por registro,
+    integridad de `reports`, `admin_action_logs` solo de añadir y purgas
+    preparadas sin uso), bloquear/desbloquear (`/ajustes/bloqueos`), reportar
+    (`/reportar/<id>`) y `/admin/reportes`. `reports.ts` no usa
+    service_role; no se lo des. La persona bloqueada nunca puede leer quién
+    la bloqueó: no abras la lectura de `user_blocks`. Preflight: 20 tablas,
+    42 políticas, 25 triggers y 33 funciones. Diseño de borrado y
+    conservación, sin decidir: `docs/PRIVACY_RETENTION.md`. No ejecutes las
+    purgas ni las programes sin autorización.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -751,7 +761,8 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   - No reabras la escritura de `authenticated`.
 - **service_role solo en cinco servicios** (Fase 3, D17; ampliada en la 4.2,
   en la sesión 65 y en la Fase 5.1): `lib/services/matching.ts` (lectura cruzada de
-  candidatos, columnas explícitas, `CandidateDTO` con lista blanca),
+  candidatos, columnas explícitas, `CandidateDTO` con lista blanca, y desde
+  la sesión 83 los bloqueos de quien mira, en los dos sentidos),
   `lib/services/compatibility.ts` (escritura del test), desde la 4.2
   `lib/services/room-images.ts` (escritura de fotos en Storage y en
   `room_images`, y firma de URL de las filas que el usuario acaba de leer) y,
@@ -759,8 +770,9 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   `rpc("delete_own_room")`, después de comprobar la sesión, la cuenta y la
   propiedad con el cliente del usuario) y, desde la Fase 5.1,
   `lib/services/interests.ts` (solo `rpc("record_interest")`,
-  `rpc("withdraw_interest")` y, desde la Fase 6, `rpc("undo_match")` y
-  `rpc("room_interest_owner")`, después de comprobar con `evaluateCounterparts`
+  `rpc("withdraw_interest")`, desde la Fase 6 `rpc("undo_match")` y
+  `rpc("room_interest_owner")`, y desde la sesión 83 `rpc("block_user")` y
+  `rpc("unblock_user")`, después de comprobar con `evaluateCounterparts`
   que la otra persona saldría en `/explorar`).
   - `tests/unit/admin-client-usage.test.ts` falla si otro archivo lo usa.
   - El estado propio se lee siempre con el cliente del usuario.
