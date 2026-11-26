@@ -1055,10 +1055,12 @@ la Fase 5»). Detalle: `PROGRESS.md`, sesión 80.
     directo de `authenticated` en `interests` y `matches` rechazado, 42501) y
     `tests/db/concurrency_interests.sh` (el match mutuo no se pierde con
     envíos simultáneos). Sin validar en Supabase real.
+- **Hecho en la 5.2 (sesión 81, rama `claude/fase5-2-ver-perfil`, sin
+  merge):** «Ver perfil» en `/explorar/<id>`, con la regla de acceso de arriba
+  (404 indistinguible), y los dos puntos del backlog de la Fase 3 (preguntas
+  sin responder señaladas y confirmación al terminar el test).
 - **Pendiente de la Fase 5, con decisión del propietario:**
-  - favoritos (`favorites`): no se implementan en la 5.1;
-  - «Ver perfil» de terceros: falta decidir qué campos se muestran (la regla
-    de acceso de arriba ya está fijada);
+  - favoritos (`favorites`): excluidos por el propietario por ahora;
   - el interés con contexto de habitación: la base de datos lo admite
     (`p_room_id`, validado por el trigger), pero no hay interfaz;
   - deshacer un match (se decide con el chat, Fase 6) y avisos por email de

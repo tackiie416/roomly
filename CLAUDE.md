@@ -527,7 +527,12 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     service_role y `record_interest`/`withdraw_interest` (EXECUTE solo de
     service_role). No reabras la escritura de clientes;
   - `/explorar` con «Me interesa» y la página `/matches`, sin JavaScript;
-  - pendientes de decisión: favoritos, «Ver perfil», interés con habitación
+  - 5.2 (sesión 81, rama `claude/fase5-2-ver-perfil`, apilada sobre la 5.1):
+    «Ver perfil» en `/explorar/<id>` (solo si quien mira vería a esa persona
+    en `/explorar` o hay match; si no, 404 indistinguible), sin migraciones
+    ni servicio nuevo con service_role. No le añadas campos sin decisión:
+    nunca el email, la fecha de nacimiento ni los presupuestos exactos;
+  - pendientes de decisión: favoritos, interés con habitación
     en la interfaz y deshacer un match (Fase 6). Aplicar la migración en un
     proyecto real necesita autorización; hasta entonces el preflight vigente
     falla contra `roomly-validation-4`.

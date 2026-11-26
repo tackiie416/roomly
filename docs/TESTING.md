@@ -1639,3 +1639,20 @@ workflow manual.
   en la CI del PR #38: es del entorno local (Chromium preinstalado), no de la
   Fase 5.
 
+## Fase 5.2 — «Ver perfil» y backlog del test (sesión 81, en local)
+
+- Unitarios:
+  - `services-interests`, con `getPersonPage`: el DTO con sus claves exactas,
+    `not_found` indistinguible, el acceso con match y el fallo cerrado;
+  - `person-page`, `questionnaire-form` (preguntas sin responder),
+    `explore-page` (confirmación del test) e `interests-actions` (vuelta al
+    perfil).
+- E1:
+  - `interests-flow.spec.ts`: el perfil, su HTML sin datos privados, el 404
+    de alguien que no pasa los filtros, de un id inexistente y de uno no
+    válido, y «Me interesa» y «Retirar» desde el perfil;
+  - `compatibility-flow.spec.ts`: las preguntas señaladas y la confirmación.
+- Lección: un `loading.tsx` encima de una página que llama a `notFound()`
+  hace que el 404 salga como 200, y sin JavaScript deja el contenido oculto.
+  E1 lo detectó y se retiró.
+

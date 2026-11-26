@@ -6,6 +6,52 @@ próximos pasos.**
 
 ---
 
+## 2026-11-26 — Sesión 81: Fase 5.2 («Ver perfil») y backlog del test
+
+**Contexto.** El propietario pidió seguir con la Fase 5 sin favoritos, con
+ramas y PR apilados y sin merge. Rama `claude/fase5-2-ver-perfil`, apilada
+sobre `claude/project-thread-1vffj7` (PR #38). Sin migraciones nuevas.
+
+**Qué se hizo:**
+- **«Ver perfil»** en `/explorar/<id>`:
+  - `getPersonProfile` (`lib/services/matching.ts`) y `getPersonPage`
+    (`lib/services/interests.ts`). No hay servicio nuevo con service_role.
+  - Regla de acceso de la Fase 5: solo si quien mira vería a esa persona en
+    `/explorar`, o si ya hay match (entonces, con el score guardado). En
+    cualquier otro caso, 404 indistinguible: id no válido, inexistente, no
+    elegible o uno mismo.
+  - `PersonProfileDTO`: el `CandidateDTO`, «Sobre ti», «Estudios», qué busca
+    y el mes de entrada. Nunca el email, la fecha de nacimiento, los
+    presupuestos exactos, las respuestas ni `categoryScores`.
+  - «Sobre ti» y «Estudios» avisan en sus formularios de que esas personas
+    los verán. No hay usuarios reales, así que nadie los escribió sin el
+    aviso.
+  - «Me interesa» y «Retirar» también desde el perfil (`volver=perfil`, solo
+    con un UUID válido). Enlaces «Ver perfil» en `/explorar` y `/matches`.
+- **UX:**
+  - la navegación se reparte en varias líneas en móvil y marca
+    `aria-current` también en las subrutas;
+  - márgenes de móvil en `/explorar`, `/matches`, el perfil y `/test`.
+  - Se probó `loading.tsx` y se retiró: con streaming, el 404 del perfil
+    salía como 200 y, sin JavaScript, el contenido se quedaba oculto (E1 lo
+    detectó).
+- **Backlog de la Fase 3** (no bloqueante, `docs/ROADMAP.md`, «Alcance del
+  cierre»), sin JavaScript y sin tocar D7:
+  - las preguntas sin responder se señalan, con un enlace a la primera;
+  - al completar el test, `/explorar?test=completado` lo confirma.
+
+**No se hizo, y por qué:**
+- el interés ligado a una habitación: la página pública no revela quién la
+  publica (R4), y enviar un interés a esa persona revelaría su identidad. Lo
+  tiene que decidir el propietario;
+- favoritos: excluidos por el propietario;
+- la Fase 6 (chat): por `CLAUDE.md` no se empieza otra fase sin su
+  confirmación, y la 5 no está integrada ni validada en real.
+
+**Pruebas:** ver `docs/TESTING.md`, «Fase 5.2».
+
+---
+
 ## 2026-11-25 — Sesión 80: Fase 5.1, «Me interesa» y match mutuo
 
 **Contexto.** El propietario autorizó expresamente empezar la Fase 5

@@ -93,7 +93,8 @@ export async function submitQuestionnaire(
 
   if (result.data.status === "completed") {
     revalidatePath(EXPLORE_PATH);
-    redirect(EXPLORE_PATH);
+    // Confirmación al terminar (backlog de la Fase 3): `/explorar` la muestra.
+    redirect(`${EXPLORE_PATH}?test=completado`);
   }
 
   const saved = Object.fromEntries(

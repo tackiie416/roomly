@@ -157,7 +157,9 @@ describe("/explorar: el resto de la página no cambia", () => {
     expect(html).toContain("Por qué encajáis");
     expect(html).toContain("Página 2 de 2");
     expect(html).toContain('href="/explorar"');
-    expect(html).not.toMatch(/Ver perfil/);
+    // Fase 5.2: «Ver perfil», al perfil de esa persona.
+    expect(html).toContain('href="/explorar/c1"');
+    expect(html).toContain("Ver perfil");
     // Fase 5.1: «Me interesa», con la página para volver a ella.
     expect(html).toContain("Me interesa");
     expect(html).toContain('name="targetId" value="c1"');
@@ -230,5 +232,16 @@ describe("/explorar: «Me interesa» (Fase 5.1)", () => {
     await expect(render()).rejects.toThrow(
       "No hemos podido cargar los compañeros compatibles."
     );
+  });
+});
+
+describe("/explorar: confirmación al terminar el test (backlog de la Fase 3)", () => {
+  it("con ?test=completado, un aviso; sin él, nada", async () => {
+    pageWith({ candidates: [candidate()], total: 1, totalPages: 1 });
+    const done = renderToStaticMarkup(
+      await ExplorePage({ searchParams: Promise.resolve({ test: "completado" }) })
+    );
+    expect(done).toContain("tu test está completo");
+    expect(await render()).not.toContain('data-testid="test-completed"');
   });
 });

@@ -24,7 +24,7 @@ export default async function TestPage() {
   const total = definition.questions.length;
 
   return (
-    <main className="mx-auto max-w-2xl p-8">
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:p-8">
       <Card className="flex flex-col gap-6">
         <div>
           <h1 className="text-xl font-medium">Test de convivencia</h1>
