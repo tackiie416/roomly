@@ -18,7 +18,8 @@
 --    fin. Límites (rate_limit_exceeded, P0001):
 --      - 30 intereses enviados en 24 h (también los retirados);
 --      - 10 intereses por habitación en 24 h (descubrir quién publica una
---        habitación exige enviar un interés que esa persona ve);
+--        habitación exige enviar un interés que esa persona ve), y 3 si la
+--        cuenta tiene menos de 24 h (frena las cuentas de usar y tirar);
 --      - 3 envíos a la misma persona en 30 días (retirar y reenviar).
 --    purge_interest_log borra las filas de más de 30 días (sin programar).
 -- 4. reports: motivos cerrados, descripción de hasta 1000 caracteres, nunca
@@ -114,6 +115,18 @@ begin
     raise exception using
       errcode = 'P0001',
       message = 'rate_limit_exceeded: demasiados intereses por habitación en 24h';
+  end if;
+
+  if new.room_id is not null
+     and exists (select 1 from public.profiles p
+                 where p.id = new.from_user_id and p.created_at > now() - interval '24 hours')
+     and (select count(*) from public.interest_log l
+          where l.from_user_id = new.from_user_id
+            and l.room_id is not null
+            and l.created_at > now() - interval '24 hours') >= 3 then
+    raise exception using
+      errcode = 'P0001',
+      message = 'rate_limit_exceeded: una cuenta nueva envía pocos intereses por habitación';
   end if;
 
   if (select count(*) from public.interest_log l
@@ -362,6 +375,13 @@ revoke all on function public.enforce_reports_integrity() from public, anon, aut
 create trigger trg_reports_integrity
   before insert or update on public.reports
   for each row execute function public.enforce_reports_integrity();
+
+-- Auditoría de admin (admin_action_logs): solo se añade. La política
+-- admin_action_logs_admin_only es FOR ALL; sin esto, un admin podía editar o
+-- borrar el registro de lo que se ha hecho con un reporte.
+revoke all on public.admin_action_logs from public, anon, authenticated;
+grant select, insert (admin_id, action, target_type, target_id, notes)
+  on public.admin_action_logs to authenticated;
 
 -- ------------------------------------------------------------
 -- 6. Conservación (preparada, sin uso): solo service_role

@@ -255,7 +255,25 @@ select roomly_test.ok(
   'BR5: el registro conserva los envíos retirados (y no el rechazado)');
 
 reset role;
--- 10 intereses por habitación en 24 h (E): registro sembrado.
+-- Una cuenta de menos de 24 h (D): 3 intereses por habitación en 24 h.
+insert into public.interest_log (from_user_id, to_user_id, room_id)
+  select '28000000-0000-0000-0000-00000000000d', '28000000-0000-0000-0000-00000000000c', gen_random_uuid()
+  from generate_series(1, 3);
+set role service_role;
+select roomly_test.expect_error_prefix(
+  $$select public.record_interest('28000000-0000-0000-0000-00000000000d', '28000000-0000-0000-0000-00000000000b', 60,
+                                  '28100000-0000-0000-0000-000000000001')$$,
+  'P0001', 'rate_limit_exceeded:', 'BR5: una cuenta nueva no envía un cuarto interés por habitación en 24 h');
+reset role;
+update public.profiles set created_at = now() - interval '2 days'
+where id in ('28000000-0000-0000-0000-00000000000d', '28000000-0000-0000-0000-00000000000e');
+set role service_role;
+select roomly_test.ok(
+  public.record_interest('28000000-0000-0000-0000-00000000000d', '28000000-0000-0000-0000-00000000000b', 60,
+                         '28100000-0000-0000-0000-000000000001') = 'sent',
+  'BR5: con más de 24 h, la misma cuenta sí puede');
+reset role;
+-- 10 intereses por habitación en 24 h (E, cuenta antigua): registro sembrado.
 insert into public.interest_log (from_user_id, to_user_id, room_id)
   select '28000000-0000-0000-0000-00000000000e', '28000000-0000-0000-0000-00000000000c', gen_random_uuid()
   from generate_series(1, 10);
@@ -336,6 +354,22 @@ select roomly_test.ok(
   (select resolved_by = '28000000-0000-0000-0000-0000000000ad' and resolved_at is not null
    from public.reports where reporter_id = '28000000-0000-0000-0000-00000000000c'),
   'BR6: resolved_by es el admin y resolved_at se fija solo');
+
+-- La auditoría de admin solo se añade: con su autoría, sin editar ni borrar.
+select roomly_test.expect_affected(
+  $$insert into public.admin_action_logs (admin_id, action, target_type)
+    values ('28000000-0000-0000-0000-0000000000ad', 'report_resolved', 'report')$$,
+  1, 'BR6: el admin deja constancia en admin_action_logs');
+select roomly_test.expect_error(
+  $$insert into public.admin_action_logs (admin_id, action, target_type)
+    values ('28000000-0000-0000-0000-00000000000c', 'report_resolved', 'report')$$,
+  '42501', 'BR6: no en nombre de otra persona (RLS)');
+select roomly_test.expect_error(
+  $$update public.admin_action_logs set notes = 'cambiado'$$,
+  '42501', 'BR6: el registro de admin no se edita (sin GRANT)');
+select roomly_test.expect_error(
+  $$delete from public.admin_action_logs$$,
+  '42501', 'BR6: ni se borra (sin GRANT)');
 
 -- Resuelto, se puede volver a reportar; diez en 24 h como máximo.
 select roomly_test.login('28000000-0000-0000-0000-00000000000c');
