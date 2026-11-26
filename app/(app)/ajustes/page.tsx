@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SETTINGS_PATH, requireOwnProfile } from "@/lib/auth/session";
+import { BLOCKED_PATH } from "@/lib/auth/destination";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { NotificationsForm } from "@/components/settings/notifications-form";
 import { Card } from "@/components/ui/card";
@@ -34,6 +35,14 @@ export default async function SettingsPage() {
           </h2>
           <NotificationsForm initialEnabled={state.profile.email_notifications_enabled} />
         </section>
+      </Card>
+      <Card className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium">Privacidad y seguridad</h2>
+        <p className="text-sm">
+          <Link href={BLOCKED_PATH} className="underline" data-testid="blocked-link">
+            Personas bloqueadas
+          </Link>
+        </p>
       </Card>
       <Card className="flex flex-col gap-3">
         <h2 className="text-sm font-medium">Sesión</h2>

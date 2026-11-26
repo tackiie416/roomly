@@ -22,6 +22,8 @@ export const EXPLORE_PATH = "/explorar";
 export const MATCHES_PATH = "/matches";
 /** Fase 6: chat entre matches. */
 export const MESSAGES_PATH = "/mensajes";
+/** Sesión 83: personas bloqueadas (dentro de Ajustes). */
+export const BLOCKED_PATH = "/ajustes/bloqueos";
 
 export type ProfileStatus = ProfileState["status"];
 

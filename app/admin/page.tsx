@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/session";
+import { ADMIN_REPORTS_PATH } from "@/lib/admin/paths";
 
 /**
  * El guard va también aquí, no solo en el layout: Next.js renderiza layout y
@@ -15,8 +17,16 @@ export default async function AdminPage() {
       <h1 className="text-2xl font-medium">Panel de administración</h1>
       <p className="mt-2 text-[var(--muted)]">
         Foundation lista: si ves esto, la protección de ruta (sesión + rol de
-        administrador) funciona. Usuarios, habitaciones, reportes y métricas llegan en la
-        Fase 7.
+        administrador) funciona. Usuarios, habitaciones y métricas llegan en la Fase 7.
+      </p>
+      <p className="mt-4">
+        <Link
+          href={ADMIN_REPORTS_PATH}
+          className="underline"
+          data-testid="admin-reports-link"
+        >
+          Revisar reportes
+        </Link>
       </p>
     </main>
   );

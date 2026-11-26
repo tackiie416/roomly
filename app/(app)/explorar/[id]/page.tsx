@@ -8,6 +8,7 @@ import { getPersonPage } from "@/lib/services/interests";
 import type { SeekingStatus } from "@/lib/services/matching";
 import { interestNotice } from "@/lib/interests/notices";
 import { InterestActions } from "@/components/interests/interest-actions";
+import { SafetyActions } from "@/components/safety/safety-actions";
 import { NeighborhoodsAttribution } from "@/components/rooms/neighborhoods-attribution";
 import { Card } from "@/components/ui/card";
 
@@ -193,6 +194,8 @@ export default async function PersonPage({
           </p>
         ) : null}
       </Card>
+
+      <SafetyActions targetId={person.id} name={person.fullName} />
 
       {person.neighborhoods.length > 0 ? <NeighborhoodsAttribution /> : null}
     </main>
