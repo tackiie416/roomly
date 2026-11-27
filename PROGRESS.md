@@ -6,6 +6,61 @@ próximos pasos.**
 
 ---
 
+## 2026-11-27 — Sesión 84: merges de #40 y #41 y Fase 7 (administración)
+
+**Contexto.** El propietario autorizó el merge de los PR #40 y #41 con la CI
+en verde y empezar la Fase 7 completa (usuarios, habitaciones, reportes,
+métricas y UX), con seguridad en el servidor y en la base de datos. Sin
+Supabase remoto, sin migraciones reales, sin secretos ni despliegues, y sin
+merge de PR nuevos.
+
+**Qué se hizo.**
+- Merges: PR #40 (`7ec6a61`) y PR #41 (`ada4833`, actualizado contra
+  `master` antes), con la CI de `master` en verde después de cada uno.
+- Rama `claude/project-thread-5tguj4`, desde `master` (`ada4833`).
+- Migración `20261129120000_admin_moderation.sql` (en local, **sin aplicar
+  en ningún proyecto real**): políticas de admin solo de lectura; diez
+  funciones `admin_*` SECURITY DEFINER con `is_admin()` y registro en la
+  misma transacción; `admin_action_logs` con catálogo cerrado e inmutable
+  para todos los roles; sin UPDATE de `reports` ni DELETE de `profiles` para
+  clientes. Detalle: `docs/SECURITY.md` y `docs/DATABASE.md`, «Fase 7».
+- Servidor: `lib/services/admin.ts` (sin service_role), `lib/validation/admin.ts`,
+  `app/actions/admin.ts`; `resolveReport` usa `admin_set_report_status`, con
+  medida opcional.
+- Interfaz, sin JavaScript y con confirmación en el servidor: `/admin`,
+  `/admin/usuarios` (+ ficha), `/admin/habitaciones` (+ ficha),
+  `/admin/reportes` y `/admin/metricas`, con estados vacíos, de error y de
+  envío (`useFormStatus`), filtros por GET y paginación.
+
+**Tests (en local).** `test` 1864/1864 (76 archivos); `test:db` en verde con
+`tests/db/29` (85) y 12 archivos adaptados; `test:infra` en verde; E1 63/64
+con `admin-panel.spec.ts` (3) en verde y el fallo intermitente conocido de
+`upload-size.spec.ts` (5/5 al repetirlo). Lint, typecheck, format y build en
+verde. La CI es la referencia.
+
+**Problemas encontrados.**
+- Las políticas `*_admin_all` (Fase 0) dejaban a un admin editar perfiles y
+  habitaciones ajenas, y cambiar reportes, sin regla ni registro. Corregido
+  con las políticas de solo lectura y las funciones.
+- `enforce_admin_action_logs_append_only` tenía EXECUTE de service_role por
+  defecto (AM0). Revocado.
+- Con un registro inmutable y `admin_id` sin cascada, una cuenta de admin que
+  ha actuado no se puede borrar. La api-suite real ya no ejecuta acciones de
+  admin con éxito (RO4, RO7 y RE9 adaptados); se prueban en `tests/db/29`.
+- `upload-size.spec.ts`: el mismo fallo intermitente local de la sesión 83.
+
+**Decisiones técnicas.** Sin service_role en el camino del admin; suspender
+reutiliza `deleted_at`; restaurar deja la habitación en `paused`; reactivar
+solo lo suspendido desde el panel; nadie se suspende a sí mismo ni a otro
+admin; sin `loading.tsx` (rompe las páginas sin JavaScript).
+
+**Qué queda / próximos pasos.** Revisión y merge del PR (necesita
+autorización); aplicar la migración en un proyecto real (autorización);
+decidir si un admin con acciones registradas debe poder borrarse (H6);
+reportar habitaciones desde su ficha pública.
+
+---
+
 ## 2026-11-26 — Sesión 83: bloquear, reportar, límites contra el abuso de intereses y diseño de privacidad
 
 **Contexto.** El propietario pidió no hacer merge del PR #40 todavía y seguir
