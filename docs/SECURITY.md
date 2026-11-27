@@ -1813,13 +1813,18 @@ menciones describen el estado de entonces.
   todos los roles, también service_role y el dueño de la tabla (AM8). Acciones
   y tipos de objetivo de un catálogo cerrado; `target_id` obligatorio; notas
   de hasta 2000 caracteres.
-  - Consecuencia conocida: `admin_action_logs.admin_id` referencia
-    `profiles` sin cascada, así que **una cuenta de admin que ha actuado no
-    se puede borrar** (23503). Es coherente con conservar la auditoría, pero
-    afecta al diseño del borrado de cuenta (H6, `docs/PRIVACY_RETENTION.md`)
-    y a la limpieza de los proyectos de validación: la api-suite real ya no
-    ejecuta acciones de admin con éxito (RO4, RO7 y RE9 comprueban el
-    rechazo), y esas acciones se prueban solo en `tests/db/29`, con ROLLBACK.
+  - Sesión 85 (`20261130120000`, en local): por decisión del propietario,
+    `admin_action_logs.admin_id` y `reports.resolved_by` ya no son FK, así
+    que una cuenta de admin que ha actuado sí se puede borrar y su UUID
+    queda como seudónimo, sin tocar ninguna fila. service_role pierde
+    INSERT, UPDATE y TRUNCATE en el registro (sin la FK podría inventar un
+    actor). Detalle en `docs/PRIVACY_RETENTION.md`, punto 6. Antes de ese
+    cambio, una cuenta de admin que había actuado no se podía borrar
+    (23503).
+  - Las filas del registro no se pueden borrar, así que la api-suite real
+    sigue sin ejecutar acciones de admin con éxito (dejarían filas
+    permanentes en el proyecto de validación): RO4, RO7 y RE9 comprueban el
+    rechazo, y esas acciones se prueban en `tests/db/29` y `30`.
 - **Lo que ve el admin.** Sin emails, sin fecha de nacimiento, sin la
   dirección exacta ni las coordenadas aproximadas de las habitaciones, sin
   respuestas del test ni mensajes. Las métricas son solo recuentos agregados.

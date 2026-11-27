@@ -1222,9 +1222,9 @@ Sin aplicar en ningún proyecto real. Por qué existe cada pieza:
   `user_reactivated`, `room_removed`, `room_restored`) y de tipos
   (`report`, `user`, `room`), `target_id` obligatorio y notas de hasta 2000
   caracteres. Solo se añade: los triggers rechazan UPDATE, DELETE y TRUNCATE
-  para todos los roles. Como `admin_id` referencia `profiles` sin cascada,
-  un admin con acciones registradas no se puede borrar (decisión pendiente
-  para H6).
+  para todos los roles. Desde `20261130120000` (sesión 85) `admin_id` y
+  `reports.resolved_by` no son FK: un admin con acciones registradas se
+  puede borrar y su UUID queda como seudónimo (`docs/PRIVACY_RETENTION.md`).
 - Índices nuevos: `admin_action_logs(target_type, target_id, created_at)`,
   `admin_action_logs(created_at)`, `reports(reported_user_id)`,
   `reports(reported_room_id)`, `profiles(created_at)` y `rooms(created_at)`.

@@ -849,6 +849,21 @@ begin
       failures := failures || format('privilegio %s inesperado en admin_action_logs', col);
     end if;
   end loop;
+  -- Sesión 85 (20261130120000): service_role tampoco añade ni edita filas
+  -- del registro, y el actor ya no es FK (un admin que actuó se puede borrar).
+  foreach col in array array['INSERT', 'UPDATE', 'TRUNCATE'] loop
+    if has_table_privilege('service_role', 'public.admin_action_logs', col) then
+      failures := failures || format('service_role tiene %s en admin_action_logs', col);
+    end if;
+  end loop;
+  if exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and ((c.conrelid = 'public.admin_action_logs'::regclass and a.attname = 'admin_id')
+        or (c.conrelid = 'public.reports'::regclass and a.attname = 'resolved_by'))) then
+    failures := failures || 'admin_action_logs.admin_id o reports.resolved_by siguen siendo FK'::text;
+  end if;
   if has_table_privilege('authenticated', 'public.profiles', 'DELETE')
      or has_table_privilege('anon', 'public.profiles', 'DELETE')
      or has_table_privilege('authenticated', 'public.profiles', 'TRUNCATE')

@@ -1655,6 +1655,19 @@ workflow manual.
   interés por habitación) y `student-flow` con «Mensajes» en la navegación.
   El mock emula las tres tablas, el trigger y las dos rpc nuevas.
 
+## Auditoría con actor seudónimo (sesión 85, en local)
+
+- `tests/db/30_admin_audit_pseudonym.sql` (PS0–PS4, 13): sin FK en
+  `admin_id` ni `resolved_by` y con los triggers de solo añadir; un admin
+  que suspendió, reactivó y cerró un reporte se borra desde Auth; sus tres
+  filas del registro y el reporte quedan idénticos; la ficha del panel sigue
+  mostrando sus acciones sin nombre; ni el dueño de la tabla reescribe el
+  actor y service_role ya no añade filas.
+- `tests/db/29` (AM8): service_role ya no tiene UPDATE en el registro
+  (42501 por privilegio).
+- Preflight P4: service_role sin INSERT, UPDATE ni TRUNCATE en
+  `admin_action_logs` y sin FK en las dos columnas del actor.
+
 ## Fase 7 — Administración (sesión 84, en local)
 
 - `tests/db/29_admin_moderation.sql` (AM0–AM9, 85 comprobaciones):

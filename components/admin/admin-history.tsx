@@ -24,7 +24,8 @@ export function AdminHistory({ entries }: { entries: AdminHistoryEntry[] }) {
                   {labelOr(ADMIN_ACTION_LABELS, entry.action)}
                 </strong>
                 <span className="text-xs text-[var(--muted)]">
-                  {adminDateText(entry.createdAt)} · {entry.adminName ?? "Administración"}
+                  {adminDateText(entry.createdAt)} ·{" "}
+                  {entry.adminName ?? "Cuenta de administración eliminada"}
                 </span>
               </div>
               {entry.notes ? (

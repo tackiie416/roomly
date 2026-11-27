@@ -440,9 +440,12 @@ select roomly_test.ok(
 -- 8. El registro no se edita, borra ni vacía (ningún rol)
 -- ------------------------------------------------------------
 set role service_role;
-select roomly_test.expect_error_prefix(
+-- Desde 20261130120000 service_role ni siquiera tiene UPDATE (42501 por
+-- privilegio, antes que el trigger); el trigger lo sigue frenando para el
+-- dueño de la tabla, más abajo.
+select roomly_test.expect_error(
   $$update public.admin_action_logs set notes = 'manipulado'$$,
-  '42501', 'admin_log_immutable:', 'AM8: service_role no edita el registro');
+  '42501', 'AM8: service_role no edita el registro');
 select roomly_test.expect_error_prefix(
   $$delete from public.admin_action_logs$$,
   '42501', 'admin_log_immutable:', 'AM8: ni lo borra');
