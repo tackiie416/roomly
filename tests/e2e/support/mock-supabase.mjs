@@ -24,7 +24,7 @@
 //           Las URL firmadas se sirven sin apikey, como en Supabase.
 //           Sesión 68 (CRUD): INSERT y UPDATE de rooms por authenticated, con
 //           el GRANT por columnas de 20261015120000, la RLS de la 4.0
-//           (propietaria con la cuenta activa, o rooms_admin_all), los CHECK,
+//           (propietaria con la cuenta activa; el admin solo lee), los CHECK,
 //           las FK (también la compuesta barrio ↔ ciudad) y el trigger de
 //           moderación H5. Un admin solo existe si un test lo crea con
 //           /__test/make-admin.
@@ -47,8 +47,11 @@
 //           se saltan retirando, 10 por habitación y 3 a la misma persona en
 //           30 días); reports (INSERT propio con GRANT por columnas, motivos,
 //           longitud, uno abierto por persona, 10 en 24 h; lectura propia o
-//           de admin; UPDATE solo de admin) y admin_action_logs (solo
-//           añadir, del propio admin). profiles_admin_all para leer.
+//           de admin) y admin_action_logs (lectura de admin).
+//           Fase 7 (20261129120000): las políticas de admin son solo de
+//           lectura y rpc/admin_* (authenticated con is_admin(); 42501 para
+//           el resto, también service_role) modera y registra en
+//           admin_action_logs; ningún cliente escribe ese registro.
 //   Test  — /__test/*: el "buzón" (último enlace enviado a un email), reset,
 //           desactivar una cuenta (operación de servidor), leer el estado y,
 //           desde la Fase 4.2, sembrar una habitación y leer sus fotos y
@@ -1107,46 +1110,18 @@ function handleReports(req, res, url, body, uid, table, columns) {
   if (table === "reports") {
     if (req.method === "POST")
       return respondRows(req, res, [insertReport(body, uid)], columns);
-    // reports_select_own y reports_admin_all; la persona reportada no ve nada.
+    // reports_select_own y reports_admin_select; la persona reportada no ve nada.
     const visible = state.reports.filter(
       (r) => r.reporter_id === uid || isActiveAdmin(uid)
     );
     if (req.method === "GET")
       return respondRows(req, res, applyFilters(visible, url), columns);
-    if (req.method === "PATCH") {
-      checkColumns(table, body, [
-        "status",
-        "resolution_notes",
-        "resolved_by",
-        "resolved_at",
-      ]);
-      if (!isActiveAdmin(uid)) return respondRows(req, res, [], columns);
-      const updated = applyFilters(visible, url).map((r) => {
-        const closed = ["resolved", "dismissed"].includes(body.status ?? r.status);
-        Object.assign(r, body, {
-          resolved_by: closed ? uid : null,
-          resolved_at: closed ? (r.resolved_at ?? new Date().toISOString()) : null,
-        });
-        return r;
-      });
-      return respondRows(req, res, updated, columns);
-    }
+    // 20261129120000: sin UPDATE para authenticated; el estado lo cambia
+    // admin_set_report_status.
     throw denied(table);
   }
-  // admin_action_logs: solo añadir, con la autoría propia.
-  if (req.method === "POST") {
-    checkColumns(table, body, [
-      "admin_id",
-      "action",
-      "target_type",
-      "target_id",
-      "notes",
-    ]);
-    if (!isActiveAdmin(uid) || body.admin_id !== uid) throw rlsDenied(table);
-    const row = { id: randomUUID(), ...body, created_at: new Date().toISOString() };
-    state.adminLogs.push(row);
-    return respondRows(req, res, [row], columns);
-  }
+  // admin_action_logs: ningún cliente escribe (20261129120000); solo las
+  // funciones admin_* añaden filas. admin_action_logs_admin_select para leer.
   if (req.method === "GET")
     return respondRows(
       req,
@@ -1397,7 +1372,7 @@ const isActiveAdmin = (uid) => {
   const profile = state.profiles.get(uid);
   return profile?.role === "admin" && profile.deleted_at === null;
 };
-/** rooms_select_own, rooms_select_active_public con R7 y rooms_admin_all. */
+/** rooms_select_own, rooms_select_active_public con R7 y rooms_admin_select. */
 const roomVisibleTo = (room, uid) =>
   room.owner_id === uid ||
   isActiveAdmin(uid) ||
@@ -1486,9 +1461,11 @@ function roomModeration(old, next, uid) {
     );
 }
 
-/** La propietaria con la cuenta activa (rooms_*_own, 4.0) o un admin activo (rooms_admin_all). */
-const canWriteRoom = (room, uid) =>
-  (room.owner_id === uid && ownerActive(uid)) || isActiveAdmin(uid);
+/**
+ * La propietaria con la cuenta activa (rooms_*_own, 4.0). Desde 20261129120000
+ * un admin solo lee (rooms_admin_select): retira y restaura con admin_*.
+ */
+const canWriteRoom = (room, uid) => room.owner_id === uid && ownerActive(uid);
 
 function handleUserRooms(req, res, url, body, uid, columns) {
   if (req.method === "GET") {
@@ -1725,6 +1702,432 @@ function handleStorage(req, res, url, raw, isService) {
   return storageError(res, 404, "404", "not_found", "not found");
 }
 
+// ------------------------------------------------------------ Fase 7: admin_*
+// 20261129120000: las políticas de admin son solo de lectura y toda escritura
+// de moderación pasa por estas funciones (SECURITY DEFINER, EXECUTE solo de
+// authenticated). Cada una comprueba is_admin() y escribe su registro en
+// admin_action_logs en la misma operación. Mismos errores que la base de datos.
+const adminFail = (status, code, message) => new DbError(status, code, message);
+function adminRequire(uid) {
+  if (!uid || !isActiveAdmin(uid))
+    throw adminFail(
+      403,
+      "42501",
+      "admin_forbidden: se necesita una cuenta de administración activa"
+    );
+  return uid;
+}
+function adminCleanReason(value, required) {
+  const text = typeof value === "string" ? value.replace(/\r\n?/g, "\n").trim() : "";
+  if (!text) {
+    if (required) throw adminFail(400, "22023", "admin_invalid: falta el motivo");
+    return null;
+  }
+  const length = [...text].length;
+  if (length < 3 || length > 1000)
+    throw adminFail(
+      400,
+      "22023",
+      "admin_invalid: el motivo debe tener entre 3 y 1000 caracteres"
+    );
+  return text;
+}
+function adminLog(adminId, action, targetType, targetId, notes) {
+  state.adminLogs.push({
+    id: randomUUID(),
+    admin_id: adminId,
+    action,
+    target_type: targetType,
+    target_id: targetId,
+    notes,
+    created_at: new Date().toISOString(),
+  });
+}
+const openReportsFor = (pred) =>
+  state.reports.filter((r) => ["pending", "in_review"].includes(r.status) && pred(r))
+    .length;
+const adminHistory = (targetType, targetId) =>
+  state.adminLogs
+    .filter((l) => l.target_type === targetType && l.target_id === targetId)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, 50)
+    .map((l) => ({
+      action: l.action,
+      notes: l.notes,
+      created_at: l.created_at,
+      admin_name: state.profiles.get(l.admin_id)?.full_name ?? null,
+    }));
+const contains = (value, search) =>
+  !search ||
+  String(value ?? "")
+    .toLowerCase()
+    .includes(String(search).toLowerCase());
+function checkPaging(body) {
+  const limit = body.p_limit ?? 25;
+  const offset = body.p_offset ?? 0;
+  if (
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 100 ||
+    !Number.isInteger(offset) ||
+    offset < 0 ||
+    offset > 10000
+  )
+    throw adminFail(400, "22023", "admin_invalid: filtros no válidos");
+  return { limit, offset };
+}
+function page(rows, body) {
+  const { limit, offset } = checkPaging(body);
+  return rows
+    .slice(offset, offset + limit)
+    .map((r) => ({ ...r, total_count: rows.length }));
+}
+const byCreatedDesc = (a, b) =>
+  b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id);
+
+function adminListUsers(body) {
+  const {
+    p_search: q,
+    p_status: s = "all",
+    p_role: role = "all",
+    p_onboarding: ob = "all",
+  } = body;
+  if (
+    !["all", "active", "suspended"].includes(s) ||
+    !["all", "user", "admin"].includes(role) ||
+    !["all", "complete", "incomplete"].includes(ob)
+  )
+    throw adminFail(400, "22023", "admin_invalid: filtros no válidos");
+  const rows = [...state.profiles.values()]
+    .filter((p) => contains(p.full_name, q) || p.id === q)
+    .filter((p) => s === "all" || (s === "active") === (p.deleted_at === null))
+    .filter((p) => role === "all" || p.role === role)
+    .filter(
+      (p) => ob === "all" || (ob === "complete") === (p.onboarding_completed_at !== null)
+    )
+    .map((p) => ({
+      id: p.id,
+      full_name: p.full_name,
+      role: p.role,
+      seeking_status: p.seeking_status,
+      created_at: p.created_at ?? new Date(0).toISOString(),
+      onboarding_completed_at: p.onboarding_completed_at ?? null,
+      deleted_at: p.deleted_at,
+      open_reports: openReportsFor((r) => r.reported_user_id === p.id),
+      rooms_count: [...state.rooms.values()].filter((r) => r.owner_id === p.id).length,
+    }))
+    .filter((p) => !body.p_reported || p.open_reports > 0)
+    .sort(byCreatedDesc);
+  return page(rows, body);
+}
+function lastSuspensionByAdmin(userId) {
+  const last = state.adminLogs
+    .filter(
+      (l) =>
+        l.target_id === userId &&
+        ["user_suspended", "user_reactivated"].includes(l.action)
+    )
+    .at(-1);
+  return last?.action === "user_suspended";
+}
+function adminGetUser(body) {
+  const p = state.profiles.get(body.p_user_id);
+  if (!p) throw adminFail(404, "P0002", "admin_not_found: la cuenta no existe");
+  return {
+    id: p.id,
+    full_name: p.full_name,
+    bio: p.bio ?? null,
+    role: p.role,
+    seeking_status: p.seeking_status,
+    created_at: p.created_at ?? new Date(0).toISOString(),
+    onboarding_completed_at: p.onboarding_completed_at ?? null,
+    deleted_at: p.deleted_at,
+    suspended_by_admin: p.deleted_at !== null && lastSuspensionByAdmin(p.id),
+    has_questionnaire: state.responses.has(p.id),
+    matches_count: state.matches.filter(
+      (m) => m.user_a_id === p.id || m.user_b_id === p.id
+    ).length,
+    blocked_by_count: state.blocks.filter((b) => b.blocked_id === p.id).length,
+    rooms: [...state.rooms.values()]
+      .filter((r) => r.owner_id === p.id)
+      .map((r) => ({
+        id: r.id,
+        title: r.title,
+        status: r.status,
+        created_at: r.created_at,
+      })),
+    reports_received: state.reports
+      .filter((r) => r.reported_user_id === p.id)
+      .sort(byCreatedDesc)
+      .slice(0, 20)
+      .map((r) => ({
+        id: r.id,
+        reason: r.reason,
+        status: r.status,
+        created_at: r.created_at,
+        room_id: r.reported_room_id,
+      })),
+    reports_made_count: state.reports.filter((r) => r.reporter_id === p.id).length,
+    history: adminHistory("user", p.id),
+  };
+}
+const cityName = (id) => REFERENCE.cities.find((c) => c.id === id)?.name ?? null;
+const neighborhoodName = (id) =>
+  REFERENCE.neighborhoods.find((n) => n.id === id)?.name ?? null;
+function adminListRooms(body) {
+  const { p_search: q, p_status: s = "all" } = body;
+  if (!["all", "draft", "active", "paused", "rented", "removed"].includes(s))
+    throw adminFail(400, "22023", "admin_invalid: filtros no válidos");
+  const rows = [...state.rooms.values()]
+    .filter((r) => s === "all" || r.status === s)
+    .map((r) => {
+      const owner = state.profiles.get(r.owner_id);
+      return {
+        id: r.id,
+        title: r.title,
+        status: r.status,
+        city_name: cityName(r.city_id),
+        neighborhood_name: neighborhoodName(r.neighborhood_id),
+        price_month: r.price_month,
+        owner_id: r.owner_id,
+        owner_name: owner?.full_name ?? "",
+        owner_deactivated: owner?.deleted_at !== null,
+        created_at: r.created_at,
+        published_at: r.published_at ?? null,
+        open_reports: openReportsFor((x) => x.reported_room_id === r.id),
+      };
+    })
+    .filter((r) => contains(r.title, q) || contains(r.owner_name, q) || r.id === q)
+    .filter((r) => !body.p_reported || r.open_reports > 0)
+    .sort(byCreatedDesc);
+  return page(rows, body);
+}
+function adminGetRoom(body) {
+  const r = state.rooms.get(body.p_room_id);
+  if (!r) throw adminFail(404, "P0002", "admin_not_found: la habitación no existe");
+  const owner = state.profiles.get(r.owner_id);
+  return {
+    id: r.id,
+    title: r.title,
+    description: r.description ?? null,
+    status: r.status,
+    price_month: r.price_month,
+    city_name: cityName(r.city_id),
+    neighborhood_name: neighborhoodName(r.neighborhood_id),
+    house_rules: r.house_rules ?? null,
+    roommate_preferences: r.roommate_preferences ?? null,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+    published_at: r.published_at ?? null,
+    images_count: [...state.images.values()].filter((i) => i.room_id === r.id).length,
+    owner: owner
+      ? {
+          id: owner.id,
+          full_name: owner.full_name,
+          deactivated: owner.deleted_at !== null,
+        }
+      : null,
+    reports: state.reports
+      .filter((x) => x.reported_room_id === r.id)
+      .sort(byCreatedDesc)
+      .slice(0, 20)
+      .map((x) => ({
+        id: x.id,
+        reason: x.reason,
+        status: x.status,
+        description: x.description,
+        created_at: x.created_at,
+      })),
+    history: adminHistory("room", r.id),
+  };
+}
+function adminMetrics() {
+  const profiles = [...state.profiles.values()];
+  const rooms = [...state.rooms.values()];
+  const count = (rows, pred) => rows.filter(pred).length;
+  return {
+    generated_at: new Date().toISOString(),
+    users: {
+      total: profiles.length,
+      active: count(profiles, (p) => p.deleted_at === null),
+      suspended: count(profiles, (p) => p.deleted_at !== null),
+      admins: count(profiles, (p) => p.role === "admin"),
+      onboarding_complete: count(profiles, (p) => p.onboarding_completed_at),
+      new_7d: profiles.length,
+      new_30d: profiles.length,
+    },
+    questionnaires: state.responses.size,
+    rooms: Object.fromEntries([
+      ["total", rooms.length],
+      ...["draft", "active", "paused", "rented", "removed"].map((s) => [
+        s,
+        count(rooms, (r) => r.status === s),
+      ]),
+      ["published_7d", count(rooms, (r) => r.published_at)],
+    ]),
+    interests: {
+      total: state.interests.length,
+      last_7d: state.interests.length,
+      with_room: count(state.interests, (i) => i.room_id),
+    },
+    matches: { total: state.matches.length, last_7d: state.matches.length },
+    conversations: {
+      open: count(state.conversations, (c) => c.closed_at === null),
+      closed: count(state.conversations, (c) => c.closed_at !== null),
+      active_7d: count(state.conversations, (c) => c.last_message_at),
+    },
+    messages: { last_7d: state.messages.length, last_30d: state.messages.length },
+    blocks: state.blocks.length,
+    reports: {
+      ...Object.fromEntries(
+        ["pending", "in_review", "resolved", "dismissed"].map((s) => [
+          s,
+          count(state.reports, (r) => r.status === s),
+        ])
+      ),
+      last_7d: state.reports.length,
+      avg_hours_to_close_30d: null,
+    },
+    admin_actions_7d: state.adminLogs.length,
+  };
+}
+function adminSuspendUser(adminId, body) {
+  const reason = adminCleanReason(body.p_reason, true);
+  const p = state.profiles.get(body.p_user_id);
+  if (!p) throw adminFail(404, "P0002", "admin_not_found: la cuenta no existe");
+  if (p.id === adminId)
+    throw adminFail(400, "23514", "admin_state: no puedes suspender tu propia cuenta");
+  if (p.role === "admin")
+    throw adminFail(
+      400,
+      "23514",
+      "admin_state: no se suspende a otra cuenta de administración"
+    );
+  if (p.deleted_at !== null)
+    throw adminFail(400, "23514", "admin_state: la cuenta ya está desactivada");
+  p.deleted_at = new Date().toISOString();
+  adminLog(adminId, "user_suspended", "user", p.id, reason);
+  return "suspended";
+}
+function adminReactivateUser(adminId, body) {
+  const reason = adminCleanReason(body.p_reason, true);
+  const p = state.profiles.get(body.p_user_id);
+  if (!p) throw adminFail(404, "P0002", "admin_not_found: la cuenta no existe");
+  if (p.deleted_at === null)
+    throw adminFail(400, "23514", "admin_state: la cuenta ya está activa");
+  if (!lastSuspensionByAdmin(p.id))
+    throw adminFail(
+      400,
+      "23514",
+      "admin_state: solo se reactiva una cuenta suspendida desde el panel"
+    );
+  p.deleted_at = null;
+  adminLog(adminId, "user_reactivated", "user", p.id, reason);
+  return "reactivated";
+}
+function adminRemoveRoom(adminId, body) {
+  const reason = adminCleanReason(body.p_reason, true);
+  const r = state.rooms.get(body.p_room_id);
+  if (!r) throw adminFail(404, "P0002", "admin_not_found: la habitación no existe");
+  if (r.status === "removed")
+    throw adminFail(400, "23514", "admin_state: la habitación ya está retirada");
+  const before = r.status;
+  r.status = "removed";
+  r.updated_at = new Date().toISOString();
+  adminLog(adminId, "room_removed", "room", r.id, `${reason} [antes: ${before}]`);
+  return "removed";
+}
+function adminRestoreRoom(adminId, body) {
+  const reason = adminCleanReason(body.p_reason, true);
+  const r = state.rooms.get(body.p_room_id);
+  if (!r) throw adminFail(404, "P0002", "admin_not_found: la habitación no existe");
+  if (r.status !== "removed")
+    throw adminFail(400, "23514", "admin_state: la habitación no está retirada");
+  r.status = "paused";
+  r.updated_at = new Date().toISOString();
+  adminLog(adminId, "room_restored", "room", r.id, reason);
+  return "paused";
+}
+function adminSetReportStatus(adminId, body) {
+  const { p_status: status, p_measure: measure = "none" } = body;
+  if (
+    !["pending", "in_review", "resolved", "dismissed"].includes(status) ||
+    !["none", "suspend_user", "remove_room"].includes(measure)
+  )
+    throw adminFail(400, "22023", "admin_invalid: estado o medida no válidos");
+  const report = state.reports.find((r) => r.id === body.p_report_id);
+  if (!report) throw adminFail(404, "P0002", "admin_not_found: el reporte no existe");
+  const closed = ["resolved", "dismissed"].includes(report.status);
+  if (
+    report.status === status ||
+    status === "pending" ||
+    (closed && status !== "in_review")
+  )
+    throw adminFail(400, "23514", "admin_state: cambio de estado no permitido");
+  if (measure !== "none" && status !== "resolved")
+    throw adminFail(400, "23514", "admin_state: las medidas solo se aplican al resolver");
+  if (
+    (measure === "suspend_user" && !report.reported_user_id) ||
+    (measure === "remove_room" && !report.reported_room_id)
+  )
+    throw adminFail(400, "23514", "admin_state: la medida no corresponde al reporte");
+  const notes = adminCleanReason(
+    body.p_notes,
+    ["resolved", "dismissed"].includes(status) || closed
+  );
+  // Todo o nada, como la transacción: la medida se comprueba antes de escribir.
+  const snapshot = structuredClone({
+    reports: state.reports,
+    logs: state.adminLogs,
+    profiles: [...state.profiles.entries()],
+    rooms: [...state.rooms.entries()],
+  });
+  try {
+    const nowClosed = ["resolved", "dismissed"].includes(status);
+    Object.assign(report, {
+      status,
+      resolution_notes: notes ?? report.resolution_notes,
+      resolved_by: nowClosed ? adminId : null,
+      resolved_at: nowClosed ? new Date().toISOString() : null,
+    });
+    adminLog(
+      adminId,
+      closed ? "report_reopened" : `report_${status}`,
+      "report",
+      report.id,
+      notes
+    );
+    const why = notes ?? `Medida del reporte ${report.id}`;
+    if (measure === "suspend_user")
+      adminSuspendUser(adminId, { p_user_id: report.reported_user_id, p_reason: why });
+    if (measure === "remove_room")
+      adminRemoveRoom(adminId, { p_room_id: report.reported_room_id, p_reason: why });
+  } catch (error) {
+    state.reports = snapshot.reports;
+    state.adminLogs = snapshot.logs;
+    state.profiles = new Map(snapshot.profiles);
+    state.rooms = new Map(snapshot.rooms);
+    throw error;
+  }
+  return status;
+}
+const ADMIN_RPC = {
+  admin_list_users: (_uid, body) => adminListUsers(body),
+  admin_get_user: (_uid, body) => adminGetUser(body),
+  admin_list_rooms: (_uid, body) => adminListRooms(body),
+  admin_get_room: (_uid, body) => adminGetRoom(body),
+  admin_metrics: () => adminMetrics(),
+  admin_suspend_user: adminSuspendUser,
+  admin_reactivate_user: adminReactivateUser,
+  admin_remove_room: adminRemoveRoom,
+  admin_restore_room: adminRestoreRoom,
+  admin_set_report_status: adminSetReportStatus,
+};
+function handleAdminRpc(res, body, uid, name) {
+  const admin = adminRequire(uid);
+  return send(res, 200, ADMIN_RPC[name](admin, body ?? {}));
+}
+
 function handleRest(req, res, url, body, uid, isService) {
   const table = url.pathname.replace("/rest/v1/", "");
   if (isService && !(table in REFERENCE))
@@ -1735,6 +2138,13 @@ function handleRest(req, res, url, body, uid, isService) {
     if (req.method !== "GET") throw denied(table);
     return respondRows(req, res, applyFilters(REFERENCE[table], url), columns);
   }
+  if (
+    table.startsWith("rpc/admin_") &&
+    req.method === "POST" &&
+    uid &&
+    table.slice(4) in ADMIN_RPC
+  )
+    return handleAdminRpc(res, body, uid, table.slice(4));
   if (table.startsWith("rpc/"))
     // Solo service_role tiene EXECUTE de las funciones que usa la app.
     throw new DbError(403, "42501", `permission denied for function ${table.slice(4)}`);
@@ -1805,9 +2215,9 @@ function handleRest(req, res, url, body, uid, isService) {
   if (table === "profiles") {
     // profiles_select_own_even_if_deleted: solo la fila propia, también
     // eliminada (Fase 2.9, H4: ya no existe profiles_select_authenticated).
-    // profiles_admin_all: desde la sesión 83, un admin activo (creado con
-    // /__test/make-admin) lee todos los perfiles, como en la base de datos;
-    // escribir sigue limitado a su fila.
+    // profiles_admin_select: un admin activo (creado con /__test/make-admin)
+    // lee todos los perfiles, como en la base de datos; escribir sigue
+    // limitado a su fila (suspender es admin_suspend_user).
     const visible = () =>
       [...state.profiles.values()].filter((p) => p.id === uid || isActiveAdmin(uid));
     if (req.method === "GET")
