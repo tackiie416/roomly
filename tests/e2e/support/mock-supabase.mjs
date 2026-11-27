@@ -33,6 +33,13 @@
 //           service_role, rpc/record_interest y rpc/withdraw_interest con las
 //           reglas de 20261126120000 (cuentas válidas, rate limit de 30 en
 //           24 h, match al ser mutuo, sin retirar con match).
+//           Fase 6 (20261127120000): conversations, conversation_participants
+//           y messages. El match abre su conversación y deshacerlo
+//           (rpc/undo_match) la cierra; authenticated solo lee las
+//           conversaciones abiertas en las que participa, escribe
+//           last_read_at y envía mensajes (trigger de integridad: match
+//           vigente, cuentas activas, 2000 caracteres, 30 por minuto y
+//           client_token único). rpc/room_interest_owner, solo service_role.
 //   Test  — /__test/*: el "buzón" (último enlace enviado a un email), reset,
 //           desactivar una cuenta (operación de servidor), leer el estado y,
 //           desde la Fase 4.2, sembrar una habitación y leer sus fotos y
@@ -232,6 +239,9 @@ function reset() {
     signTokens: new Map(), // token → { path, expiresAt }
     interests: [], // { from_user_id, to_user_id, room_id, created_at }
     matches: [], // { id, user_a_id, user_b_id, room_id, compatibility_score, created_at }
+    conversations: [], // { id, match_id, closed_at, last_message_at, created_at }
+    participants: [], // { conversation_id, user_id, last_read_at }
+    messages: [], // { id, conversation_id, sender_id, content, client_token, created_at }
     log: [],
   };
 }
@@ -871,15 +881,189 @@ function recordInterest(body) {
   }
   if (!hasInterest(to, from)) return inserted ? "sent" : "already_sent";
   const [a, b] = pairOf(from, to);
-  state.matches.push({
+  const match = {
     id: randomUUID(),
     user_a_id: a,
     user_b_id: b,
     room_id: null,
     compatibility_score: score,
     created_at: new Date().toISOString(),
-  });
+  };
+  state.matches.push(match);
+  openMatchConversation(match);
   return "matched";
+}
+
+// ---------------------------------------------------------------- Fase 6
+/** trg_matches_open_conversation: una conversación por match, con sus dos participantes. */
+function openMatchConversation(match) {
+  const id = randomUUID();
+  state.conversations.push({
+    id,
+    match_id: match.id,
+    closed_at: null,
+    last_message_at: null,
+    created_at: match.created_at,
+  });
+  for (const user of [match.user_a_id, match.user_b_id])
+    state.participants.push({ conversation_id: id, user_id: user, last_read_at: null });
+}
+/** undo_match: borra el match y los dos intereses; trg_matches_close_conversation la cierra. */
+function undoMatch(body) {
+  const { p_user: user, p_other: other } = body;
+  if (!UUID_RE.test(user ?? "") || !UUID_RE.test(other ?? "") || user === other)
+    throw new DbError(
+      400,
+      "22004",
+      "interest_invalid: faltan las personas o son la misma"
+    );
+  const match = findMatch(user, other);
+  if (!match) return "not_found";
+  state.matches = state.matches.filter((m) => m !== match);
+  state.interests = state.interests.filter(
+    (i) =>
+      !(
+        (i.from_user_id === user && i.to_user_id === other) ||
+        (i.from_user_id === other && i.to_user_id === user)
+      )
+  );
+  for (const c of state.conversations)
+    if (c.match_id === match.id) {
+      c.closed_at = new Date().toISOString();
+      c.match_id = null;
+    }
+  return "undone";
+}
+/** room_interest_owner: dueña de una habitación activa, con la cuenta válida. */
+function roomInterestOwner(body) {
+  const room = state.rooms.get(body.p_room_id);
+  if (!room || room.status !== "active" || room.deleted_at) return null;
+  return interestParty(room.owner_id) ? room.owner_id : null;
+}
+const openConversation = (id) =>
+  state.conversations.find((c) => c.id === id && c.closed_at === null && c.match_id);
+const participates = (conversationId, uid) =>
+  state.participants.some(
+    (p) => p.conversation_id === conversationId && p.user_id === uid
+  );
+/** is_conversation_participant: abierta, con match y la persona dentro. */
+const visibleConversation = (id, uid) =>
+  Boolean(openConversation(id)) && participates(id, uid);
+const MESSAGE_INSERT = ["conversation_id", "sender_id", "content", "client_token"];
+
+/** messages_insert_participant + trg_messages_integrity + trg_messages_touch_conversation. */
+function insertMessage(body, uid) {
+  checkColumns("messages", body, MESSAGE_INSERT);
+  const conversation = state.conversations.find((c) => c.id === body.conversation_id);
+  if (conversation && conversation.closed_at !== null)
+    throw new DbError(
+      400,
+      "23514",
+      "message_conversation_closed: la conversación está cerrada"
+    );
+  const match = conversation && state.matches.find((m) => m.id === conversation.match_id);
+  const active = (id) => {
+    const p = state.profiles.get(id);
+    return p && p.deleted_at === null;
+  };
+  if (
+    !conversation ||
+    !match ||
+    !participates(conversation.id, body.sender_id) ||
+    ![match.user_a_id, match.user_b_id].includes(body.sender_id) ||
+    !active(match.user_a_id) ||
+    !active(match.user_b_id)
+  )
+    throw new DbError(
+      400,
+      "23514",
+      "message_sender_invalid: quien envía no está en un match vigente"
+    );
+  const content = typeof body.content === "string" ? body.content : "";
+  if (content.trim().length === 0)
+    throw new DbError(
+      400,
+      "23514",
+      'new row for relation "messages" violates check constraint "chk_content_not_empty"'
+    );
+  if ([...content].length > 2000)
+    throw new DbError(
+      400,
+      "23514",
+      'new row for relation "messages" violates check constraint "chk_messages_content_length"'
+    );
+  const since = Date.now() - 60 * 1000;
+  if (
+    state.messages.filter(
+      (m) => m.sender_id === body.sender_id && Date.parse(m.created_at) > since
+    ).length >= 30
+  )
+    throw new DbError(400, "P0001", "rate_limit_exceeded: máximo 30 mensajes por minuto");
+  // RLS (WITH CHECK): quien envía es la sesión y participa.
+  if (body.sender_id !== uid || !visibleConversation(conversation.id, uid))
+    throw rlsDenied("messages");
+  if (
+    body.client_token &&
+    state.messages.some(
+      (m) => m.sender_id === body.sender_id && m.client_token === body.client_token
+    )
+  )
+    throw new DbError(
+      409,
+      "23505",
+      'duplicate key value violates unique constraint "uq_messages_sender_token"'
+    );
+  const row = {
+    id: randomUUID(),
+    conversation_id: conversation.id,
+    sender_id: body.sender_id,
+    content,
+    client_token: body.client_token ?? null,
+    created_at: new Date().toISOString(),
+  };
+  state.messages.push(row);
+  conversation.last_message_at = row.created_at;
+  for (const p of state.participants)
+    if (p.conversation_id === conversation.id && p.user_id === body.sender_id)
+      p.last_read_at = row.created_at;
+  return row;
+}
+
+function handleChat(req, res, url, body, uid, table, columns) {
+  if (table === "conversations") {
+    if (req.method !== "GET") throw denied(table);
+    const own = state.conversations.filter((c) => visibleConversation(c.id, uid));
+    return respondRows(req, res, applyFilters(own, url), columns);
+  }
+  if (table === "conversation_participants") {
+    const visible = () =>
+      state.participants.filter((p) => visibleConversation(p.conversation_id, uid));
+    if (req.method === "GET")
+      return respondRows(req, res, applyFilters(visible(), url), columns);
+    if (req.method === "PATCH") {
+      // GRANT UPDATE(last_read_at); participants_update_own.
+      checkColumns(table, body, ["last_read_at"]);
+      const targets = applyFilters(
+        visible().filter((p) => p.user_id === uid),
+        url
+      );
+      for (const p of targets) p.last_read_at = body.last_read_at;
+      return respondRows(req, res, targets, columns);
+    }
+    throw denied(table);
+  }
+  // messages
+  if (req.method === "GET") {
+    const visible = state.messages.filter((m) =>
+      visibleConversation(m.conversation_id, uid)
+    );
+    return respondRows(req, res, applyFilters(visible, url), columns);
+  }
+  if (req.method === "POST") {
+    const row = insertMessage(body, uid);
+    return respondRows(req, res, [row], columns);
+  }
+  throw denied(table); // sin UPDATE ni DELETE (y el trigger: message_immutable)
 }
 function withdrawInterest(body) {
   const { p_from: from, p_to: to } = body;
@@ -907,6 +1091,12 @@ function handleService(req, res, url, body, table) {
   }
   if (table === "rpc/withdraw_interest" && req.method === "POST") {
     return send(res, 200, withdrawInterest(body));
+  }
+  if (table === "rpc/undo_match" && req.method === "POST") {
+    return send(res, 200, undoMatch(body));
+  }
+  if (table === "rpc/room_interest_owner" && req.method === "POST") {
+    return send(res, 200, roomInterestOwner(body));
   }
   if (table === "profiles" && req.method === "GET") {
     return respondRows(req, res, candidateRows(url), null);
@@ -1356,6 +1546,9 @@ function handleRest(req, res, url, body, uid, isService) {
     return respondRows(req, res, applyFilters(own, url), columns);
   }
 
+  if (["conversations", "conversation_participants", "messages"].includes(table))
+    return handleChat(req, res, url, body, uid, table, columns);
+
   if (table === "rooms") return handleUserRooms(req, res, url, body, uid, columns);
   if (table === "room_images") {
     // room_images_select (R7): las fotos de las habitaciones que puede ver.
@@ -1666,6 +1859,36 @@ function handleTest(req, res, url) {
     case "/__test/interests": {
       // Fase 5.1: intereses y matches guardados (para comprobar el resultado).
       return send(res, 200, { interests: state.interests, matches: state.matches });
+    }
+    case "/__test/chat": {
+      // Fase 6: conversaciones, participantes y mensajes guardados.
+      return send(res, 200, {
+        conversations: state.conversations,
+        participants: state.participants,
+        messages: state.messages,
+      });
+    }
+    case "/__test/seed-message": {
+      // Fase 6: un mensaje de otra persona (por id), con las reglas del trigger.
+      const from = url.searchParams.get("from");
+      const conversationId = url.searchParams.get("conversation");
+      try {
+        return send(
+          res,
+          200,
+          insertMessage(
+            {
+              conversation_id: conversationId,
+              sender_id: from,
+              content: url.searchParams.get("content") ?? "Hola",
+              client_token: randomUUID(),
+            },
+            from
+          )
+        );
+      } catch (error) {
+        return send(res, 400, { code: error.code, message: error.message });
+      }
     }
     case "/__test/seed-interest": {
       // Fase 5.1: un «Me interesa» ya enviado por otra persona (datos de

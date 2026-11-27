@@ -10,12 +10,14 @@ import { AppNavLinks } from "@/components/app-nav-links";
  * datos del perfil y no hace consultas: cada página tiene su guard.
  * `/habitaciones` (sesión 68) es la gestión de las habitaciones propias, con
  * la cuenta activa (`requireActiveProfile`). `/matches` (Fase 5.1) exige,
- * como `/explorar`, el test vigente completado.
+ * como `/explorar`, el test vigente completado, y `/mensajes` (Fase 6),
+ * también.
  * «Cerrar sesión» es el `SignOutButton` de 2.2 (`signOut`).
  */
 export const APP_NAV_LINKS = [
   { href: "/explorar", label: "Explorar" },
   { href: "/matches", label: "Matches" },
+  { href: "/mensajes", label: "Mensajes" },
   { href: "/test", label: "Test" },
   { href: "/habitaciones", label: "Habitaciones" },
   { href: "/perfil", label: "Perfil" },

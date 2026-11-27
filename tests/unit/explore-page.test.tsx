@@ -19,6 +19,8 @@ vi.mock("@/lib/services/interests", () => ({
 vi.mock("@/app/actions/interests", () => ({
   expressInterest: async () => {},
   retractInterest: async () => {},
+  undoMatchAction: async () => {},
+  expressRoomInterest: async () => {},
 }));
 
 import ExplorePage from "@/app/(app)/explorar/page";

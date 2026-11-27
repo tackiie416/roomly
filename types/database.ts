@@ -365,12 +365,15 @@ export interface Database {
           match_id: string | null;
           created_at: string;
           last_message_at: string | null;
+          /** Fase 6 (20261127120000): se cierra al deshacerse el match. */
+          closed_at: string | null;
         };
         Insert: {
           id?: string;
           match_id?: string | null;
           created_at?: string;
           last_message_at?: string | null;
+          closed_at?: string | null;
         };
         Update: never; // igual que matches: solo el servidor
         Relationships: [];
@@ -404,13 +407,15 @@ export interface Database {
           sender_id: string;
           content: string;
           created_at: string;
+          /** Fase 6: único por remitente, para que un reenvío no duplique. */
+          client_token: string | null;
         };
+        // Fase 6: authenticated solo inserta estas cuatro columnas (GRANT).
         Insert: {
-          id?: string;
           conversation_id: string;
           sender_id: string;
           content: string;
-          created_at?: string;
+          client_token?: string | null;
         };
         Update: never; // sin edición de mensajes en el MVP
         Relationships: [];
@@ -531,6 +536,22 @@ export interface Database {
       withdraw_interest: {
         Args: { p_from: string; p_to: string };
         Returns: "withdrawn" | "not_found" | "matched";
+      };
+      /**
+       * Fase 6 (20261127120000): deshace un match, retira los dos intereses y
+       * cierra el chat. Solo service_role; la llama `undoMatch`.
+       */
+      undo_match: {
+        Args: { p_user: string; p_other: string };
+        Returns: "undone" | "not_found";
+      };
+      /**
+       * Fase 6: quién publica una habitación visible públicamente, para el
+       * interés por habitación. Solo service_role; la llama `sendRoomInterest`.
+       */
+      room_interest_owner: {
+        Args: { p_room_id: string };
+        Returns: string | null;
       };
     };
     Enums: {

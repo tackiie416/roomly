@@ -16,6 +16,8 @@ vi.mock("@/lib/services/interests", () => ({
 vi.mock("@/app/actions/interests", () => ({
   expressInterest: async () => {},
   retractInterest: async () => {},
+  undoMatchAction: async () => {},
+  expressRoomInterest: async () => {},
 }));
 
 import MatchesPage from "@/app/(app)/matches/page";
@@ -52,9 +54,28 @@ describe("/matches", () => {
     mocks.getInterestOverview.mockResolvedValue({
       ok: true,
       data: {
-        matches: [{ ...dto("m1", "Match Uno", 77), matchedAt: "2026-11-21T10:00:00Z" }],
-        received: [{ ...dto("r1", "Recibida Uno"), at: "2026-11-24T10:00:00Z" }],
-        sent: [{ ...dto("s1", "Enviada Uno"), at: "2026-11-23T10:00:00Z" }],
+        matches: [
+          {
+            ...dto("m1", "Match Uno", 77),
+            matchedAt: "2026-11-21T10:00:00Z",
+            conversationId: "c0000000-0000-4000-8000-000000000001",
+          },
+        ],
+        received: [
+          {
+            ...dto("r1", "Recibida Uno"),
+            at: "2026-11-24T10:00:00Z",
+            room: { id: "room-1", title: "Habitación luminosa" },
+          },
+        ],
+        sent: [
+          { ...dto("s1", "Enviada Uno"), at: "2026-11-23T10:00:00Z", room: null },
+          {
+            ...dto("s2", "Propietaria Dos"),
+            at: "2026-11-22T10:00:00Z",
+            room: { id: "room-2", title: null },
+          },
+        ],
         sentIds: ["s1", "m1"],
         matchedIds: ["m1"],
       },
@@ -66,12 +87,22 @@ describe("/matches", () => {
     expect(html).toContain("77%");
     expect(html).toContain("Match desde el 21 de noviembre");
     expect(html).toContain("✓ Tenéis un match");
-    expect(html).toContain("El chat todavía no está disponible");
+    // Fase 6: chat del match y deshacer.
+    expect(html).toContain('href="/mensajes/c0000000-0000-4000-8000-000000000001"');
+    expect(html).toContain("Abrir chat");
+    expect(html).toContain("Sí, deshacer el match");
+    expect(html.match(/data-testid="undo-match"/g)).toHaveLength(1);
+    // Fase 6: el contexto de los intereses por habitación, solo para las dos personas.
+    expect(html).toContain("Le interesa tu habitación «Habitación luminosa»");
+    expect(html).toContain(
+      "Por su habitación una habitación que ya no está publicada: es quien la publica"
+    );
+    expect(html.match(/data-testid="room-context"/g)).toHaveLength(2);
     expect(html).toContain("Recibida Uno");
     expect(html).toContain("Hacer match");
     expect(html).toContain("Enviada Uno");
     expect(html).toContain("Retirar");
-    expect(html.match(/name="volver" value="matches"/g)).toHaveLength(2);
+    expect(html.match(/name="volver" value="matches"/g)).toHaveLength(3);
     expect(html).not.toMatch(/email|teléfono|date_of_birth/i);
   });
 

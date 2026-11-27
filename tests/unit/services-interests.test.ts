@@ -4,6 +4,8 @@ import {
   getPersonPage,
   getInterestStates,
   sendInterest,
+  sendRoomInterest,
+  undoMatch,
   withdrawInterest,
   type InterestsDeps,
 } from "@/lib/services/interests";
@@ -66,6 +68,9 @@ type Options = {
   rpc?: { data: unknown; error: { code?: string; message?: string } | null };
   /** Fila de «Ver perfil» (bio, seeking_status, housing_preferences). */
   extras?: unknown;
+  /** Fase 6: habitaciones que puede leer quien mira, y sus conversaciones. */
+  rooms?: unknown[];
+  conversations?: unknown[];
 };
 
 function setup(options: Options = {}) {
@@ -90,6 +95,9 @@ function setup(options: Options = {}) {
       if (call.table === "interests")
         return { data: options.interests ?? [], error: null };
       if (call.table === "matches") return { data: options.matches ?? [], error: null };
+      if (call.table === "rooms") return { data: options.rooms ?? [], error: null };
+      if (call.table === "conversations")
+        return { data: options.conversations ?? [], error: null };
       if (call.table === "universities" || call.table === "neighborhoods")
         return { data: [], error: null };
       return { data: null, error: null };
@@ -499,5 +507,227 @@ describe("getPersonPage («Ver perfil», Fase 5.2)", () => {
       ok: false,
       error: "unknown",
     });
+  });
+});
+
+// ------------------------------------------------------------------ Fase 6
+const ROOM = "e0000000-0000-4000-8000-000000000001";
+
+function rpcByName(results: Record<string, { data: unknown; error: unknown }>) {
+  return async (name: string) => results[name] ?? { data: null, error: null };
+}
+
+describe("undoMatch (Fase 6)", () => {
+  it("deshace el match propio con la rpc, con el usuario de la sesión", async () => {
+    const s = setup({ rpc: { data: "undone", error: null } });
+    expect(await undoMatch(s.user.client, TARGET, s.deps)).toEqual({
+      ok: true,
+      data: { status: "undone" },
+    });
+    expect(s.rpc).toHaveBeenCalledWith("undo_match", { p_user: VIEWER, p_other: TARGET });
+  });
+
+  it("sin match: not_found de la rpc", async () => {
+    const s = setup({ rpc: { data: "not_found", error: null } });
+    expect(await undoMatch(s.user.client, TARGET, s.deps)).toEqual({
+      ok: true,
+      data: { status: "not_found" },
+    });
+  });
+
+  it.each([
+    ["un id no válido", "no-es-un-id"],
+    ["una misma", VIEWER],
+  ])("%s: validation, sin rpc", async (_, id) => {
+    const s = setup();
+    expect(await undoMatch(s.user.client, id, s.deps)).toEqual({
+      ok: false,
+      error: "validation",
+    });
+    expect(s.rpc).not.toHaveBeenCalled();
+  });
+
+  it("sin sesión o con la cuenta desactivada: sin rpc", async () => {
+    const anon = setup({ userId: null });
+    expect(await undoMatch(anon.user.client, TARGET, anon.deps)).toEqual({
+      ok: false,
+      error: "unauthenticated",
+    });
+    const deleted = setup({
+      profile: { id: VIEWER, deleted_at: "2026-11-01T00:00:00Z" },
+    });
+    expect(await undoMatch(deleted.user.client, TARGET, deleted.deps)).toEqual({
+      ok: false,
+      error: "deleted",
+    });
+    expect(anon.rpc).not.toHaveBeenCalled();
+    expect(deleted.rpc).not.toHaveBeenCalled();
+  });
+
+  it("una respuesta inesperada es unknown", async () => {
+    const s = setup({ rpc: { data: "otra cosa", error: null } });
+    expect(await undoMatch(s.user.client, TARGET, s.deps)).toEqual({
+      ok: false,
+      error: "unknown",
+    });
+  });
+});
+
+describe("sendRoomInterest (Fase 6)", () => {
+  it("averigua quién publica en el servidor y envía el interés con la habitación", async () => {
+    const s = setup();
+    s.rpc.mockImplementation(
+      rpcByName({
+        room_interest_owner: { data: FAR, error: null },
+        record_interest: { data: "sent", error: null },
+      }) as never
+    );
+    // FAR no pasa los filtros duros (otra ciudad): por habitación no hacen falta.
+    expect(await sendRoomInterest(s.user.client, ROOM, s.deps)).toEqual({
+      ok: true,
+      data: { status: "sent" },
+    });
+    expect(s.rpc).toHaveBeenNthCalledWith(1, "room_interest_owner", { p_room_id: ROOM });
+    const [name, args] = s.rpc.mock.calls[1] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(name).toBe("record_interest");
+    expect(args).toMatchObject({ p_from: VIEWER, p_to: FAR, p_room_id: ROOM });
+    expect(Number.isInteger(args.p_score)).toBe(true);
+  });
+
+  it.each([
+    ["la habitación no es pública (sin propietaria)", null],
+    ["una respuesta que no es un id", "basura"],
+  ])("%s: not_found, sin interés", async (_, owner) => {
+    const s = setup();
+    s.rpc.mockImplementation(
+      rpcByName({ room_interest_owner: { data: owner, error: null } }) as never
+    );
+    expect(await sendRoomInterest(s.user.client, ROOM, s.deps)).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+    expect(s.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("la propietaria sin el test vigente no es elegible: not_found", async () => {
+    const s = setup({ people: [] });
+    s.rpc.mockImplementation(
+      rpcByName({ room_interest_owner: { data: TARGET, error: null } }) as never
+    );
+    expect(await sendRoomInterest(s.user.client, ROOM, s.deps)).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+    expect(s.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("la habitación propia: validation, sin interés", async () => {
+    const s = setup();
+    s.rpc.mockImplementation(
+      rpcByName({ room_interest_owner: { data: VIEWER, error: null } }) as never
+    );
+    expect(await sendRoomInterest(s.user.client, ROOM, s.deps)).toEqual({
+      ok: false,
+      error: "validation",
+    });
+    expect(s.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("si la habitación deja de ser pública antes de guardar: not_found", async () => {
+    const s = setup();
+    s.rpc.mockImplementation(
+      rpcByName({
+        room_interest_owner: { data: TARGET, error: null },
+        record_interest: {
+          data: null,
+          error: {
+            code: "23514",
+            message: "interest_room_invalid: la habitación no es visible",
+          },
+        },
+      }) as never
+    );
+    expect(await sendRoomInterest(s.user.client, ROOM, s.deps)).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+  });
+
+  it("un id no válido: validation, sin rpc", async () => {
+    const s = setup();
+    expect(await sendRoomInterest(s.user.client, "../x", s.deps)).toEqual({
+      ok: false,
+      error: "validation",
+    });
+    expect(s.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("intereses por habitación en el resto de la Fase 5 (Fase 6)", () => {
+  const roomInterest = {
+    from_user_id: FAR,
+    to_user_id: VIEWER,
+    room_id: ROOM,
+    created_at: "2026-11-24T10:00:00Z",
+  };
+
+  it("/matches: un interés por habitación se ve sin filtros duros y con el título", async () => {
+    const s = setup({
+      interests: [roomInterest],
+      rooms: [{ id: ROOM, title: "Habitación con balcón" }],
+    });
+    const result = await getInterestOverview(s.user.client, s.deps);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.received.map((i) => [i.id, i.room])).toEqual([
+      [FAR, { id: ROOM, title: "Habitación con balcón" }],
+    ]);
+    // El título se lee con el cliente del usuario (R7: solo si puede verla).
+    const roomsRead = s.user.calls.find((c) => c.table === "rooms");
+    expect(roomsRead?.columns).toBe("id, title");
+  });
+
+  it("/matches: el chat de cada match, leído con el cliente del usuario", async () => {
+    const s = setup({
+      matches: [
+        {
+          id: "m-1",
+          user_a_id: VIEWER,
+          user_b_id: TARGET,
+          compatibility_score: 70,
+          created_at: "2026-11-21T10:00:00Z",
+        },
+      ],
+      conversations: [{ id: "c-1", match_id: "m-1" }],
+    });
+    const result = await getInterestOverview(s.user.client, s.deps);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.matches.map((m) => m.conversationId)).toEqual(["c-1"]);
+  });
+
+  it("se puede responder a quien mostró interés por una habitación, aunque no salga en /explorar", async () => {
+    const s = setup({ interests: [roomInterest], rpc: { data: "matched", error: null } });
+    expect(await sendInterest(s.user.client, FAR, s.deps)).toEqual({
+      ok: true,
+      data: { status: "matched" },
+    });
+  });
+
+  it("sin ese interés, sigue sin poder enviarse a quien no pasa los filtros duros", async () => {
+    const s = setup({ interests: [{ ...roomInterest, room_id: null }] });
+    expect(await sendInterest(s.user.client, FAR, s.deps)).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+    expect(s.rpc).not.toHaveBeenCalled();
+  });
+
+  it("«Ver perfil» de quien mostró interés por una habitación, sin filtros duros", async () => {
+    const s = setup({ interests: [roomInterest] });
+    const result = await getPersonPage(s.user.client, FAR, s.deps);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.state).toBe("received");
   });
 });

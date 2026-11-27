@@ -1640,6 +1640,47 @@ crear un match sin interés mutuo.
     proyecto, y el preflight vigente fallará contra `roomly-validation-4`
     hasta que se aplique (con autorización).
 
+## Fase 6 — Chat entre matches e interés por habitación (20261127120000, en local)
+
+- **Quién chatea:** solo las dos personas de un match vigente. La
+  conversación la abre la base de datos al crearse el match
+  (`trg_matches_open_conversation`) y la cierra al borrarse
+  (`trg_matches_close_conversation`). Ningún cliente crea conversaciones ni
+  participantes. `is_conversation_participant` exige la conversación
+  abierta y con match, así que una conversación cerrada no se lee.
+- **Privilegios:** anon y PUBLIC, nada en `conversations`,
+  `conversation_participants` ni `messages`. authenticated: SELECT por RLS,
+  `UPDATE(last_read_at)` de su participación e INSERT de cuatro columnas de
+  `messages` (nunca `id` ni `created_at`); sin UPDATE ni DELETE de mensajes.
+- **`trg_messages_integrity`, también para service_role:** mensajes
+  inmutables, conversación abierta (FOR SHARE, que serializa con
+  `undo_match`; `tests/db/concurrency_chat.sh`), remitente del match
+  vigente, las dos cuentas activas y 30 mensajes por minuto. Corre antes que
+  la RLS: un tercero recibe `message_sender_invalid` (23514), sin escribir.
+- **Servidor:** `lib/services/chat.ts` usa solo el cliente del usuario (lo
+  comprueba `tests/unit/admin-client-usage.test.ts`). El remitente sale de la
+  sesión, nunca del formulario. Validación con Zod: 2000 caracteres, sin
+  vacíos y `client_token` UUID (un reenvío no duplica). Del chat solo salen
+  el `CandidateDTO` de la otra persona y los mensajes; nunca emails.
+- **Deshacer un match:** `undo_match` (EXECUTE solo de service_role, con
+  bloqueo por pareja) borra el match y los dos intereses; el chat se cierra
+  para las dos personas. **Los mensajes se conservan en la base de datos,
+  sin acceso de clientes; su retención está pendiente de decisión (RGPD).**
+- **Interés por habitación:** `room_interest_owner` (solo service_role)
+  devuelve la propietaria solo de una habitación activa con la cuenta
+  válida. El detalle público no cambia: no lee la sesión ni muestra a nadie.
+  La identidad de las dos personas solo aparece en `/matches` de cada una.
+  **Riesgo aceptado por el requisito:** cualquier persona con cuenta y el
+  test hecho puede saber quién publica una habitación pública enviando un
+  interés. Lo limitan el rate limit de 30 intereses en 24 h, `not_found`
+  indistinguible y que no se puede enumerar sin enviar intereses reales,
+  que la propietaria ve.
+- **Realtime:** desactivado por defecto (`NEXT_PUBLIC_CHAT_REALTIME`). Solo
+  avisa de que hay un mensaje nuevo y la página se vuelve a pedir al
+  servidor; la autorización de los eventos es la RLS de `messages`. Antes de
+  activarlo en un proyecto real hay que comprobar esa RLS con Realtime.
+- **Sin validar en Supabase real.**
+
 ## Privacidad de ubicación
 
 `room_addresses.address_exact` en tabla separada, RLS restringida al

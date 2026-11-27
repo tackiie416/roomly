@@ -789,10 +789,39 @@ begin
     failures := failures || 'service_role no puede ejecutar record_interest o withdraw_interest'::text;
   end if;
 
+  -- Chat (20261127120000, Fase 6): anon, nada; authenticated lee, envía
+  -- mensajes por columnas y marca como leído; nada más. undo_match y
+  -- room_interest_owner, solo service_role.
+  foreach col in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] loop
+    if has_table_privilege('anon', 'public.conversations', col)
+       or has_table_privilege('anon', 'public.conversation_participants', col)
+       or has_table_privilege('anon', 'public.messages', col) then
+      failures := failures || format('anon tiene %s en el chat', col);
+    end if;
+    if col <> 'SELECT' and (has_table_privilege('authenticated', 'public.conversations', col)
+                            or has_table_privilege('authenticated', 'public.conversation_participants', col)
+                            or has_table_privilege('authenticated', 'public.messages', col)) then
+      failures := failures || format('authenticated tiene %s de tabla en el chat', col);
+    end if;
+  end loop;
+  if has_any_column_privilege('authenticated', 'public.messages', 'UPDATE')
+     or has_column_privilege('authenticated', 'public.messages', 'created_at', 'INSERT')
+     or has_column_privilege('authenticated', 'public.messages', 'id', 'INSERT')
+     or not has_column_privilege('authenticated', 'public.messages', 'content', 'INSERT')
+     or has_any_column_privilege('authenticated', 'public.conversations', 'INSERT')
+     or has_any_column_privilege('authenticated', 'public.conversations', 'UPDATE')
+     or has_any_column_privilege('authenticated', 'public.conversation_participants', 'INSERT') then
+    failures := failures || 'privilegios de columna del chat distintos de los esperados (Fase 6)'::text;
+  end if;
+  if not has_function_privilege('service_role', 'public.undo_match(uuid, uuid)', 'EXECUTE')
+     or not has_function_privilege('service_role', 'public.room_interest_owner(uuid)', 'EXECUTE') then
+    failures := failures || 'service_role no puede ejecutar undo_match o room_interest_owner'::text;
+  end if;
+
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms, public_profile_previews sin privilegios de clientes, e interests y matches solo escritos por el servidor)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms, public_profile_previews sin privilegios de clientes, interests y matches solo escritos por el servidor, y el chat de la Fase 6)';
 end $$;
 
 -- ============================================================
@@ -879,11 +908,15 @@ end $$;
 -- 20261007120000 (integridad de compatibility_responses, Fase 3.1) y
 -- 20261024120000 (integridad de room_images, Fase 4.2) y 20261031120000
 -- (fecha de publicación, sesión 71), y 20261126120000 (integridad de interests
--- y matches, Fase 5.1). Funciones: además, delete_own_room (20261030120000,
--- sesión 65), record_interest y withdraw_interest (Fase 5.1), SECURITY INVOKER.
+-- y matches, Fase 5.1) y 20261127120000 (conversación de cada match e
+-- integridad de messages, Fase 6). Funciones: además, delete_own_room
+-- (20261030120000, sesión 65), record_interest y withdraw_interest (Fase 5.1),
+-- undo_match y room_interest_owner (Fase 6), SECURITY INVOKER.
 -- Seguridad de funciones según cada migración: SECURITY DEFINER solo
--- is_admin, is_conversation_participant, enforce_neighborhood_not_referenced
--- e is_room_publicly_visible; search_path fijo; EXECUTE revocado donde la
+-- is_admin, is_conversation_participant, enforce_neighborhood_not_referenced,
+-- is_room_publicly_visible y, desde la Fase 6, las dos funciones de trigger de
+-- messages (enforce_messages_integrity y touch_conversation_on_message, sin
+-- EXECUTE de clientes); search_path fijo; EXECUTE revocado donde la
 -- migración lo revoca.
 do $$
 declare
@@ -901,7 +934,11 @@ begin
     ('housing_preferences', 'trg_housing_preferences_updated_at', 'set_updated_at()'),
     ('interests', 'trg_interests_integrity', 'enforce_interests_integrity()'),
     ('interests', 'trg_interests_rate_limit', 'enforce_interest_rate_limit()'),
+    ('matches', 'trg_matches_close_conversation', 'close_match_conversation()'),
     ('matches', 'trg_matches_integrity', 'enforce_matches_integrity()'),
+    ('matches', 'trg_matches_open_conversation', 'open_match_conversation()'),
+    ('messages', 'trg_messages_integrity', 'enforce_messages_integrity()'),
+    ('messages', 'trg_messages_touch_conversation', 'touch_conversation_on_message()'),
     ('neighborhoods', 'trg_neighborhoods_not_referenced', 'enforce_neighborhood_not_referenced()'),
     ('profiles', 'trg_profiles_onboarding_completion', 'enforce_onboarding_completion()'),
     ('profiles', 'trg_profiles_updated_at', 'set_updated_at()'),
@@ -948,6 +985,12 @@ begin
     ('enforce_interest_rate_limit()', false, 'search_path=public'),
     ('enforce_interests_integrity()', false, 'search_path=""'),
     ('enforce_matches_integrity()', false, 'search_path=""'),
+    ('enforce_messages_integrity()', true, 'search_path=""'),
+    ('touch_conversation_on_message()', true, 'search_path=""'),
+    ('open_match_conversation()', false, 'search_path=""'),
+    ('close_match_conversation()', false, 'search_path=""'),
+    ('undo_match(uuid,uuid)', false, 'search_path=""'),
+    ('room_interest_owner(uuid)', false, 'search_path=""'),
     ('enforce_neighborhood_not_referenced()', true, 'search_path=""'),
     ('enforce_onboarding_completion()', false, 'search_path=""'),
     ('enforce_room_images_integrity()', false, 'search_path=""'),
@@ -996,6 +1039,12 @@ begin
       ('public.enforce_matches_integrity()', true),
       ('public.record_interest(uuid, uuid, integer, uuid)', true),
       ('public.withdraw_interest(uuid, uuid)', true),
+      ('public.enforce_messages_integrity()', true),
+      ('public.touch_conversation_on_message()', true),
+      ('public.open_match_conversation()', true),
+      ('public.close_match_conversation()', true),
+      ('public.undo_match(uuid, uuid)', true),
+      ('public.room_interest_owner(uuid)', true),
       ('public.set_room_published_at()', true)
     ) as v(sig, also_authenticated)
   loop
@@ -1014,5 +1063,5 @@ begin
     raise exception 'FALLO P6: %', array_to_string(failures, '; ');
   end if;
 
-  raise notice 'ok - P6: 17 triggers activos, 19 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
+  raise notice 'ok - P6: 21 triggers activos, 25 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
 end $$;

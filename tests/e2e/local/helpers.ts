@@ -251,3 +251,39 @@ export async function interestsState(): Promise<MockInterestsState> {
   expect(response.status).toBe(200);
   return (await response.json()) as MockInterestsState;
 }
+
+export type MockChatState = {
+  conversations: Array<{ id: string; match_id: string | null; closed_at: string | null }>;
+  participants: Array<{
+    conversation_id: string;
+    user_id: string;
+    last_read_at: string | null;
+  }>;
+  messages: Array<{
+    id: string;
+    conversation_id: string;
+    sender_id: string;
+    content: string;
+  }>;
+};
+
+/** Fase 6: conversaciones, participantes y mensajes guardados en el mock. */
+export async function chatState(): Promise<MockChatState> {
+  const response = await mock("/__test/chat");
+  expect(response.status).toBe(200);
+  return (await response.json()) as MockChatState;
+}
+
+/** Fase 6: un mensaje de otra persona (por id), con las reglas del trigger. */
+export async function seedMessage(
+  fromId: string,
+  conversationId: string,
+  content: string
+): Promise<number> {
+  const params = new URLSearchParams({
+    from: fromId,
+    conversation: conversationId,
+    content,
+  });
+  return (await mock(`/__test/seed-message?${params}`)).status;
+}

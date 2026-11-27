@@ -13,6 +13,14 @@ export const INTEREST_NOTICES = {
   limite:
     "Has enviado muchos «Me interesa» en las últimas 24 horas. Vuelve a intentarlo más tarde.",
   "no-disponible": "Esta persona ya no está disponible.",
+  // Fase 6: deshacer un match e interés por habitación.
+  deshecho: "Has deshecho el match. El chat se ha cerrado para las dos personas.",
+  "sin-match": "No tenías ningún match con esta persona.",
+  "habitacion-enviado":
+    "Hemos enviado tu interés por la habitación. Aquí abajo ves quién la publica; si también le interesas, haréis match.",
+  "habitacion-ya-enviado": "Ya habías mostrado interés a quien publica esta habitación.",
+  "habitacion-no-disponible": "Esta habitación ya no admite intereses.",
+  "habitacion-propia": "Esta habitación es tuya.",
   error: "No hemos podido completar la acción. Vuelve a intentarlo en un momento.",
 } as const;
 

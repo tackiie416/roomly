@@ -1639,6 +1639,22 @@ workflow manual.
   en la CI del PR #38: es del entorno local (Chromium preinstalado), no de la
   Fase 5.
 
+## Fase 6 — Chat entre matches (sesión 82, en local)
+
+- `tests/db/27_chat.sql` (CH0–CH8): catálogo y privilegios, conversación
+  automática, envío, duplicados (23505), longitud, vacíos, suplantación,
+  mensajes inmutables, terceros, service_role también bloqueado,
+  `room_interest_owner`, interés por habitación, cuenta desactivada, deshacer
+  y cerrar, volver a hacer match y rate limit. `tests/db/02` se adaptó.
+- `tests/db/concurrency_chat.sh` (CC1–CC2): mensaje frente a `undo_match`.
+- Preflight: 21 triggers y 25 funciones.
+- Unitarios: `services-chat` (26), `chat-actions`, `chat-pages` (10) y los de
+  intereses ampliados (`undoMatch`, `sendRoomInterest`).
+- E1: `chat-flow.spec.ts` (match → chat, enviar, mensaje de la otra persona
+  con «Actualizar», 404 para terceros, deshacer el match cierra el chat, e
+  interés por habitación) y `student-flow` con «Mensajes» en la navegación.
+  El mock emula las tres tablas, el trigger y las dos rpc nuevas.
+
 ## Fase 5.2 — «Ver perfil» y backlog del test (sesión 81, en local)
 
 - Unitarios:

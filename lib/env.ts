@@ -19,6 +19,13 @@ const publicEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   NEXT_PUBLIC_SITE_URL: z.string().url().default("http://localhost:3000"),
+  /**
+   * Fase 6: refresco del chat con Supabase Realtime. Desactivado por defecto:
+   * se activa ("true") cuando el proyecto tenga `messages` en la publicación
+   * `supabase_realtime` (20261127120000). Sin él, el chat funciona igual con
+   * «Actualizar».
+   */
+  NEXT_PUBLIC_CHAT_REALTIME: z.enum(["true", "false"]).default("false"),
 });
 
 /** Una línea por error: la variable y el mensaje de Zod, sin el valor recibido. */
@@ -34,6 +41,7 @@ export function getPublicEnv() {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
+    NEXT_PUBLIC_CHAT_REALTIME: process.env.NEXT_PUBLIC_CHAT_REALTIME || undefined,
   });
 
   if (!parsed.success) {

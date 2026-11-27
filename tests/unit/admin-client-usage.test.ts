@@ -179,26 +179,43 @@ describe("fotos de habitaciones (Fase 4.2, D1): sin URL públicas ni Storage fue
     expect(rpcUsers).toEqual(["lib/services/interests.ts", "lib/services/rooms.ts"]);
   });
 
-  it("interests.ts usa el cliente admin solo para record_interest y withdraw_interest", () => {
+  it("interests.ts usa el cliente admin solo para sus cuatro rpc (Fases 5.1 y 6)", () => {
     const interests = code("lib/services/interests.ts");
     expect(interests).not.toMatch(/\.storage\s*\.from\(/);
     // Ninguna tabla con el cliente admin: las lecturas propias van con el del usuario.
     expect(interests).not.toMatch(/interestsAdminClient\(\)\s*\.from\(/);
-    expect(interests.match(/\.interestsAdminClient\(\)/g)).toHaveLength(2);
-    expect(interests).toMatch(
-      /deps\.interestsAdminClient\(\)\.rpc\("record_interest", \{/
-    );
-    expect(interests).toMatch(
-      /deps\.interestsAdminClient\(\)\.rpc\("withdraw_interest", \{/
-    );
-    expect(interests.match(/\.rpc\(/g)).toHaveLength(2);
+    const calls = [
+      ...interests.matchAll(/\.interestsAdminClient\(\)\s*\.rpc\("([a-z_]+)"/g),
+    ].map((match) => match[1]);
+    expect(calls.sort()).toEqual([
+      "record_interest",
+      "record_interest",
+      "room_interest_owner",
+      "undo_match",
+      "withdraw_interest",
+    ]);
+    // Cada uso del cliente admin va encadenado a una de esas rpc.
+    expect(interests.match(/\.interestsAdminClient\(\)/g)).toHaveLength(calls.length);
+    expect(interests.match(/\.rpc\(/g)).toHaveLength(calls.length);
     // createAdminClient solo en las dependencias por defecto.
     expect(interests.match(/createAdminClient\(\)/g)).toHaveLength(2);
     expect(interests).toContain("interestsAdminClient: () => createAdminClient(),");
     const callers = APP_FILES.filter((file) =>
-      /record_interest|withdraw_interest/.test(code(file))
+      /record_interest|withdraw_interest|undo_match|room_interest_owner/.test(code(file))
     );
     expect(callers).toEqual(["lib/services/interests.ts"]);
+  });
+
+  it("el chat (Fase 6) no usa service_role: lib/services/chat.ts escribe con el cliente del usuario", () => {
+    const chat = code("lib/services/chat.ts");
+    expect(chat).not.toMatch(/adminClient\(\)|createAdminClient|\.rpc\(/);
+    expect(chat).toMatch(/^import "server-only";/);
+    // Solo inserta mensajes y marca como leído: nada más se escribe.
+    expect(chat.match(/\.insert\(/g)).toHaveLength(1);
+    expect(chat).toMatch(/from\("messages"\)\.insert\(\{/);
+    expect(chat.match(/\.update\(/g)).toHaveLength(1);
+    expect(chat).toMatch(/\.update\(\{ last_read_at: newest\.created_at \}\)/);
+    expect(chat).not.toMatch(/\.delete\(|\.upsert\(/);
   });
 
   it("nada de la app borra habitaciones con DELETE: desde 20261030120000 solo delete_own_room", () => {

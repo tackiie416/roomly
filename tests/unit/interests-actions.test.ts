@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   sendInterest: vi.fn(),
   withdrawInterest: vi.fn(),
+  undoMatch: vi.fn(),
+  sendRoomInterest: vi.fn(),
   requireCompletedQuestionnaire: vi.fn(),
   requireActiveProfile: vi.fn(),
   revalidatePath: vi.fn(),
@@ -17,6 +19,8 @@ vi.mock("@/lib/auth/session", () => ({
 vi.mock("@/lib/services/interests", () => ({
   sendInterest: mocks.sendInterest,
   withdrawInterest: mocks.withdrawInterest,
+  undoMatch: mocks.undoMatch,
+  sendRoomInterest: mocks.sendRoomInterest,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("next/navigation", () => ({
@@ -25,7 +29,12 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-import { expressInterest, retractInterest } from "@/app/actions/interests";
+import {
+  expressInterest,
+  expressRoomInterest,
+  retractInterest,
+  undoMatchAction,
+} from "@/app/actions/interests";
 import { INTEREST_NOTICES, interestNotice } from "@/lib/interests/notices";
 
 // Fase 5.1 — Server Actions de «Me interesa»: orquestación fina. Solo pasan
@@ -164,6 +173,97 @@ describe("avisos", () => {
     expect(interestNotice(["retirado", "match"])).toBe(INTEREST_NOTICES.retirado);
     for (const raw of [undefined, "", "toString", "__proto__", "<b>x</b>"]) {
       expect(interestNotice(raw)).toBeNull();
+    }
+  });
+});
+
+// ------------------------------------------------------------------ Fase 6
+const ROOM = "e0000000-0000-4000-8000-000000000001";
+
+describe("undoMatchAction (Fase 6)", () => {
+  it.each([
+    ["undone", "/matches?aviso=deshecho"],
+    ["not_found", "/matches?aviso=sin-match"],
+  ])("%s → %s, y revalida matches, explorar y mensajes", async (status, url) => {
+    mocks.undoMatch.mockResolvedValue({ ok: true, data: { status } });
+    expect(await redirectOf(undoMatchAction(form({ targetId: TARGET })))).toBe(url);
+    expect(mocks.undoMatch).toHaveBeenCalledWith({ client: true }, TARGET);
+    expect(mocks.requireActiveProfile).toHaveBeenCalledWith("/matches");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/mensajes", "layout");
+  });
+
+  it("campos de más: error, sin llamar al servicio", async () => {
+    expect(
+      await redirectOf(undoMatchAction(form({ targetId: TARGET, userId: TARGET })))
+    ).toBe("/matches?aviso=error");
+    expect(mocks.undoMatch).not.toHaveBeenCalled();
+  });
+
+  it("sin sesión: al login", async () => {
+    mocks.undoMatch.mockResolvedValue({ ok: false, error: "unauthenticated" });
+    expect(await redirectOf(undoMatchAction(form({ targetId: TARGET })))).toBe(
+      "/login?next=%2Fmatches"
+    );
+  });
+});
+
+describe("expressRoomInterest (Fase 6)", () => {
+  const roomForm = (extra: Record<string, string> = {}) =>
+    form({ roomId: ROOM, ciudad: "barcelona", ...extra });
+
+  it.each([
+    ["sent", "/matches?aviso=habitacion-enviado"],
+    ["already_sent", "/matches?aviso=habitacion-ya-enviado"],
+    ["matched", "/matches?aviso=match"],
+  ])("%s → %s", async (status, url) => {
+    mocks.sendRoomInterest.mockResolvedValue({ ok: true, data: { status } });
+    expect(await redirectOf(expressRoomInterest(roomForm()))).toBe(url);
+    expect(mocks.sendRoomInterest).toHaveBeenCalledWith({ client: true }, ROOM);
+    // Tras el login se vuelve al detalle de la habitación.
+    expect(mocks.requireCompletedQuestionnaire).toHaveBeenCalledWith(
+      `/barcelona/habitaciones/${ROOM}`
+    );
+  });
+
+  it.each([
+    ["not_found", "/matches?aviso=habitacion-no-disponible"],
+    ["validation", "/matches?aviso=habitacion-propia"],
+    ["rate_limited", "/matches?aviso=limite"],
+    ["unknown", "/matches?aviso=error"],
+    ["forbidden", "/test"],
+  ])("%s → %s", async (error, url) => {
+    mocks.sendRoomInterest.mockResolvedValue({ ok: false, error });
+    expect(await redirectOf(expressRoomInterest(roomForm()))).toBe(url);
+  });
+
+  it("una ciudad o un id manipulados no llegan a la ruta de vuelta", async () => {
+    mocks.sendRoomInterest.mockResolvedValue({ ok: false, error: "unauthenticated" });
+    expect(
+      await redirectOf(
+        expressRoomInterest(form({ roomId: ROOM, ciudad: "//evil.example" }))
+      )
+    ).toBe("/login?next=%2Fmatches");
+  });
+
+  it("campos de más (por ejemplo, la propietaria): error, sin llamar al servicio", async () => {
+    expect(await redirectOf(expressRoomInterest(roomForm({ ownerId: TARGET })))).toBe(
+      "/matches?aviso=error"
+    );
+    expect(mocks.sendRoomInterest).not.toHaveBeenCalled();
+  });
+
+  it("los avisos nuevos están en la lista cerrada", () => {
+    for (const code of [
+      "deshecho",
+      "sin-match",
+      "habitacion-enviado",
+      "habitacion-ya-enviado",
+      "habitacion-no-disponible",
+      "habitacion-propia",
+    ]) {
+      expect(interestNotice(code)).toBe(
+        INTEREST_NOTICES[code as keyof typeof INTEREST_NOTICES]
+      );
     }
   });
 });

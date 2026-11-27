@@ -19,6 +19,8 @@ vi.mock("@/lib/services/interests", () => ({ getPersonPage: mocks.getPersonPage 
 vi.mock("@/app/actions/interests", () => ({
   expressInterest: async () => {},
   retractInterest: async () => {},
+  undoMatchAction: async () => {},
+  expressRoomInterest: async () => {},
 }));
 vi.mock("next/navigation", () => ({ notFound: mocks.notFound }));
 
