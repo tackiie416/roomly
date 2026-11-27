@@ -57,12 +57,30 @@ export const REPORT_STATUS_LABELS: Record<ReportStatusValue, string> = {
   dismissed: "Descartado",
 };
 
-export const REPORT_NOTES_MAX_LENGTH = 2000;
+/** Igual que `admin_clean_reason` (20261129120000): hasta 1000 caracteres. */
+export const REPORT_NOTES_MAX_LENGTH = 1000;
 
+/**
+ * Medidas al resolver (Fase 7, `admin_set_report_status`): ninguna, suspender
+ * la cuenta reportada o retirar la habitación reportada.
+ */
+export const REPORT_RESOLUTION_MEASURES = [
+  "none",
+  "suspend_user",
+  "remove_room",
+] as const;
+
+/**
+ * Cambio de estado de un reporte por un admin. `pending` no es un destino
+ * válido (20261129120000): un reporte se revisa, se resuelve, se descarta o
+ * se reabre (a en revisión). Cerrar o reabrir exigen notas; lo comprueba la
+ * base de datos, que conoce el estado actual.
+ */
 export const reportResolutionSchema = z
   .object({
     reportId: uuidSchema,
-    status: z.enum(REPORT_STATUSES),
+    status: z.enum(["in_review", "resolved", "dismissed"]),
+    measure: z.enum(REPORT_RESOLUTION_MEASURES).default("none"),
     notes: z
       .string()
       .transform((value) => value.trim())
