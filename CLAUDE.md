@@ -582,6 +582,10 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     `admin_action_logs.admin_id` y `reports.resolved_by` (el UUID queda como
     seudónimo) y el INSERT/UPDATE de service_role en el registro. No
     vuelvas a hacerlas FK ni uses `set null`/`cascade` sobre la auditoría.
+- **Descargar mis datos** (sesión 86, sin merge): `GET /ajustes/mis-datos` y
+  `lib/services/data-export.ts`, solo con el cliente del usuario. No le des
+  service_role ni le añadas datos o ids de otras personas, notas de
+  moderación ni `room_addresses` (`docs/PRIVACY_RETENTION.md`, punto 2).
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.

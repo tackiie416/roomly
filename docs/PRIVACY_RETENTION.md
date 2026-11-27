@@ -35,6 +35,22 @@ las llama y no hay ningún trabajo programado que las use.
 - **Cuenta desactivada** (`deleted_at`): no escribe en ninguna tabla ni
   aparece en `/explorar`, matches o chats; sus datos siguen guardados.
 
+- **Descargar mis datos** (sesión 86, `GET /ajustes/mis-datos`, enlace en
+  `/ajustes`): un JSON con lo que la persona puede leer de sí misma con su
+  propio cliente (RLS de siempre, sin service_role,
+  `lib/services/data-export.ts`). Incluye la cuenta (id y email), el perfil,
+  las preferencias, el test, sus habitaciones con el número y la fecha de sus
+  fotos, los intereses que envió (fecha y, si la hay, la habitación), cuántos
+  recibió, sus matches (fecha y puntuación), los mensajes que escribió en
+  chats que aún puede leer, sus bloqueos (solo la fecha) y sus reportes
+  (motivo, descripción, estado y fechas). **No** incluye datos ni
+  identificadores de otras personas, las notas internas de moderación ni los
+  mensajes de chats cerrados (nadie los lee desde la app; ver el punto 2).
+  Tampoco una dirección exacta: la app no la recoge (R2). Funciona también con
+  la cuenta desactivada. Si el formato basta para el derecho de acceso y la
+  portabilidad (art. 15 y 20 RGPD), y si deben incluirse los mensajes de
+  chats cerrados, **REQUIERE REVISIÓN LEGAL**.
+
 ## 3. Diseño del borrado de cuenta (H6, sin implementar)
 
 H6 sigue fuera del alcance y necesita su propia decisión. Este es el orden
@@ -134,3 +150,5 @@ tampoco está programada.
    registro.
 5. Cuándo se programan las purgas (Supabase cron o un trabajo externo) y en
    qué entorno; ninguna se ejecuta hasta que se decida.
+6. Si la descarga de datos debe incluir los mensajes propios de chats
+   cerrados (hoy no; **REQUIERE REVISIÓN LEGAL**).

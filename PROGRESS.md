@@ -6,6 +6,33 @@ próximos pasos.**
 
 ---
 
+## 2026-11-27 — Sesión 86: descargar mis datos (RGPD)
+
+Con la autorización del propietario para seguir hacia la beta (prioridad:
+privacidad y ciclo de vida de los datos). En la rama
+`claude/project-thread-5tguj4`, encima del PR #44. Sin migraciones y sin
+tocar Supabase real.
+
+- `GET /ajustes/mis-datos` (Route Handler) y `lib/services/data-export.ts`:
+  JSON adjunto (`roomly-mis-datos-AAAA-MM-DD.json`, `no-store`, `nosniff`)
+  con el cliente del usuario, columnas explícitas y una consulta por tabla en
+  paralelo (más una de fotos si tiene habitaciones). Sin sesión, al login;
+  sin perfil, al onboarding; con la cuenta desactivada, también descarga.
+- Minimización: sin ids ni datos de terceros, sin notas de moderación, sin
+  mensajes de chats cerrados y sin `room_addresses` (la regla R2 de
+  `tests/unit/rooms-crud-static.test.ts` sigue igual: la app no la nombra).
+  Detalle: `docs/PRIVACY_RETENTION.md`, punto 2.
+- Enlace «Descargar mis datos» en `/ajustes` («Privacidad y seguridad»),
+  como `<a download>` (no `<Link>`: no se precarga).
+- Mock de E1: `count=exact` con `Content-Range` y HEAD en `interests`.
+- Pruebas en local: `lint`, `typecheck`, `format:check`, `test` 1891/1891
+  (7 nuevos en `tests/unit/services-data-export.test.ts`), `build` y E1 64/66
+  con `data-export.spec.ts` en verde; los 2 fallos son
+  `upload-size.spec.ts`, intermitentes en local y anteriores a esta sesión.
+  `test:db` y `test:infra` no cambian (sin SQL).
+- Pendiente de decisión: si la descarga incluye los mensajes propios de chats
+  cerrados (REQUIERE REVISIÓN LEGAL).
+
 ## 2026-11-27 — Sesión 85: merges de #42 y #43 y auditoría con actor seudónimo
 
 **Contexto.** El propietario autorizó los merges de #42 y #43 y decidió
