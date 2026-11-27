@@ -315,7 +315,7 @@ begin
   end if;
 
   with expected(tablename, policyname, cmd) as (values
-    ('admin_action_logs', 'admin_action_logs_admin_only', 'ALL'),
+    ('admin_action_logs', 'admin_action_logs_admin_select', 'SELECT'),
     ('cities', 'cities_admin_write', 'ALL'),
     ('cities', 'cities_select_all', 'SELECT'),
     ('compatibility_responses', 'compatibility_responses_select_own', 'SELECT'),
@@ -335,11 +335,11 @@ begin
     ('neighborhoods', 'neighborhoods_admin_write', 'ALL'),
     ('neighborhoods', 'neighborhoods_select_all', 'SELECT'),
     ('notifications', 'notifications_own', 'ALL'),
-    ('profiles', 'profiles_admin_all', 'ALL'),
+    ('profiles', 'profiles_admin_select', 'SELECT'),
     ('profiles', 'profiles_insert_own', 'INSERT'),
     ('profiles', 'profiles_select_own_even_if_deleted', 'SELECT'),
     ('profiles', 'profiles_update_own', 'UPDATE'),
-    ('reports', 'reports_admin_all', 'ALL'),
+    ('reports', 'reports_admin_select', 'SELECT'),
     ('reports', 'reports_insert_own', 'INSERT'),
     ('reports', 'reports_select_own', 'SELECT'),
     ('room_addresses', 'room_addresses_delete_own', 'DELETE'),
@@ -349,7 +349,7 @@ begin
     ('room_images', 'room_images_admin_select', 'SELECT'),
     ('room_images', 'room_images_select_own', 'SELECT'),
     ('room_images', 'room_images_select_public', 'SELECT'),
-    ('rooms', 'rooms_admin_all', 'ALL'),
+    ('rooms', 'rooms_admin_select', 'SELECT'),
     ('rooms', 'rooms_insert_own', 'INSERT'),
     ('rooms', 'rooms_select_active_public', 'SELECT'),
     ('rooms', 'rooms_select_own', 'SELECT'),
@@ -380,7 +380,7 @@ begin
   end if;
 
   -- Fase 4.0: WITH CHECK en INSERT, USING y WITH CHECK en UPDATE, USING en
-  -- DELETE. `rooms_admin_all` (ALL) no entra: es la capacidad del admin.
+  -- DELETE. `rooms_admin_select` es solo de lectura (Fase 7).
   select string_agg(format('%s.%s (%s)', p.tablename, p.policyname, p.cmd), ', '
                     order by p.tablename, p.policyname)
   into writes_without_account
@@ -836,8 +836,24 @@ begin
      or has_column_privilege('authenticated', 'public.reports', 'reason', 'UPDATE')
      or has_column_privilege('authenticated', 'public.reports', 'reporter_id', 'UPDATE')
      or has_column_privilege('authenticated', 'public.reports', 'description', 'UPDATE')
-     or not has_column_privilege('authenticated', 'public.reports', 'status', 'UPDATE') then
-    failures := failures || 'privilegios de reports distintos de los esperados (sesión 83)'::text;
+     or has_column_privilege('authenticated', 'public.reports', 'status', 'UPDATE') then
+    -- Fase 7 (20261129120000): sin UPDATE de reports para clientes; se
+    -- resuelven con admin_set_report_status.
+    failures := failures || 'privilegios de reports distintos de los esperados (sesión 83 y Fase 7)'::text;
+  end if;
+  -- Fase 7: admin_action_logs solo lo lee authenticated (RLS: admin) y nadie
+  -- borra perfiles desde un cliente.
+  foreach col in array array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] loop
+    if has_table_privilege('authenticated', 'public.admin_action_logs', col)
+       or has_table_privilege('anon', 'public.admin_action_logs', col) then
+      failures := failures || format('privilegio %s inesperado en admin_action_logs', col);
+    end if;
+  end loop;
+  if has_table_privilege('authenticated', 'public.profiles', 'DELETE')
+     or has_table_privilege('anon', 'public.profiles', 'DELETE')
+     or has_table_privilege('authenticated', 'public.profiles', 'TRUNCATE')
+     or has_table_privilege('anon', 'public.profiles', 'TRUNCATE') then
+    failures := failures || 'un cliente puede borrar perfiles (Fase 7)'::text;
   end if;
   if not has_function_privilege('service_role', 'public.block_user(uuid, uuid)', 'EXECUTE')
      or not has_function_privilege('service_role', 'public.unblock_user(uuid, uuid)', 'EXECUTE') then
@@ -847,7 +863,7 @@ begin
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms, public_profile_previews sin privilegios de clientes, interests y matches solo escritos por el servidor, el chat de la Fase 6 y los bloqueos y reportes de la sesión 83)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms, public_profile_previews sin privilegios de clientes, interests y matches solo escritos por el servidor, el chat de la Fase 6, los bloqueos y reportes de la sesión 83 y la administración de la Fase 7)';
 end $$;
 
 -- ============================================================
@@ -977,7 +993,9 @@ begin
     ('room_images', 'trg_room_images_integrity', 'enforce_room_images_integrity()'),
     ('rooms', 'trg_rooms_moderation', 'enforce_room_moderation()'),
     ('rooms', 'trg_rooms_published_at', 'set_room_published_at()'),
-    ('rooms', 'trg_rooms_updated_at', 'set_updated_at()')
+    ('rooms', 'trg_rooms_updated_at', 'set_updated_at()'),
+    ('admin_action_logs', 'trg_admin_action_logs_append_only', 'enforce_admin_action_logs_append_only()'),
+    ('admin_action_logs', 'trg_admin_action_logs_no_truncate', 'enforce_admin_action_logs_append_only()')
   ),
   actual as (
     select c.relname::text as tablename, t.tgname::text as tgname,
@@ -1041,7 +1059,21 @@ begin
     ('record_interest(uuid,uuid,integer,uuid)', false, 'search_path=""'),
     ('withdraw_interest(uuid,uuid)', false, 'search_path=""'),
     ('set_room_published_at()', false, 'search_path=""'),
-    ('set_updated_at()', false, 'search_path=public')
+    ('set_updated_at()', false, 'search_path=public'),
+    ('enforce_admin_action_logs_append_only()', false, 'search_path=""'),
+    ('admin_require()', true, 'search_path=""'),
+    ('admin_clean_reason(text,boolean)', false, 'search_path=""'),
+    ('admin_log(uuid,text,text,uuid,text)', true, 'search_path=""'),
+    ('admin_list_users(text,text,text,text,boolean,integer,integer)', true, 'search_path=""'),
+    ('admin_get_user(uuid)', true, 'search_path=""'),
+    ('admin_list_rooms(text,text,boolean,integer,integer)', true, 'search_path=""'),
+    ('admin_get_room(uuid)', true, 'search_path=""'),
+    ('admin_metrics()', true, 'search_path=""'),
+    ('admin_suspend_user(uuid,text)', true, 'search_path=""'),
+    ('admin_reactivate_user(uuid,text)', true, 'search_path=""'),
+    ('admin_remove_room(uuid,text)', true, 'search_path=""'),
+    ('admin_restore_room(uuid,text)', true, 'search_path=""'),
+    ('admin_set_report_status(uuid,report_status,text,text)', true, 'search_path=""')
   ),
   actual as (
     select regexp_replace(p.oid::regprocedure::text, '^public\.', '') as sig,
@@ -1092,7 +1124,23 @@ begin
       ('public.unblock_user(uuid, uuid)', true),
       ('public.purge_interest_log()', true),
       ('public.purge_closed_conversation_messages(timestamptz)', true),
-      ('public.set_room_published_at()', true)
+      ('public.set_room_published_at()', true),
+      ('public.enforce_admin_action_logs_append_only()', true),
+      ('public.admin_require()', true),
+      ('public.admin_clean_reason(text, boolean)', true),
+      ('public.admin_log(uuid, text, text, uuid, text)', true),
+      -- Fase 7: las funciones del panel las ejecuta authenticated (cada una
+      -- comprueba is_admin()); anon y PUBLIC, nunca.
+      ('public.admin_list_users(text, text, text, text, boolean, integer, integer)', false),
+      ('public.admin_get_user(uuid)', false),
+      ('public.admin_list_rooms(text, text, boolean, integer, integer)', false),
+      ('public.admin_get_room(uuid)', false),
+      ('public.admin_metrics()', false),
+      ('public.admin_suspend_user(uuid, text)', false),
+      ('public.admin_reactivate_user(uuid, text)', false),
+      ('public.admin_remove_room(uuid, text)', false),
+      ('public.admin_restore_room(uuid, text)', false),
+      ('public.admin_set_report_status(uuid, public.report_status, text, text)', false)
     ) as v(sig, also_authenticated)
   loop
     if has_function_privilege('anon', fn.sig::regprocedure, 'EXECUTE') then
@@ -1110,5 +1158,5 @@ begin
     raise exception 'FALLO P6: %', array_to_string(failures, '; ');
   end if;
 
-  raise notice 'ok - P6: 25 triggers activos, 33 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
+  raise notice 'ok - P6: 27 triggers activos, 47 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
 end $$;

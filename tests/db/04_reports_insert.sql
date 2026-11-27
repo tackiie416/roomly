@@ -48,9 +48,9 @@ select roomly_test.ok(
   (select status = 'pending' and resolved_by is null from public.reports
    where reporter_id = '40000000-0000-0000-0000-00000000000c'),
   'M2: el reporte nace pending y sin resolver');
-select roomly_test.expect_affected(
+select roomly_test.expect_error(
   $$update public.reports set status = 'dismissed' where reporter_id = '40000000-0000-0000-0000-00000000000c'$$,
-  0, 'M2: quien reporta no puede cerrar su propio reporte después');
+  '42501', 'M2: quien reporta no puede cerrar su propio reporte después');
 
 -- La persona reportada no ve el reporte (comportamiento ya existente, se protege aquí).
 select roomly_test.login('40000000-0000-0000-0000-00000000000b');
@@ -59,11 +59,16 @@ select roomly_test.expect_rows($$select 1 from public.reports$$, 0,
 
 -- El admin resuelve.
 select roomly_test.login('40000000-0000-0000-0000-00000000000d');
-select roomly_test.expect_affected(
-  $$update public.reports
-    set status = 'resolved', resolved_by = '40000000-0000-0000-0000-00000000000d',
-        resolved_at = now(), resolution_notes = 'revisado'
+-- Desde la Fase 7 (20261129120000) no hay UPDATE de reports para clientes:
+-- se resuelve con admin_set_report_status, que deja registro.
+select roomly_test.expect_error(
+  $$update public.reports set status = 'resolved'
     where reporter_id = '40000000-0000-0000-0000-00000000000c'$$,
-  1, 'M2: un admin sí puede resolver el reporte');
+  '42501', 'M2/F7: ni un admin actualiza reports directamente');
+select roomly_test.ok(
+  public.admin_set_report_status(
+    (select id from public.reports where reporter_id = '40000000-0000-0000-0000-00000000000c'),
+    'resolved', 'revisado') = 'resolved',
+  'M2: un admin sí puede resolver el reporte (admin_set_report_status)');
 
 reset role;

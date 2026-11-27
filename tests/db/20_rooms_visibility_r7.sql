@@ -157,7 +157,7 @@ select roomly_test.login('2a000000-0000-0000-0000-0000000000ad');
 select roomly_test.expect_rows(
   $$select 1 from r7_rooms where id in ('2a100000-0000-0000-0000-000000000002',
                                         '2a100000-0000-0000-0000-000000000003')$$,
-  2, 'VR2: el admin ve la habitación oculta y el borrador (rooms_admin_all)');
+  2, 'VR2: el admin ve la habitación oculta y el borrador (rooms_admin_select)');
 select roomly_test.expect_rows(
   $$select 1 from r7_images where room_id in ('2a100000-0000-0000-0000-000000000002',
                                               '2a100000-0000-0000-0000-000000000003')$$,

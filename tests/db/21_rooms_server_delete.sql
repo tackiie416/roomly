@@ -109,7 +109,7 @@ select roomly_test.ok(
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'rooms')
-  = array['rooms_admin_all:ALL', 'rooms_insert_own:INSERT', 'rooms_select_active_public:SELECT',
+  = array['rooms_admin_select:SELECT', 'rooms_insert_own:INSERT', 'rooms_select_active_public:SELECT',
           'rooms_select_own:SELECT', 'rooms_update_own:UPDATE']
   and (select count(*) = 42 from pg_policies where schemaname = 'public'),
   'DS0: sin rooms_delete_own: rooms tiene 5 políticas y public 42 (40 hasta 20261128120000, 42 hasta la Fase 5.1; 41 hasta dividir room_images_select en 20261031120100)');
@@ -148,7 +148,7 @@ select roomly_test.expect_denied(
 select roomly_test.login('21000000-0000-0000-0000-0000000000ad');
 select roomly_test.expect_rows(
   $$select 1 from public.rooms where id = '21100000-0000-0000-0000-000000000002'$$,
-  1, 'DS1: el admin ve el borrador de A (rooms_admin_all)');
+  1, 'DS1: el admin ve el borrador de A (rooms_admin_select)');
 select roomly_test.expect_denied(
   $$delete from public.rooms where id = '21100000-0000-0000-0000-000000000002'$$,
   'DS1: ni un admin desde el cliente');

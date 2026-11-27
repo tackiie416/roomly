@@ -266,7 +266,7 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
       "room_images.room_images_admin_select",
       "room_images.room_images_select_own",
       "room_images.room_images_select_public",
-      "rooms.rooms_admin_all",
+      "rooms.rooms_admin_select",
       "rooms.rooms_insert_own",
       "rooms.rooms_select_active_public",
       "rooms.rooms_select_own",
@@ -353,11 +353,11 @@ describe("preflight.sql: lista exacta derivada de las migraciones", () => {
     expect(cr).toEqual(["compatibility_responses.compatibility_responses_select_own"]);
   });
 
-  it("25 triggers, los mismos que crean las migraciones", () => {
+  it("27 triggers, los mismos que crean las migraciones", () => {
     const expected = preflightValues(
       /-- P6[\s\S]*?with expected\(tablename, tgname, fn\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.triggers.size).toBe(25);
+    expect(derived.triggers.size).toBe(27);
     expect([...expected].sort()).toEqual([...derived.triggers].sort());
   });
 

@@ -7,8 +7,9 @@
 --     (trigger de moderación, H5);
 --   - una cuenta desactivada no cambia el estado (RLS de la 4.0);
 --   - el cliente no fija `status` al crear, y anon no escribe (GRANT);
---   - un admin activo y service_role conservan todas sus transiciones, y
---     service_role tampoco puede activar una habitación incompleta;
+--   - service_role conserva todas sus transiciones y tampoco puede activar
+--     una habitación incompleta; desde la Fase 7 un admin no escribe en
+--     rooms desde el cliente (0 filas) y modera con las funciones admin_*;
 --   - una habitación activa no puede quedarse incompleta.
 --
 -- O: propietaria activa · X: admin activo · D: propietaria desactivada.
@@ -132,11 +133,14 @@ declare
      ['OK', 'R7', '·',  'OK', 'H5'],
      ['OK', 'R7', 'OK', '·',  'H5'],
      ['H5', 'H5', 'H5', 'H5', '·' ]],
-    [['·',  'OK', 'OK', 'OK', 'OK'],
-     ['OK', '·',  'OK', 'OK', 'OK'],
-     ['OK', 'OK', '·',  'OK', 'OK'],
-     ['OK', 'OK', 'OK', '·',  'OK'],
-     ['OK', 'OK', 'OK', 'OK', '·' ]],
+    -- Admin: desde la Fase 7 (20261129120000, rooms_admin_select) no escribe
+    -- en rooms desde el cliente; modera con admin_remove_room y
+    -- admin_restore_room (sección 3 y tests/db/29).
+    [['·',  '0f', '0f', '0f', '0f'],
+     ['0f', '·',  '0f', '0f', '0f'],
+     ['0f', '0f', '·',  '0f', '0f'],
+     ['0f', '0f', '0f', '·',  '0f'],
+     ['0f', '0f', '0f', '0f', '·' ]],
     [['·',  '0f', '0f', '0f', '0f'],
      ['0f', '·',  '0f', '0f', '0f'],
      ['0f', '0f', '·',  '0f', '0f'],
@@ -281,10 +285,10 @@ declare
   x constant text := '17000000-0000-0000-0000-0000000000ad';
   -- etiqueta, usuario, nuevo estado, esperado
   steps text[][] := array[
-    ['el admin la retira (removed)', x, 'removed', 'OK'],
+    ['el admin la retira (admin_remove_room)', x, 'fn:admin_remove_room', 'OK'],
     ['la propietaria no la reactiva', o, 'active', 'H5'],
     ['ni la pasa a draft', o, 'draft', 'H5'],
-    ['el admin la devuelve a paused', x, 'paused', 'OK'],
+    ['el admin la devuelve a paused (admin_restore_room)', x, 'fn:admin_restore_room', 'OK'],
     ['la propietaria la reactiva', o, 'active', 'OK']];
   s text[];
   got text;
@@ -294,10 +298,16 @@ begin
   foreach s slice 1 in array steps loop
     perform roomly_test.login(s[2]::uuid);
     begin
-      execute format('update public.rooms set status = %L where id = %L',
-                     s[3], '17100000-0000-0000-0000-00000000000c');
-      get diagnostics rows = row_count;
-      got := case rows when 1 then 'OK' when 0 then '0f' else rows::text || ' filas' end;
+      if s[3] like 'fn:%' then
+        execute format('select public.%I(%L, %L)', substr(s[3], 4),
+                       '17100000-0000-0000-0000-00000000000c', 'Moderación ST3');
+        got := 'OK';
+      else
+        execute format('update public.rooms set status = %L where id = %L',
+                       s[3], '17100000-0000-0000-0000-00000000000c');
+        get diagnostics rows = row_count;
+        got := case rows when 1 then 'OK' when 0 then '0f' else rows::text || ' filas' end;
+      end if;
     exception when others then
       get stacked diagnostics violated = constraint_name;
       got := case

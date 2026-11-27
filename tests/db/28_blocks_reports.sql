@@ -98,14 +98,12 @@ select roomly_test.ok(
                        'public.enforce_reports_integrity()'::regprocedure)),
   'BR0: funciones nuevas solo de service_role, SECURITY INVOKER y search_path vacío');
 select roomly_test.ok(
-  (select array_agg(a.attname::text order by a.attname)
-   from pg_attribute a
-   where a.attrelid = 'public.reports'::regclass and a.attnum > 0 and not a.attisdropped
-     and has_column_privilege('authenticated', 'public.reports', a.attname, 'UPDATE'))
-  = array['resolution_notes', 'resolved_at', 'resolved_by', 'status']
+  -- Desde la Fase 7 (20261129120000) ningún cliente actualiza reports: un
+  -- admin los resuelve con admin_set_report_status (tests/db/29).
+  not has_any_column_privilege('authenticated', 'public.reports', 'UPDATE')
   and not has_table_privilege('authenticated', 'public.reports', 'DELETE')
   and not has_any_column_privilege('anon', 'public.reports', 'UPDATE'),
-  'BR0: authenticated solo actualiza la resolución de reports (y la RLS, solo un admin), sin DELETE');
+  'BR0: authenticated no actualiza ni borra reports (Fase 7: solo admin_set_report_status)');
 
 -- ------------------------------------------------------------
 -- 1. Bloquear borra el match y los intereses y cierra el chat
@@ -324,9 +322,9 @@ select roomly_test.expect_check_violation(
 select roomly_test.expect_error(
   $$update public.reports set reason = 'spam' where reporter_id = '28000000-0000-0000-0000-00000000000c'$$,
   '42501', 'BR6: quien reporta no cambia el motivo (sin GRANT)');
-select roomly_test.expect_affected(
+select roomly_test.expect_error(
   $$update public.reports set status = 'dismissed' where reporter_id = '28000000-0000-0000-0000-00000000000c'$$,
-  0, 'BR6: ni lo cierra (la RLS solo deja a un admin)');
+  '42501', 'BR6: ni lo cierra (sin GRANT de UPDATE desde la Fase 7)');
 select roomly_test.expect_denied(
   $$delete from public.reports where reporter_id = '28000000-0000-0000-0000-00000000000c'$$,
   'BR6: ni lo borra');
@@ -335,35 +333,39 @@ select roomly_test.expect_rows($$select 1 from public.reports$$, 0,
   'BR6: D no ve que la han reportado');
 
 -- El admin lo resuelve con su cuenta; los datos del reporte no cambian.
+-- Desde la Fase 7 (20261129120000), con admin_set_report_status: ni un admin
+-- actualiza reports ni escribe en admin_action_logs directamente.
 select roomly_test.login('28000000-0000-0000-0000-0000000000ad');
 select roomly_test.expect_error(
   $$update public.reports set description = 'otra cosa' where reporter_id = '28000000-0000-0000-0000-00000000000c'$$,
   '42501', 'BR6: un admin tampoco cambia la descripción (sin GRANT)');
-select roomly_test.expect_error_prefix(
-  $$update public.reports set status = 'resolved', resolved_by = '28000000-0000-0000-0000-00000000000c'
-    where reporter_id = '28000000-0000-0000-0000-00000000000c'$$,
-  '23514', 'report_immutable:', 'BR6: no se resuelve en nombre de otra persona');
-select roomly_test.expect_affected(
-  $$update public.reports set status = 'in_review' where reporter_id = '28000000-0000-0000-0000-00000000000c'$$,
-  1, 'BR6: el admin lo pasa a revisión');
-select roomly_test.expect_affected(
-  $$update public.reports set status = 'resolved', resolution_notes = 'avisada'
-    where reporter_id = '28000000-0000-0000-0000-00000000000c'$$,
-  1, 'BR6: y lo resuelve');
+select roomly_test.expect_error(
+  $$update public.reports set status = 'resolved' where reporter_id = '28000000-0000-0000-0000-00000000000c'$$,
+  '42501', 'BR6: ni el estado directamente (sin GRANT desde la Fase 7)');
+select roomly_test.ok(
+  public.admin_set_report_status(
+    (select id from public.reports where reporter_id = '28000000-0000-0000-0000-00000000000c'),
+    'in_review', null) = 'in_review',
+  'BR6: el admin lo pasa a revisión');
+select roomly_test.ok(
+  public.admin_set_report_status(
+    (select id from public.reports where reporter_id = '28000000-0000-0000-0000-00000000000c'),
+    'resolved', 'avisada') = 'resolved',
+  'BR6: y lo resuelve');
 select roomly_test.ok(
   (select resolved_by = '28000000-0000-0000-0000-0000000000ad' and resolved_at is not null
    from public.reports where reporter_id = '28000000-0000-0000-0000-00000000000c'),
   'BR6: resolved_by es el admin y resolved_at se fija solo');
 
--- La auditoría de admin solo se añade: con su autoría, sin editar ni borrar.
-select roomly_test.expect_affected(
-  $$insert into public.admin_action_logs (admin_id, action, target_type)
-    values ('28000000-0000-0000-0000-0000000000ad', 'report_resolved', 'report')$$,
-  1, 'BR6: el admin deja constancia en admin_action_logs');
+-- La auditoría de admin solo la escriben las funciones de moderación.
+select roomly_test.expect_rows(
+  $$select 1 from public.admin_action_logs
+    where admin_id = '28000000-0000-0000-0000-0000000000ad' and target_type = 'report'$$,
+  2, 'BR6: las dos acciones quedan en admin_action_logs con la autoría del admin');
 select roomly_test.expect_error(
-  $$insert into public.admin_action_logs (admin_id, action, target_type)
-    values ('28000000-0000-0000-0000-00000000000c', 'report_resolved', 'report')$$,
-  '42501', 'BR6: no en nombre de otra persona (RLS)');
+  $$insert into public.admin_action_logs (admin_id, action, target_type, target_id)
+    values ('28000000-0000-0000-0000-0000000000ad', 'report_resolved', 'report', gen_random_uuid())$$,
+  '42501', 'BR6: ni un admin añade filas a mano (sin GRANT desde la Fase 7)');
 select roomly_test.expect_error(
   $$update public.admin_action_logs set notes = 'cambiado'$$,
   '42501', 'BR6: el registro de admin no se edita (sin GRANT)');

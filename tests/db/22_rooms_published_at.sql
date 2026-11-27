@@ -191,9 +191,9 @@ select roomly_test.expect_error_prefix(
   $$update public.rooms set status = 'removed' where id = '22100000-0000-0000-0000-000000000001'$$,
   '42501', 'room_moderation:', 'PA8: H5: la propietaria no la retira');
 select roomly_test.login('22000000-0000-0000-0000-0000000000ad');
-select roomly_test.expect_affected(
-  $$update public.rooms set status = 'removed' where id = '22100000-0000-0000-0000-000000000001'$$,
-  1, 'PA8: el admin la retira');
+select roomly_test.ok(
+  public.admin_remove_room('22100000-0000-0000-0000-000000000001', 'Retirada PA8') = 'removed',
+  'PA8: el admin la retira (admin_remove_room, Fase 7)');
 reset role;
 select roomly_test.ok(
   (select r.status = 'removed' and r.published_at = s.published_at
@@ -213,15 +213,19 @@ select roomly_test.ok(
   'PA9: el rechazo de H5 no deja la fecha cambiada');
 set role authenticated;
 select roomly_test.login('22000000-0000-0000-0000-0000000000ad');
+select roomly_test.ok(
+  public.admin_restore_room('22100000-0000-0000-0000-000000000001', 'Restaurada PA9') = 'paused',
+  'PA9: el admin la restaura (admin_restore_room: queda en paused)');
+select roomly_test.login('22000000-0000-0000-0000-00000000000a');
 select roomly_test.expect_affected(
   $$update public.rooms set status = 'active' where id = '22100000-0000-0000-0000-000000000001'$$,
-  1, 'PA9: el admin la restaura');
+  1, 'PA9: y la propietaria la vuelve a publicar');
 reset role;
 select roomly_test.ok(
   (select r.published_at > s.published_at
    from public.rooms r, pa_seen s
    where r.id = '22100000-0000-0000-0000-000000000001' and s.step = 'republished'),
-  'PA9: retirada → activa (por el admin) registra una fecha nueva');
+  'PA9: retirada → pausada → activa registra una fecha nueva');
 
 -- ------------------------------------------------------------
 -- 5. Insertar ya activa (servidor); nunca activa sin fecha

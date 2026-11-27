@@ -111,10 +111,15 @@ select roomly_test.expect_rows(
 -- 3. Capacidades administrativas intactas.
 -- ------------------------------------------------------------
 select roomly_test.login('80000000-0000-0000-0000-0000000000ad');
+-- Desde la Fase 7 (20261129120000) un admin solo lee perfiles ajenos: la
+-- moderación va por las funciones admin_* (con registro).
 select roomly_test.expect_affected(
   $$update public.profiles set bio = 'moderado por admin'
     where id = '80000000-0000-0000-0000-00000000000d'$$,
-  1, 'DX1: un admin sigue pudiendo editar el perfil de una cuenta eliminada');
+  0, 'DX1: un admin no edita desde el cliente el perfil de una cuenta eliminada');
+select roomly_test.expect_rows(
+  $$select 1 from public.profiles where id = '80000000-0000-0000-0000-00000000000d'$$,
+  1, 'DX1: pero la sigue leyendo (profiles_admin_select)');
 
 set role service_role;
 select roomly_test.expect_affected(
