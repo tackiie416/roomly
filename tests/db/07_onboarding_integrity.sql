@@ -173,21 +173,22 @@ select roomly_test.expect_affected(
     where id = '70000000-0000-0000-0000-00000000000d'$$,
   1, 'OB11: con el onboarding completo, editar otros campos sigue funcionando');
 
--- 12. Un admin (profiles_admin_all le deja escribir la fila de D: lo único
---     que lo impide es el trigger).
+-- 12. Un admin. Desde la Fase 7 (20261129120000) profiles_admin_all es solo
+--     de lectura (profiles_admin_select): un admin no escribe en el perfil de
+--     otra persona desde el cliente. La regla del trigger para cualquier rol
+--     la prueban service_role y el dueño de las tablas (13).
 select roomly_test.login('70000000-0000-0000-0000-00000000000e');
 select roomly_test.expect_affected(
   $$update public.profiles set bio = 'Revisado'
     where id = '70000000-0000-0000-0000-00000000000d'$$,
-  1, 'OB12: el admin puede editar otros campos del perfil de D (control positivo)');
-select roomly_test.expect_error(
+  0, 'OB12: el admin no edita el perfil de D desde el cliente (sin profiles_admin_all)');
+select roomly_test.expect_affected(
   $$update public.profiles set onboarding_completed_at = null
     where id = '70000000-0000-0000-0000-00000000000d'$$,
-  '23514', 'OB12: el admin no reinicia el onboarding de D');
-select roomly_test.expect_error(
-  $$update public.profiles set onboarding_completed_at = now()
-    where id = '70000000-0000-0000-0000-00000000000d'$$,
-  '23514', 'OB12: ni le cambia la fecha');
+  0, 'OB12: el admin no reinicia el onboarding de D');
+select roomly_test.expect_rows(
+  $$select 1 from public.profiles where id = '70000000-0000-0000-0000-00000000000d'$$,
+  1, 'OB12: pero sí lo lee (profiles_admin_select)');
 
 -- 13. service_role (sin RLS) y el dueño de las tablas: tampoco.
 set role service_role;
@@ -220,7 +221,7 @@ select roomly_test.expect_error(
   '23514', 'OB13: el dueño de las tablas tampoco');
 select roomly_test.ok(
   (select onboarding_completed_at = '2026-01-01 10:00:00+00'
-          and full_name = 'OB D editado' and bio = 'Revisado'
+          and full_name = 'OB D editado' and bio = 'Hola'
    from public.profiles where id = '70000000-0000-0000-0000-00000000000d'),
   'OB13: la fecha original se conserva y solo persistieron las ediciones permitidas');
 

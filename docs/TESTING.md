@@ -1655,6 +1655,46 @@ workflow manual.
   interés por habitación) y `student-flow` con «Mensajes» en la navegación.
   El mock emula las tres tablas, el trigger y las dos rpc nuevas.
 
+## Fase 7 — Administración (sesión 84, en local)
+
+- `tests/db/29_admin_moderation.sql` (AM0–AM9, 85 comprobaciones):
+  catálogo (políticas solo de lectura, privilegios, EXECUTE de las diez
+  funciones solo para authenticated, helpers sin EXECUTE de clientes); los
+  seis actores que no son admin (usuario normal, persona reportada, admin
+  desactivado, JWT sin `sub`, anon y service_role) rechazados en las diez
+  funciones; usuarios normales y el admin bloqueados en las tablas;
+  suspender y reactivar (no a uno mismo ni a otro admin, no una cuenta
+  desactivada por otra vía); retirar y restaurar; transiciones de reportes,
+  medidas y atomicidad; registro inmutable también para service_role y el
+  dueño de la tabla; filtros, búsqueda sin comodines, sin datos personales y
+  métricas.
+- Adaptados a las políticas de solo lectura: `03`, `04`, `07`, `08`, `13`,
+  `15`, `16`, `17`, `20`, `21`, `22` y `28` (las escrituras del admin desde el
+  cliente dan 0 filas o 42501, y la moderación usa las funciones).
+- Preflight: 20 tablas, 42 políticas, 27 triggers y 47 funciones
+  (`validation-infra.test.ts`).
+- Unitarios: `services-admin` (guard en cada operación, validación, una sola
+  rpc, errores traducidos, métricas sin datos personales), `admin-actions`
+  (guard primero, solo los campos del formulario, avisos),
+  `admin-pages-static` (cada página llama a `requireAdmin()` y no usa el
+  cliente admin ni escribe tablas), `services-safety` (la resolución de
+  reportes es una sola llamada a `admin_set_report_status`) y
+  `admin-client-usage` (`admin.ts` solo llama a las diez funciones).
+- E1: `admin-panel.spec.ts` (quien no es admin no entra en ninguna sección y
+  nada cambia; un admin busca, suspende y reactiva una cuenta, el servidor
+  exige la casilla, no se ofrece suspenderse a sí mismo e ids inventados dan
+  404; retira y restaura una habitación, que deja de ser pública, con su
+  registro, y ve las métricas). El mock emula las diez funciones, las
+  políticas de solo lectura y el registro inmutable. `safety-flow.spec.ts`
+  adaptado al nuevo formulario de reportes.
+- api-suite (solo el workflow manual, **sin ejecutar con la Fase 7**): RE7,
+  RE9, RO4, RO7 y RO8 adaptados; las acciones de admin con éxito no se
+  ejecutan en real porque su registro es inmutable.
+- En local: `test` 1864/1864 (76 archivos), `test:db` y `test:infra` en
+  verde, E1 63/64 con el fallo intermitente conocido de `upload-size.spec.ts`
+  (al repetirlo, 5/5), lint, typecheck, format y build en verde. Orientativo:
+  la referencia es la CI.
+
 ## Fase 6 — Bloqueos, reportes y límites contra el abuso (sesión 83, en local)
 
 - `tests/db/28_blocks_reports.sql` (BR0–BR7, 61 comprobaciones): catálogo y

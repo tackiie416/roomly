@@ -47,10 +47,15 @@ select roomly_test.expect_error(
   '42501', 'H5: removed es estado de moderación: el propietario no lo fija él mismo');
 
 -- ---------- Un admin la retira ----------
+-- Desde la Fase 7 (20261129120000), un admin ya no escribe en rooms desde el
+-- cliente: retira con admin_remove_room, que deja registro.
 select roomly_test.login('30000000-0000-0000-0000-00000000000d');
 select roomly_test.expect_affected(
   $$update public.rooms set status = 'removed' where id = '31000000-0000-0000-0000-000000000001'$$,
-  1, 'H5: un admin puede marcar la habitación como removed');
+  0, 'H5/F7: un UPDATE directo de un admin no toca la habitación (sin rooms_admin_all)');
+select roomly_test.ok(
+  public.admin_remove_room('31000000-0000-0000-0000-000000000001', 'Retirada de prueba H5') = 'removed',
+  'H5: un admin retira la habitación con admin_remove_room');
 
 -- ---------- El propietario intenta deshacerlo ----------
 select roomly_test.login('30000000-0000-0000-0000-00000000000b');
@@ -77,9 +82,9 @@ select roomly_test.ok(
 -- ---------- Reactivación autorizada ----------
 set role authenticated;
 select roomly_test.login('30000000-0000-0000-0000-00000000000d');
-select roomly_test.expect_affected(
-  $$update public.rooms set status = 'active' where id = '31000000-0000-0000-0000-000000000001'$$,
-  1, 'H5: un admin sí puede reactivarla');
+select roomly_test.ok(
+  public.admin_restore_room('31000000-0000-0000-0000-000000000001', 'Restaurada de prueba H5') = 'paused',
+  'H5: un admin la restaura con admin_restore_room (queda en paused)');
 
 reset role;
 update public.rooms set status = 'removed' where id = '31000000-0000-0000-0000-000000000001';

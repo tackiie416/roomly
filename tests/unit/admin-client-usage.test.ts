@@ -172,11 +172,47 @@ describe("fotos de habitaciones (Fase 4.2, D1): sin URL públicas ni Storage fue
     expect(rooms).toContain("adminClient: () => createAdminClient(),");
   });
 
-  it("delete_own_room solo la llama rooms.ts, y solo rooms.ts e interests.ts usan .rpc(", () => {
+  it("delete_own_room solo la llama rooms.ts, y solo rooms.ts, interests.ts y admin.ts usan .rpc(", () => {
     const callers = APP_FILES.filter((file) => /delete_own_room/.test(code(file)));
     expect(callers).toEqual(["lib/services/rooms.ts"]);
     const rpcUsers = APP_FILES.filter((file) => /\.rpc\(/.test(code(file))).sort();
-    expect(rpcUsers).toEqual(["lib/services/interests.ts", "lib/services/rooms.ts"]);
+    expect(rpcUsers).toEqual([
+      "lib/services/admin.ts",
+      "lib/services/interests.ts",
+      "lib/services/rooms.ts",
+    ]);
+  });
+
+  it("el panel de admin (Fase 7) no usa service_role: admin.ts solo llama a las funciones admin_* con el cliente del admin", () => {
+    const admin = code("lib/services/admin.ts");
+    expect(admin).toMatch(/^import "server-only";/);
+    expect(admin).not.toMatch(/adminClient\(\)|createAdminClient|lib\/supabase\/admin/);
+    expect(admin).not.toMatch(/\.from\(/);
+    // Una sola llamada a .rpc( (la función local `rpc`), y cada nombre de
+    // función que se le pasa es una admin_* de 20261129120000.
+    expect(admin.match(/\.rpc\(/g)).toHaveLength(1);
+    // Los prefijos de los errores (admin_not_found, admin_invalid,
+    // admin_state) no son funciones.
+    const ERROR_PREFIXES = new Set(["admin_not_found", "admin_invalid", "admin_state"]);
+    const names = [...admin.matchAll(/"(admin_[a-z_]+)"/g)]
+      .map((m) => m[1])
+      .filter((name) => !ERROR_PREFIXES.has(name));
+    expect(new Set(names)).toEqual(
+      new Set([
+        "admin_list_users",
+        "admin_get_user",
+        "admin_list_rooms",
+        "admin_get_room",
+        "admin_metrics",
+        "admin_suspend_user",
+        "admin_reactivate_user",
+        "admin_remove_room",
+        "admin_restore_room",
+        "admin_set_report_status",
+      ])
+    );
+    const callers = APP_FILES.filter((file) => /"admin_[a-z_]+"/.test(code(file)));
+    expect(callers).toEqual(["lib/services/admin.ts"]);
   });
 
   it("interests.ts usa el cliente admin solo para sus seis rpc (Fases 5.1 y 6, sesión 83)", () => {

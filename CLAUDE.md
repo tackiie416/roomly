@@ -555,6 +555,25 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     42 políticas, 25 triggers y 33 funciones. Diseño de borrado y
     conservación, sin decidir: `docs/PRIVACY_RETENTION.md`. No ejecutes las
     purgas ni las programes sin autorización.
+  - Integradas en `master` el 2026-11-27 con autorización: PR #40 (sesiones
+    80–82, merge `7ec6a61`) y PR #41 (sesión 83, merge `ada4833`), con la CI
+    en verde. Siguen sin validar en Supabase real.
+- **Fase 7 (Admin): EMPEZADA el 2026-11-27** con la autorización expresa del
+  propietario (sesión 84, rama `claude/project-thread-5tguj4`, sin merge y
+  sin validar en Supabase real; `docs/SECURITY.md`, «Fase 7 —
+  Administración»):
+  - migración `20261129120000`: las políticas de admin son solo de lectura
+    (`*_admin_select`) y toda moderación pasa por diez funciones `admin_*`
+    (SECURITY DEFINER, `is_admin()`, registro en la misma transacción,
+    EXECUTE solo de authenticated). `admin_action_logs` es inmutable para
+    todos los roles. No devuelvas a un admin la escritura directa ni
+    escribas el registro desde la app;
+  - `lib/services/admin.ts` **no usa service_role**; no se lo des;
+  - panel `/admin/{usuarios,habitaciones,reportes,metricas}`, sin
+    JavaScript, con motivo y confirmación en el servidor;
+  - un admin no se suspende a sí mismo ni a otro admin, y una cuenta de
+    admin con acciones registradas no se puede borrar (FK de `admin_id`,
+    pendiente de decisión para H6). Preflight: 27 triggers y 47 funciones.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -847,6 +866,9 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
   siempre (`npm run test:db`, también en CI).
 - Rate limit a nivel de base de datos (trigger) sobre `interests`, además
   del check en la app.
+- Fase 7: un admin lee con `*_admin_select` y modera solo con las
+  funciones `admin_*`, que registran cada acción en `admin_action_logs`
+  (inmutable). Sin service_role en el camino del admin.
 - `/admin` se protege en RLS **y** en el servidor (`requireAdmin()` de
   `lib/auth/session.ts`: rol admin y cuenta no eliminada) — nunca solo
   ocultando el enlace en el cliente. Los guards van en **cada página**, no

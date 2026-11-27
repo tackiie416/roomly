@@ -14,7 +14,7 @@ import { getPublicEnv } from "@/lib/env";
  * incluidos, la RLS de R7 (`rooms_select_active_public`) y el GRANT por
  * columnas de anon (20261031120100). Con el cliente de la sesión, una
  * propietaria vería sus borradores (`rooms_select_own`), un admin cualquier
- * habitación (`rooms_admin_all`) y `authenticated` todas las columnas, y
+ * habitación (`rooms_admin_select`) y `authenticated` todas las columnas, y
  * solo un filtro de la aplicación lo evitaría.
  *
  * No es un cliente privilegiado: tiene exactamente lo que tiene anon. Nunca

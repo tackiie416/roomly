@@ -461,8 +461,15 @@ describe("revisión de reportes (admin)", () => {
     });
   });
 
-  it("resolver: actualiza el estado y deja constancia en admin_action_logs con su id", async () => {
+  const withRpc = (fake: ReturnType<typeof adminClient>, response: unknown) => {
+    const rpc = vi.fn().mockResolvedValue(response);
+    (fake.client as unknown as { rpc: typeof rpc }).rpc = rpc;
+    return rpc;
+  };
+
+  it("resolver: una sola llamada a admin_set_report_status, sin escribir tablas", async () => {
     const fake = adminClient("admin");
+    const rpc = withRpc(fake, { data: "resolved", error: null });
     expect(
       await resolveReport(fake.client, {
         reportId: REPORT,
@@ -470,25 +477,28 @@ describe("revisión de reportes (admin)", () => {
         notes: " avisada ",
       })
     ).toEqual({ ok: true, data: { status: "resolved" } });
-    const update = fake.calls.find((c) => c.operation === "update");
-    expect(update?.payload).toEqual({ status: "resolved", resolution_notes: "avisada" });
-    const log = fake.calls.find((c) => c.table === "admin_action_logs");
-    expect(log?.payload).toEqual({
-      admin_id: ADMIN,
-      action: "report_resolved",
-      target_type: "report",
-      target_id: REPORT,
-      notes: "avisada",
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("admin_set_report_status", {
+      p_report_id: REPORT,
+      p_status: "resolved",
+      p_notes: "avisada",
+      p_measure: "none",
     });
+    expect(fake.calls.filter((c) => c.operation !== "select")).toEqual([]);
+    expect(fake.calls.filter((c) => c.table === "admin_action_logs")).toEqual([]);
   });
 
-  it("un reporte que no existe: not_found, sin registro", async () => {
-    const fake = adminClient("admin", { update: { data: [], error: null } });
+  it("un reporte que no existe: not_found", async () => {
+    const fake = adminClient("admin");
+    withRpc(fake, {
+      data: null,
+      error: { code: "P0002", message: "admin_not_found: report" },
+    });
     expect(
       await resolveReport(fake.client, {
         reportId: REPORT,
         status: "dismissed",
-        notes: "",
+        notes: "duplicado",
       })
     ).toEqual({ ok: false, error: "not_found" });
     expect(fake.calls.filter((c) => c.table === "admin_action_logs")).toEqual([]);

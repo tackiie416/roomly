@@ -349,7 +349,7 @@ describe("updateOwnRoom", () => {
       error: "not_found",
     });
     expect(writes(world)).toEqual([]);
-    // La RLS dejaría escribir a un admin (rooms_admin_all): el servicio no lo intenta.
+    // Un admin tampoco: desde la Fase 7 solo lee (rooms_admin_select) y el servicio no lo intenta.
     const admin = setup({ profile: { role: "admin" } });
     expect(await updateOwnRoom(admin.userClient, OTHER_ROOM_ID, EDIT)).toEqual({
       ok: false,

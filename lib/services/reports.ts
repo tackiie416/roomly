@@ -1,6 +1,7 @@
 import "server-only";
 
 import { type InterestsDeps, knownCounterpart } from "@/lib/services/interests";
+import { setReportStatusForAdmin } from "@/lib/services/admin";
 import {
   type DbClient,
   type ServiceResult,
@@ -19,7 +20,7 @@ import {
 /**
  * Reportes de usuarios (sesión 83). Sin service_role: quien reporta inserta
  * con su cliente (GRANT por columnas y `reports_insert_own`), y un admin lee
- * y resuelve con el suyo (`reports_admin_all`). La base de datos
+ * con el suyo (`reports_admin_select`) y resuelve con `admin_set_report_status`. La base de datos
  * (20261128120000) aplica los motivos, la longitud, un reporte abierto por
  * persona, 10 en 24 h y la resolución con la cuenta propia del admin. La
  * persona reportada nunca ve el reporte (RLS: solo quien lo hizo y un admin).
@@ -224,38 +225,26 @@ export async function listReportsForAdmin(
 }
 
 /**
- * Cambia el estado de un reporte y deja constancia en `admin_action_logs`
- * (la autoría la fija la RLS: `admin_id = auth.uid()`). Quién y cuándo lo
- * resuelve lo pone la base de datos (trg_reports_integrity).
+ * Cambia el estado de un reporte con `admin_set_report_status`
+ * (20261129120000): el cambio, la medida opcional (suspender a la persona o
+ * retirar la habitación) y sus registros en `admin_action_logs` van en una
+ * sola transacción. La autoría sale del JWT (`auth.uid()`), nunca del input.
+ * Sin service_role: la función comprueba `is_admin()`.
  */
 export async function resolveReport(
   supabase: DbClient,
-  input: { reportId: unknown; status: unknown; notes: unknown }
+  input: { reportId: unknown; status: unknown; notes: unknown; measure?: unknown }
 ): Promise<ServiceResult<{ status: ReportStatusValue }>> {
   const parsed = reportResolutionSchema.safeParse({
     reportId: input.reportId,
     status: input.status,
+    measure:
+      input.measure === undefined || input.measure === "" ? undefined : input.measure,
     notes: typeof input.notes === "string" ? input.notes : "",
   });
   if (!parsed.success) return fail("validation");
   const admin = await adminId(supabase);
   if (!admin.ok) return admin;
 
-  const { data, error } = await supabase
-    .from("reports")
-    .update({ status: parsed.data.status, resolution_notes: parsed.data.notes })
-    .eq("id", parsed.data.reportId)
-    .select("id, status");
-  if (error) return mapDbError(error);
-  if (!data || data.length !== 1) return fail("not_found");
-
-  const log = await supabase.from("admin_action_logs").insert({
-    admin_id: admin.data,
-    action: `report_${parsed.data.status}`,
-    target_type: "report",
-    target_id: parsed.data.reportId,
-    notes: parsed.data.notes,
-  });
-  if (log.error) return mapDbError(log.error);
-  return ok({ status: parsed.data.status });
+  return setReportStatusForAdmin(supabase, parsed.data);
 }

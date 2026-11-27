@@ -828,8 +828,15 @@ describe("Rooms (RO)", () => {
     expectModerationRejection(error);
   });
 
-  it("RO4: un admin sí puede marcar removed", async () => {
-    const { data, error } = await setStatus(D().client, "removed");
+  it("RO4: el admin ya no cambia el estado desde la tabla; el servidor marca removed", async () => {
+    // Fase 7 (20261129120000): rooms_admin_select solo lee. El panel retira
+    // con admin_remove_room, que deja un registro inmutable en
+    // admin_action_logs (y el admin de prueba ya no se podría borrar): aquí
+    // no se ejecuta. Lo cubre tests/db/29 (AM5), con ROLLBACK.
+    const byAdmin = await setStatus(D().client, "removed");
+    expectOk(byAdmin.error);
+    expect(byAdmin.data).toHaveLength(0);
+    const { data, error } = await setStatus(service, "removed");
     expectOk(error);
     expect(data?.[0]?.status).toBe("removed");
   });
@@ -858,13 +865,10 @@ describe("Rooms (RO)", () => {
     expect(data?.status).toBe("removed");
   });
 
-  it("RO7: reactivación autorizada — admin, y también el servidor (service_role)", async () => {
+  it("RO7: reactivación autorizada — solo el servidor (service_role); el admin, por admin_restore_room", async () => {
     const byAdmin = await setStatus(D().client, "active");
     expectOk(byAdmin.error);
-    expect(byAdmin.data?.[0]?.status).toBe("active");
-
-    const toRemoved = await setStatus(D().client, "removed");
-    expectOk(toRemoved.error);
+    expect(byAdmin.data).toHaveLength(0);
 
     const byServer = await setStatus(service, "active");
     expectOk(byServer.error);
@@ -876,12 +880,12 @@ describe("Rooms (RO)", () => {
     expectOk(visible.error);
     expect(visible.data).toHaveLength(1);
 
-    expectOk((await setStatus(D().client, "removed")).error);
+    expectOk((await setStatus(service, "removed")).error);
     const hidden = await anon.from("rooms").select("id").eq("id", roomId);
     expectOk(hidden.error);
     expect(hidden.data).toHaveLength(0);
 
-    expectOk((await setStatus(D().client, "active")).error);
+    expectOk((await setStatus(service, "active")).error);
   });
 
   it("RO9: la dirección exacta solo la ve el propietario", async () => {
@@ -1250,8 +1254,9 @@ describe("Reports (RE)", () => {
       .update({ status: "dismissed" })
       .eq("id", reportId)
       .select("id");
-    expectOk(error);
-    expect(data).toHaveLength(0);
+    // Fase 7 (20261129120000): authenticated ya no tiene UPDATE en reports.
+    expectPgError(error, "42501");
+    expect(data).toBeNull();
   });
 
   it("RE8: la persona denunciada no ve el reporte", async () => {
@@ -1260,21 +1265,36 @@ describe("Reports (RE)", () => {
     expect(data).toHaveLength(0);
   });
 
-  it("RE9: un admin resuelve el reporte (UPDATE vía reports_admin_all)", async () => {
-    const { data, error } = await D()
+  it("RE9: el admin no cambia el reporte desde la tabla, y quien no es admin no llama a admin_set_report_status", async () => {
+    // Fase 7 (20261129120000): reports_admin_select solo lee y no hay UPDATE;
+    // el estado lo cambia admin_set_report_status. La resolución con éxito no
+    // se ejecuta aquí a propósito: su registro en admin_action_logs es
+    // inmutable y dejaría al admin de prueba sin poder borrarse (FK de
+    // admin_id). La cubre tests/db/29 (AM6), siempre con ROLLBACK.
+    const direct = await D()
       .client.from("reports")
-      .update({
-        status: "resolved",
-        resolved_by: D().id,
-        resolved_at: new Date().toISOString(),
-        resolution_notes: "revisado en validación",
-      })
+      .update({ status: "resolved", resolution_notes: "revisado en validación" })
       .eq("id", reportId)
-      .select("status, resolved_by");
-    expectOk(error);
-    expect(data).toHaveLength(1);
-    expect(data?.[0]?.status).toBe("resolved");
-    expect(data?.[0]?.resolved_by).toBe(D().id);
+      .select("status");
+    expectPgError(direct.error, "42501");
+    for (const who of [R(), T()]) {
+      const { error } = await (
+        who.client as unknown as {
+          rpc: (
+            fn: string,
+            args: Record<string, unknown>
+          ) => Promise<{ error: PostgrestError | null }>;
+        }
+      ).rpc("admin_set_report_status", {
+        p_report_id: reportId,
+        p_status: "dismissed",
+        p_notes: "intento sin ser admin",
+        p_measure: "none",
+      });
+      expectPgError(error, "42501");
+    }
+    const { data } = await D().client.from("reports").select("status").eq("id", reportId);
+    expect(data?.[0]?.status).toBe("pending");
   });
 });
 

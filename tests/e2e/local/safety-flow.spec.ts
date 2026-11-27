@@ -172,7 +172,7 @@ test("reportar desde el perfil, sin duplicados, y la revisión de un admin", asy
   await expect(item).toContainText("Mensajes ofensivos.");
   await expect(item.getByTestId("report-reported")).toContainText("Carla Reporte");
   await item.getByLabel("Estado").selectOption("resolved");
-  await item.getByLabel(/Notas internas/).fill("Revisado");
+  await item.getByLabel(/notas internas/i).fill("Revisado");
   await item.getByRole("button", { name: "Guardar" }).click();
   await expect(admin).toHaveURL(`${APP}/admin/reportes?aviso=guardado&vista=cerrados`);
   await expect(admin.getByTestId("report-item")).toHaveCount(1);

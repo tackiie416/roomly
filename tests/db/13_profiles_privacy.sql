@@ -66,7 +66,7 @@ select roomly_test.expect_rows(
   0, 'PV5: nadie más ve la cuenta eliminada');
 
 -- ------------------------------------------------------------
--- 6. Admin: un admin activo lee todos (profiles_admin_all); uno eliminado, no.
+-- 6. Admin: un admin activo lee todos (profiles_admin_select); uno eliminado, no.
 -- ------------------------------------------------------------
 select roomly_test.login('d0000000-0000-0000-0000-00000000000e');
 select roomly_test.expect_rows(
@@ -140,13 +140,13 @@ select roomly_test.ok(
 -- ------------------------------------------------------------
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
-          = array['profiles_admin_all:ALL', 'profiles_insert_own:INSERT',
+          = array['profiles_admin_select:SELECT', 'profiles_insert_own:INSERT',
                   'profiles_select_own_even_if_deleted:SELECT', 'profiles_update_own:UPDATE']
    from pg_policies where schemaname = 'public' and tablename = 'profiles'),
   'PV10: profiles tiene exactamente sus 4 políticas (sin profiles_select_authenticated)');
 select roomly_test.ok(
   (select array_agg(policyname::text order by policyname)
-          = array['profiles_admin_all', 'profiles_select_own_even_if_deleted']
+          = array['profiles_admin_select', 'profiles_select_own_even_if_deleted']
    from pg_policies
    where schemaname = 'public' and tablename = 'profiles' and cmd in ('SELECT', 'ALL')),
   'PV10: las únicas que dan lectura son la propia y la de admin');

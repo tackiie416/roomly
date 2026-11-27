@@ -393,9 +393,9 @@ select roomly_test.login('16000000-0000-0000-0000-0000000000ad');
 select roomly_test.expect_rows(
   $$select 1 from public.rooms where id = '16100000-0000-0000-0000-000000000002'$$,
   1, 'RP10: el admin ve el borrador incompleto de O');
-select roomly_test.expect_error(
+select roomly_test.expect_affected(
   $$update public.rooms set status = 'active' where id = '16100000-0000-0000-0000-000000000002'$$,
-  '23514', 'RP10: ni un admin publica una habitación sin barrio');
+  0, 'RP10: ni un admin publica una habitación sin barrio (Fase 7: sin escritura de admin desde el cliente)');
 reset role;
 set role service_role;
 select roomly_test.login(null);
@@ -505,12 +505,16 @@ select roomly_test.ok(
    from public.rooms where id = '16100000-0000-0000-0000-000000000020'),
   'RG5: las columnas reservadas siguen sin tocar');
 
--- Un admin modera desde el cliente, pero tampoco escribe columnas reservadas.
+-- Un admin modera con admin_remove_room (Fase 7), y desde el cliente no
+-- escribe ni el estado ni las columnas reservadas.
 set role authenticated;
 select roomly_test.login('16000000-0000-0000-0000-0000000000ad');
 select roomly_test.expect_affected(
   $$update public.rooms set status = 'removed' where id = '16100000-0000-0000-0000-000000000020'$$,
-  1, 'RG6: un admin sigue moderando (removed)');
+  0, 'RG6: un UPDATE directo del admin no toca la habitación (Fase 7)');
+select roomly_test.ok(
+  public.admin_remove_room('16100000-0000-0000-0000-000000000020', 'Moderación RG6') = 'removed',
+  'RG6: un admin sigue moderando (admin_remove_room)');
 select roomly_test.expect_error(
   $$update public.rooms set deleted_at = now() where id = '16100000-0000-0000-0000-000000000020'$$,
   '42501', 'RG6: pero el borrado lógico es del servidor (el GRANT es por rol, como en profiles)');

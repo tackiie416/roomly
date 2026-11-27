@@ -14,8 +14,8 @@ import { TEST_USER } from "./profile-rows";
  *     20261030120000 no tiene DELETE sobre `rooms` (42501). INSERT y UPDATE
  *     de `rooms` (CRUD, sesión 68) con el GRANT por columnas de
  *     20261015120000 (leído de la propia migración), la RLS de la 4.0
- *     (propietaria con la cuenta activa; `rooms_admin_all` para un admin
- *     activo), los CHECK y las FK de `rooms` (con su nombre en el mensaje) y
+ *     (propietaria con la cuenta activa; desde la Fase 7 un admin solo lee,
+ *     `rooms_admin_select`), los CHECK y las FK de `rooms` (con su nombre en el mensaje) y
  *     el trigger de moderación H5; y la lectura de `cities` y `neighborhoods`;
  *   - cliente admin (service_role): INSERT y DELETE de `room_images` con las
  *     reglas del trigger (8 fotos, habitación escribible, cuenta activa y ruta
@@ -361,9 +361,10 @@ export function createRoomWorld(options: WorldOptions = {}) {
     const payload = (call.payload ?? {}) as Partial<WorldRoom>;
     if (Object.keys(payload).some((column) => !ROOMS_GRANT_UPDATE.includes(column)))
       return permissionDenied();
-    // rooms_update_own (4.0): propietaria con la cuenta activa; rooms_admin_all: admin activo.
+    // rooms_update_own (4.0): propietaria con la cuenta activa. Desde la Fase 7
+    // (20261129120000) un admin solo lee (rooms_admin_select).
     const writable = (r: WorldRoom) =>
-      isAdmin() || (r.owner_id === userId && userId !== null && ownerActive(userId));
+      r.owner_id === userId && userId !== null && ownerActive(userId);
     const targets = applyFilters(state.rooms.filter(visibleRoom), call).filter(writable);
     const updated: WorldRoom[] = [];
     for (const target of targets) {

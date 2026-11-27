@@ -1193,6 +1193,43 @@ comprueban: `docs/SECURITY.md`, «Guardas generales de vistas».
     (no aplicada; ver `docs/SECURITY.md`, «Privilegios por defecto:
     propuesta sin aplicar»).
 
+## Moderación de la Fase 7 (20261129120000, sesión 84, en local)
+
+Sin aplicar en ningún proyecto real. Por qué existe cada pieza:
+
+- **Políticas de admin solo de lectura.** Las `*_admin_all` (FOR ALL) de la
+  Fase 0 dejaban a un admin escribir en `profiles`, `rooms`, `reports` y
+  `admin_action_logs` sin pasar por ninguna regla de negocio ni dejar
+  registro. Se sustituyen por `profiles_admin_select`, `rooms_admin_select`,
+  `reports_admin_select` y `admin_action_logs_admin_select`.
+- **Funciones `admin_*` (SECURITY DEFINER).** La alternativa era dar al
+  servidor service_role para moderar; se descartó porque haría depender toda
+  la autorización de la aplicación. Con funciones, la base de datos comprueba
+  `is_admin()` con el JWT, aplica las transiciones y escribe el registro en la
+  misma transacción. Las lecturas (`admin_list_*`, `admin_get_*`,
+  `admin_metrics`) devuelven solo columnas no sensibles, con recuentos
+  (reportes abiertos, habitaciones, matches) en una consulta, sin N+1.
+- **Suspender = `profiles.deleted_at`.** Reutiliza todo el bloqueo de cuentas
+  desactivadas que ya existe (RLS, triggers, `/cuenta-desactivada`) en vez de
+  añadir otra columna. Para no reabrir cuentas desactivadas por otras vías,
+  `admin_reactivate_user` exige que la última acción `user_*` del registro
+  sobre esa cuenta sea `user_suspended`.
+- **Retirar = `status = 'removed'`, restaurar = `paused`.** La restauración
+  no publica: la propietaria decide cuándo volver a `active`. El estado
+  anterior queda en las notas del registro (`[antes: …]`).
+- **`admin_action_logs`.** Catálogo cerrado de acciones (`report_in_review`,
+  `report_resolved`, `report_dismissed`, `report_reopened`, `user_suspended`,
+  `user_reactivated`, `room_removed`, `room_restored`) y de tipos
+  (`report`, `user`, `room`), `target_id` obligatorio y notas de hasta 2000
+  caracteres. Solo se añade: los triggers rechazan UPDATE, DELETE y TRUNCATE
+  para todos los roles. Como `admin_id` referencia `profiles` sin cascada,
+  un admin con acciones registradas no se puede borrar (decisión pendiente
+  para H6).
+- Índices nuevos: `admin_action_logs(target_type, target_id, created_at)`,
+  `admin_action_logs(created_at)`, `reports(reported_user_id)`,
+  `reports(reported_room_id)`, `profiles(created_at)` y `rooms(created_at)`.
+- Preflight: 20 tablas, 42 políticas, 27 triggers y 47 funciones.
+
 ## Diagrama de entidades (simplificado)
 
 ```mermaid

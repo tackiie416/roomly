@@ -1106,6 +1106,31 @@ Dashboard, gestión de usuarios, habitaciones, reportes, métricas básicas.
 tanto por RLS como por el chequeo de servidor (dos tests independientes);
 toda acción de moderación queda en `admin_action_logs`.
 
+**Estado (sesión 84, 2026-11-27): implementada en local, en la rama
+`claude/project-thread-5tguj4`, sin merge y sin validar en Supabase real.**
+Autorizada por el propietario el 2026-11-27. No se declara cerrada: falta el
+merge, la CI y, para el uso real, aplicar la migración con autorización.
+- Migración `20261129120000_admin_moderation.sql`: políticas de admin solo de
+  lectura y diez funciones `admin_*` (SECURITY DEFINER, `is_admin()`, registro
+  en la misma transacción); `admin_action_logs` inmutable para todos los
+  roles. Detalle en `docs/SECURITY.md`, «Fase 7 — Administración».
+- Panel: `/admin` (resumen), `/admin/usuarios` y su ficha (buscar, filtrar,
+  estado, reportes relacionados, suspender y reactivar),
+  `/admin/habitaciones` y su ficha (buscar, filtrar, reportadas, retirar y
+  restaurar), `/admin/reportes` (pendiente, en revisión, resuelto y
+  descartado, con motivo, medida y responsable) y `/admin/metricas`
+  (recuentos agregados). Sin JavaScript, con confirmación en el servidor.
+- Cumplimiento de los criterios:
+  - inaccesible para un no-admin por la base de datos: `tests/db/29` (AM1–AM3)
+    y, en el servidor, `requireAdmin()` en cada página y acción
+    (`admin-pages-static`, `admin-actions`, `services-admin` y E1
+    `admin-panel.spec.ts`): dos capas probadas por separado;
+  - toda acción de moderación queda en `admin_action_logs`: AM4–AM7 y E1.
+- Pendiente de decisión: si una cuenta de admin con acciones registradas
+  debe poder borrarse algún día (hoy no, por la FK de `admin_id`; afecta a
+  H6). Reportar una habitación desde su ficha pública (hoy solo se reportan
+  personas) queda para un PR posterior.
+
 ## Fase 8 — Polish
 
 Responsive, accesibilidad, SEO técnico (metadata, sitemap, robots,

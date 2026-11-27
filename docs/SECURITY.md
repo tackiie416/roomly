@@ -11,7 +11,7 @@ corregidas están en `docs/DATABASE.md`.
 | Usuarios solo modifican sus propios datos | `profiles_update_own`, `housing_preferences_{insert,update,delete}_own` (las dos, solo con la cuenta activa desde `20260930130000`), `favorites_own`, `interests_insert_own`/`interests_delete_own`, `participants_update_own` |
 | Mensajes solo accesibles por participantes | `messages_select_participant`, `messages_insert_participant`, `conversations_select_participant`, `participants_select_own_conversations`, todas vía `is_conversation_participant()` — un tercero no puede leer ni escribir aunque conozca el UUID de la conversación. **Hasta la migración `20260926120000_security_fixes.sql` esto NO era cierto** (ver "Correcciones de la auditoría inicial" abajo) |
 | Habitaciones editables solo por su propietario | `rooms_{insert,update,delete}_own`, `room_addresses_{insert,update,delete}_own` y `room_images_{insert,update,delete}_own`, solo con la cuenta activa desde la Fase 4.0 (antes, `rooms_owner_write`, `room_addresses_owner_only` y `room_images_owner_write`, FOR ALL). Desde la Fase 4.1, en `rooms` solo las columnas del GRANT: sin `status` al crear, ni `deleted_at`, fechas, `approx_lat`/`approx_lng`, ni `id`/`owner_id` al editar. La dirección exacta va un paso más allá: `room_addresses_select_own`, ni siquiera visible para otros usuarios autenticados |
-| Administración separada | Todas las tablas sensibles tienen una política `*_admin_all` vía `is_admin()`, y `/admin` se comprueba además en el servidor — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
+| Administración separada | Desde la Fase 7 (20261129120000) las políticas de admin son solo de lectura (`*_admin_select`, vía `is_admin()`) y toda escritura de moderación pasa por las funciones `admin_*` (SECURITY DEFINER, comprueban `is_admin()` y registran en `admin_action_logs` en la misma transacción). `/admin` se comprueba además en el servidor, en cada página y en cada acción — nunca solo RLS, nunca solo ocultar el enlace en el cliente |
 | Respuestas del test (Fase 3.1) | `compatibility_responses_select_own`: `authenticated` solo **lee** su fila; no tiene INSERT, UPDATE ni DELETE (GRANT). `anon`, ningún privilegio. Solo escribe el servidor (service_role, `lib/services/compatibility.ts`), y el trigger `trg_compatibility_responses_integrity` aplica S1–S6 y el bloqueo de cuentas eliminadas a todos los roles |
 | Información privada protegida | `profiles`: cada usuario lee solo su perfil y un admin activo todos (desde la Fase 2.9, H4; antes bastaba con tener sesión); hasta el hotfix `20261014120000`, los datos públicos de otros salían de la vista `public_profile_previews` (la sesión 71 ya le había retirado a anon el acceso, dejando solo el SELECT de authenticated); desde el hotfix (integrado en `master` con el PR #29) **ningún cliente la lee ni escribe**, así que hoy no hay ninguna vía de cliente para datos de otras personas, y cómo darlos en el futuro está pendiente de decisión (ver «Hotfix: escritura en `profiles` a través de `public_profile_previews`»); `room_addresses` solo el propietario; un usuario reportado no tiene ninguna política de SELECT sobre `reports`, así que no puede saber quién lo reportó |
 
@@ -1765,6 +1765,76 @@ crear un match sin interés mutuo.
   pendientes de decisión (`docs/PRIVACY_RETENTION.md`).
 - **Sin validar en Supabase real.**
 
+## Fase 7 — Administración (20261129120000, sesión 84, en local)
+
+**Sin aplicar en ningún proyecto real.** Sustituye, para el admin, a las
+políticas `profiles_admin_all`, `rooms_admin_all`, `reports_admin_all` y
+`admin_action_logs_admin_only` que citan las secciones anteriores: esas
+menciones describen el estado de entonces.
+
+- **Las políticas de admin solo leen.** `profiles_admin_select`,
+  `rooms_admin_select`, `reports_admin_select` y
+  `admin_action_logs_admin_select` (SELECT, `using (is_admin())`). Un admin
+  ya no edita perfiles ni habitaciones ajenas desde el cliente, ni cambia
+  reportes con un UPDATE: authenticated no tiene UPDATE en `reports`, ni
+  INSERT, UPDATE, DELETE o TRUNCATE en `admin_action_logs`, ni DELETE o
+  TRUNCATE en `profiles` (lo mismo para anon y PUBLIC).
+- **Toda moderación pasa por funciones.** `admin_suspend_user`,
+  `admin_reactivate_user`, `admin_remove_room`, `admin_restore_room` y
+  `admin_set_report_status`, y las lecturas `admin_list_users`,
+  `admin_get_user`, `admin_list_rooms`, `admin_get_room` y `admin_metrics`:
+  - SECURITY DEFINER con `search_path = ''`; EXECUTE solo de authenticated
+    (anon, PUBLIC y service_role no tienen nada);
+  - lo primero es `admin_require()`: `is_admin()` con el JWT (`auth.uid()`),
+    es decir, rol admin y cuenta no desactivada. Un usuario normal, la
+    persona reportada, un admin desactivado, un JWT sin `sub`, anon y
+    service_role reciben 42501 (`tests/db/29`, AM1);
+  - la acción y su fila de `admin_action_logs` (con el admin, el objetivo y
+    el motivo) se escriben en la misma transacción: si una falla, no queda
+    ninguna (AM7);
+  - el motivo es obligatorio (3–1000 caracteres) en las acciones sobre
+    cuentas y habitaciones, y al cerrar o reabrir un reporte;
+  - **sin service_role en el camino del admin**: `lib/services/admin.ts` usa
+    el cliente de la sesión, y `admin-client-usage.test.ts` comprueba que
+    solo llama a esas diez funciones.
+- **Escalada de privilegios.** Un admin no puede suspenderse a sí mismo ni
+  suspender a otra cuenta de administración. Cambiar un rol sigue siendo
+  solo de service_role, fuera del panel. Reactivar solo vale para una cuenta
+  cuya última acción registrada es una suspensión desde el panel: una cuenta
+  desactivada por otra vía no se reabre desde aquí.
+- **Reportes.** Transiciones cerradas: `pending` → `in_review`, `resolved`
+  o `dismissed`; `in_review` → `resolved` o `dismissed`; un reporte cerrado
+  solo se reabre (`in_review`, con motivo). Al resolver se puede aplicar una
+  medida (suspender la cuenta o retirar la habitación del reporte), que debe
+  corresponder al objetivo del reporte y queda con su propio registro. La
+  persona reportada sigue sin leer ningún reporte.
+- **Registro inmutable.** `trg_admin_action_logs_append_only` (UPDATE y
+  DELETE, por fila) y `trg_admin_action_logs_no_truncate` lo rechazan para
+  todos los roles, también service_role y el dueño de la tabla (AM8). Acciones
+  y tipos de objetivo de un catálogo cerrado; `target_id` obligatorio; notas
+  de hasta 2000 caracteres.
+  - Consecuencia conocida: `admin_action_logs.admin_id` referencia
+    `profiles` sin cascada, así que **una cuenta de admin que ha actuado no
+    se puede borrar** (23503). Es coherente con conservar la auditoría, pero
+    afecta al diseño del borrado de cuenta (H6, `docs/PRIVACY_RETENTION.md`)
+    y a la limpieza de los proyectos de validación: la api-suite real ya no
+    ejecuta acciones de admin con éxito (RO4, RO7 y RE9 comprueban el
+    rechazo), y esas acciones se prueban solo en `tests/db/29`, con ROLLBACK.
+- **Lo que ve el admin.** Sin emails, sin fecha de nacimiento, sin la
+  dirección exacta ni las coordenadas aproximadas de las habitaciones, sin
+  respuestas del test ni mensajes. Las métricas son solo recuentos agregados.
+  La búsqueda de usuarios usa `position()` (sin comodines de LIKE) y los
+  listados están paginados (25 por página, desplazamiento máximo 10 000).
+- **Servidor y transporte.** `requireAdmin()` en cada página de `/admin` y en
+  cada Server Action; `lib/services/admin.ts` vuelve a comprobar
+  `isActiveAdmin` antes de cada rpc; la base de datos decide al final. Las
+  acciones solo aceptan los campos del formulario (un `role` o `adminId`
+  inyectado da error sin llamar al servicio), exigen la casilla de
+  confirmación en el servidor y no reflejan el id recibido en la URL si no es
+  un UUID. CSRF: Next.js rechaza Server Actions de otro origen. IDOR: el
+  objetivo lo valida la base de datos, y un id inexistente o mal formado da
+  el mismo `no-encontrado` o 404.
+
 ## Privacidad de ubicación
 
 `room_addresses.address_exact` en tabla separada, RLS restringida al
@@ -1782,9 +1852,12 @@ confirmado" que amplíe el acceso sin tocar la tabla `rooms`.
 
 ## Auditoría
 
-`admin_action_logs` registra toda acción de moderación (bloquear
-usuario, resolver reporte). Sin esto, un abuso del propio panel de admin
-sería invisible.
+`admin_action_logs` registra toda acción de moderación (suspender y
+reactivar cuentas, retirar y restaurar habitaciones, cambiar el estado de un
+reporte). Sin esto, un abuso del propio panel de admin sería invisible.
+Desde la Fase 7 ningún cliente escribe en él: solo las funciones `admin_*`
+añaden filas, y nadie (tampoco service_role ni el dueño de la tabla) puede
+editarlas ni borrarlas (ver «Fase 7 — Administración», arriba).
 
 ## Dependencias
 

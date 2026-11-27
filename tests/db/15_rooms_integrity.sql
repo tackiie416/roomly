@@ -86,7 +86,7 @@ select roomly_test.ok(
 select roomly_test.ok(
   (select array_agg(policyname::text || ':' || cmd::text order by policyname)
    from pg_policies where schemaname = 'public' and tablename = 'rooms')
-  = array['rooms_admin_all:ALL', 'rooms_insert_own:INSERT',
+  = array['rooms_admin_select:SELECT', 'rooms_insert_own:INSERT',
           'rooms_select_active_public:SELECT', 'rooms_select_own:SELECT', 'rooms_update_own:UPDATE'],
   'RI0: rooms tiene sus 5 políticas (sin rooms_owner_write; sin rooms_delete_own desde 20261030120000)');
 select roomly_test.ok(
@@ -478,10 +478,10 @@ select roomly_test.expect_error(
 -- 4. Admin y service_role: lo que ya podían hacer sigue igual.
 -- ------------------------------------------------------------
 select roomly_test.login('15000000-0000-0000-0000-0000000000ad');
-select roomly_test.expect_affected(
-  $$update public.rooms set status = 'removed'
-    where id = '15100000-0000-0000-0000-00000000000d'$$,
-  1, 'RX1: un admin sigue moderando la habitación de una cuenta desactivada');
+-- Desde la Fase 7 (20261129120000), con admin_remove_room (con registro).
+select roomly_test.ok(
+  public.admin_remove_room('15100000-0000-0000-0000-00000000000d', 'Moderación RX1') = 'removed',
+  'RX1: un admin sigue moderando la habitación de una cuenta desactivada');
 
 reset role;
 set role service_role;
