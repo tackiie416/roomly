@@ -2,6 +2,7 @@ import "server-only";
 
 import { type InterestsDeps, knownCounterpart } from "@/lib/services/interests";
 import { setReportStatusForAdmin } from "@/lib/services/admin";
+import { uuidSchema } from "@/lib/validation/common";
 import {
   type DbClient,
   type ServiceResult,
@@ -15,6 +16,7 @@ import {
   type ReportStatusValue,
   reportInputSchema,
   reportResolutionSchema,
+  roomReportInputSchema,
 } from "@/lib/validation/reports";
 
 /**
@@ -79,6 +81,104 @@ export async function reportUser(
   if (error) {
     const message = error.message ?? "";
     if (error.code === "23505" && message.includes("uq_reports_open_user"))
+      return ok({ status: "duplicate" });
+    if (message.includes("rate_limit_exceeded")) return fail("rate_limited");
+    if (message.includes("report_invalid")) return fail("deleted");
+    return mapDbError(error, CONTENT_RULES);
+  }
+  return ok({ status: "created" });
+}
+
+// ------------------------------------------------------------------
+// Reportar un anuncio (Fase 7)
+// ------------------------------------------------------------------
+
+export type ReportableRoom = { roomId: string; title: string; citySlug: string | null };
+
+/**
+ * Un anuncio se puede reportar si es público (se lee con el cliente de un
+ * visitante: `rooms_select_active_public` y el GRANT de anon, como el detalle
+ * público) y no es de quien reporta. Cualquier otro caso (id inventado,
+ * borrador, pausada, retirada, de una cuenta desactivada o propia) da el
+ * mismo `not_found`: no se distingue si existe. `visitor` es
+ * `createPublicClient()` (lib/supabase/public.ts), que crea la página o la
+ * acción, como en la búsqueda pública.
+ */
+export async function reportableRoom(
+  supabase: DbClient,
+  visitor: DbClient,
+  roomId: unknown
+): Promise<ServiceResult<ReportableRoom & { userId: string }>> {
+  const id = uuidSchema.safeParse(roomId);
+  if (!id.success) return fail("not_found");
+  const userId = await getSessionUserId(supabase);
+  if (!userId) return fail("unauthenticated");
+
+  const { data: room, error } = await visitor
+    .from("rooms")
+    .select("id, title, city_id")
+    .eq("id", id.data)
+    .maybeSingle();
+  if (error) return mapDbError(error);
+  if (!room) return fail("not_found");
+  const row = room as { id: string; title: string; city_id: string };
+
+  // Propia: con el cliente de la sesión (la propietaria lee su owner_id).
+  const { data: own, error: ownError } = await supabase
+    .from("rooms")
+    .select("id")
+    .eq("id", row.id)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (ownError) return mapDbError(ownError);
+  if (own) return fail("not_found");
+
+  const { data: city } = await visitor
+    .from("cities")
+    .select("slug")
+    .eq("id", row.city_id)
+    .maybeSingle();
+  return ok({
+    roomId: row.id,
+    title: row.title,
+    citySlug: (city as { slug: string } | null)?.slug ?? null,
+    userId,
+  });
+}
+
+/** Reporta un anuncio público ajeno; uno abierto por persona y anuncio. */
+export async function reportRoom(
+  supabase: DbClient,
+  visitor: DbClient,
+  input: { roomId: unknown; reason: unknown; description: unknown }
+): Promise<ServiceResult<{ status: ReportStatus }>> {
+  const parsed = roomReportInputSchema.safeParse({
+    targetId: input.roomId,
+    reason: input.reason,
+    description: typeof input.description === "string" ? input.description : "",
+  });
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string[]> = {};
+    for (const issue of parsed.error.issues) {
+      const field = String(issue.path[0] ?? "form");
+      (fieldErrors[field] ??= []).push(issue.message);
+    }
+    if (fieldErrors.targetId) return fail("not_found");
+    return fail("validation", fieldErrors);
+  }
+
+  const room = await reportableRoom(supabase, visitor, parsed.data.targetId);
+  if (!room.ok) return room;
+
+  const { error } = await supabase.from("reports").insert({
+    reporter_id: room.data.userId,
+    reported_room_id: room.data.roomId,
+    reason: parsed.data.reason,
+    description: parsed.data.description,
+  });
+  if (error) {
+    const message = error.message ?? "";
+    if (error.code === "23505" && message.includes("uq_reports_open_room"))
       return ok({ status: "duplicate" });
     if (message.includes("rate_limit_exceeded")) return fail("rate_limited");
     if (message.includes("report_invalid")) return fail("deleted");

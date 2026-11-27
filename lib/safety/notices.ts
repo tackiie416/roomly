@@ -16,6 +16,10 @@ export const SAFETY_NOTICES = {
     "Hemos recibido tu reporte. El equipo lo revisará; no le diremos a esa persona quién lo ha enviado.",
   "ya-reportado":
     "Ya tienes un reporte abierto sobre esta persona. El equipo lo revisará; no hace falta enviarlo otra vez.",
+  "anuncio-reportado":
+    "Hemos recibido tu reporte del anuncio. El equipo lo revisará; no le diremos a la propietaria quién lo ha enviado.",
+  "anuncio-ya-reportado":
+    "Ya tienes un reporte abierto sobre este anuncio. El equipo lo revisará; no hace falta enviarlo otra vez.",
   limite:
     "Has hecho muchos reportes o bloqueos en las últimas 24 horas. Vuelve a intentarlo más tarde.",
   "no-disponible": "Esta persona ya no está disponible.",

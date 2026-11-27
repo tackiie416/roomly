@@ -1835,6 +1835,21 @@ menciones describen el estado de entonces.
   objetivo lo valida la base de datos, y un id inexistente o mal formado da
   el mismo `no-encontrado` o 404.
 
+### Reportar un anuncio (sesión 84, rama `claude/reportar-habitacion`)
+
+- `/reportar/habitacion/<id>` pide una cuenta activa (no el test) y está
+  en las rutas protegidas del proxy (`/reportar`).
+- Solo se reporta un anuncio público y ajeno: la visibilidad se lee con el
+  cliente de un visitante (`createPublicClient`, columnas de anon y
+  `rooms_select_active_public`), y la propiedad con la sesión
+  (`owner_id = auth.uid()`). Un id inventado, un borrador, uno pausado,
+  retirado o de una cuenta desactivada y el propio dan el mismo 404.
+- Escribe con el cliente del usuario (GRANT por columnas de `reports` y
+  `reports_insert_own`), sin service_role ni migraciones: la base de datos ya
+  tenía `reported_room_id`, `uq_reports_open_room` y el límite de 10 en 24 h.
+- La propietaria no ve el reporte. El admin lo resuelve en `/admin/reportes`,
+  y puede retirar el anuncio como medida, con su registro.
+
 ## Privacidad de ubicación
 
 `room_addresses.address_exact` en tabla separada, RLS restringida al

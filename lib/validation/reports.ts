@@ -25,6 +25,27 @@ export const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: "Otro motivo",
 };
 
+/**
+ * Motivos para reportar un anuncio (Fase 7): los mismos valores de la base de
+ * datos (`chk_reports_reason`), con textos pensados para una habitación y sin
+ * «acoso», que es de personas.
+ */
+export const ROOM_REPORT_REASONS = [
+  "fake_profile",
+  "scam",
+  "inappropriate",
+  "spam",
+  "other",
+] as const satisfies readonly ReportReason[];
+export type RoomReportReason = (typeof ROOM_REPORT_REASONS)[number];
+export const ROOM_REPORT_REASON_LABELS: Record<RoomReportReason, string> = {
+  fake_profile: "Anuncio falso o engañoso (fotos, precio o datos que no son reales)",
+  scam: "Estafa o petición de dinero por adelantado",
+  inappropriate: "Contenido inapropiado, ofensivo o discriminatorio",
+  spam: "Spam, publicidad o anuncio duplicado",
+  other: "Otro motivo",
+};
+
 export const REPORT_DESCRIPTION_MAX_LENGTH = 1000;
 
 const DESCRIPTION_TOO_LONG = `La descripción no puede tener más de ${REPORT_DESCRIPTION_MAX_LENGTH} caracteres.`;
@@ -45,6 +66,11 @@ export const reportInputSchema = z
   .strict();
 
 export type ReportInput = z.infer<typeof reportInputSchema>;
+
+/** Reporte de un anuncio: el id de la habitación y un motivo de la lista de anuncios. */
+export const roomReportInputSchema = reportInputSchema.extend({
+  reason: z.enum(ROOM_REPORT_REASONS, { error: "Elige un motivo." }),
+});
 
 /** Resolución de un reporte por un admin. */
 export const REPORT_STATUSES = ["pending", "in_review", "resolved", "dismissed"] as const;

@@ -54,10 +54,17 @@ reutiliza `deleted_at`; restaurar deja la habitación en `paused`; reactivar
 solo lo suspendido desde el panel; nadie se suspende a sí mismo ni a otro
 admin; sin `loading.tsx` (rompe las páginas sin JavaScript).
 
-**Qué queda / próximos pasos.** Revisión y merge del PR (necesita
+**Después del PR #42 (CI en verde): reportar un anuncio.** Rama
+`claude/reportar-habitacion`, apilada sobre la de la Fase 7, sin migraciones:
+`reportableRoom` y `reportRoom` en `lib/services/reports.ts` (sin
+service_role), `reportRoomAction`, la página `/reportar/habitacion/<id>`
+(motivos propios de anuncios) y el enlace «Reportar el anuncio» en la ficha
+pública. Tests: `services-room-report` (11), `safety-actions` ampliado y E1
+`room-report.spec.ts`; `public-rooms` y `safety-flow` siguen en verde.
+
+**Qué queda / próximos pasos.** Revisión y merge de los PR (necesitan
 autorización); aplicar la migración en un proyecto real (autorización);
-decidir si un admin con acciones registradas debe poder borrarse (H6);
-reportar habitaciones desde su ficha pública.
+decidir si un admin con acciones registradas debe poder borrarse (H6).
 
 ---
 
