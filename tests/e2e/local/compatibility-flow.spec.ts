@@ -174,7 +174,8 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   expect(state.compatibility?.questionnaire_version).toBe(CURRENT);
   expect((state.compatibility?.answers as Record<string, number>)[IDS[1]]).toBe(3);
 
-  // service_role: solo el servidor, solo lectura cruzada de perfiles y
+  // service_role: solo el servidor, solo lectura cruzada de perfiles (y de
+  // bloqueos, sesión 83) y
   // escritura del test. El usuario solo lee su fila del test.
   const log = (await requestLog()).slice(logStart);
   const service = log.filter((entry) => entry.apikeyIsService);
@@ -182,7 +183,9 @@ test("test de convivencia y candidatos compatibles", async ({ page }) => {
   expect(service.every((entry) => entry.bearerRole === "service_role")).toBe(true);
   for (const entry of service) {
     expect(
-      (entry.method === "GET" && entry.path === "/rest/v1/profiles") ||
+      (entry.method === "GET" &&
+        // Sesión 83: también los bloqueos (en los dos sentidos) de quien mira.
+        ["/rest/v1/profiles", "/rest/v1/user_blocks"].includes(entry.path)) ||
         (["POST", "PATCH"].includes(entry.method) &&
           entry.path === "/rest/v1/compatibility_responses")
     ).toBe(true);

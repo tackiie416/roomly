@@ -1655,6 +1655,37 @@ workflow manual.
   interés por habitación) y `student-flow` con «Mensajes» en la navegación.
   El mock emula las tres tablas, el trigger y las dos rpc nuevas.
 
+## Fase 6 — Bloqueos, reportes y límites contra el abuso (sesión 83, en local)
+
+- `tests/db/28_blocks_reports.sql` (BR0–BR7, 61 comprobaciones): catálogo y
+  privilegios (nadie escribe en `user_blocks` ni lee `interest_log`, la
+  persona bloqueada no ve el bloqueo, funciones solo de service_role),
+  bloqueo en los dos sentidos (intereses, matches y mensajes rechazados,
+  también para service_role; el bloqueo borra el match y los intereses y
+  cierra el chat), desbloquear sin restaurar, límites del registro (retirar
+  y reenviar no los salta; 10 por habitación; 3 para cuentas de menos de
+  24 h; 3 a la misma persona en 30 días), reportes (duplicados, motivos,
+  longitud, a una misma, persona reportada sin lectura, inmutabilidad,
+  resolución con la cuenta del admin, 10 en 24 h, cuenta desactivada),
+  `admin_action_logs` solo de añadir y las purgas preparadas.
+- `tests/db/concurrency_blocks.sh` (CB1–CB2): bloqueo frente a interés y
+  frente a match.
+- Preflight: 20 tablas, 42 políticas, 25 triggers y 33 funciones.
+- Unitarios: `services-safety` (29), `safety-actions`, `safety-pages`, y
+  `services-matching`, `services-interests` y `admin-client-usage`
+  adaptados (lectura de bloqueos y seis rpc en `interests.ts`).
+- E1: `safety-flow.spec.ts` (bloquear desde el chat cierra el chat, oculta a
+  la persona y deshace el match, y desbloquear no lo restaura; reportar desde
+  «Ver perfil» sin duplicados, 404 para desconocidos, revisión y resolución
+  de un admin con su registro, y «Bloquear también»). El mock emula
+  `user_blocks`, las dos rpc, los límites del registro, `reports` y
+  `admin_action_logs`. `chat-flow`, `compatibility-flow` e
+  `interests-flow` adaptados (mismo aviso del interés por habitación y la
+  lectura de `user_blocks` con service_role).
+- En local, `upload-size.spec.ts` (los dos tests de más de 5 MB y del 413
+  simulado) falló de forma intermitente sin cambios en esa zona: la página
+  mostró la respuesta sin el error genérico. La referencia es la CI.
+
 ## Fase 5.2 — «Ver perfil» y backlog del test (sesión 81, en local)
 
 - Unitarios:

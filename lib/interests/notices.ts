@@ -16,9 +16,14 @@ export const INTEREST_NOTICES = {
   // Fase 6: deshacer un match e interés por habitación.
   deshecho: "Has deshecho el match. El chat se ha cerrado para las dos personas.",
   "sin-match": "No tenías ningún match con esta persona.",
+  // Sesión 83: el mismo aviso tanto si el interés es nuevo como si ya lo
+  // habías enviado a esa persona, para no revelar que dos habitaciones son
+  // de la misma persona. «habitacion-ya-enviado» se conserva para enlaces
+  // antiguos, pero ya no se usa.
   "habitacion-enviado":
-    "Hemos enviado tu interés por la habitación. Aquí abajo ves quién la publica; si también le interesas, haréis match.",
-  "habitacion-ya-enviado": "Ya habías mostrado interés a quien publica esta habitación.",
+    "Hemos registrado tu interés por la habitación. En tus matches ves quién la publica; si también le interesas, haréis match.",
+  "habitacion-ya-enviado":
+    "Hemos registrado tu interés por la habitación. En tus matches ves quién la publica; si también le interesas, haréis match.",
   "habitacion-no-disponible": "Esta habitación ya no admite intereses.",
   "habitacion-propia": "Esta habitación es tuya.",
   error: "No hemos podido completar la acción. Vuelve a intentarlo en un momento.",

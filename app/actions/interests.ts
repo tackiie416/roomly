@@ -187,11 +187,9 @@ export async function expressRoomInterest(formData: FormData): Promise<void> {
   }
   revalidatePath(EXPLORE_PATH, "layout");
   revalidatePath(MATCHES_PATH);
+  // Nuevo o ya enviado, el mismo aviso (sesión 83): «ya enviado» delataría
+  // que esta habitación es de alguien a quien ya habías escrito.
   const notice: InterestNoticeCode =
-    result.data.status === "matched"
-      ? "match"
-      : result.data.status === "already_sent"
-        ? "habitacion-ya-enviado"
-        : "habitacion-enviado";
+    result.data.status === "matched" ? "match" : "habitacion-enviado";
   redirect(`${MATCHES_PATH}?aviso=${notice}`);
 }

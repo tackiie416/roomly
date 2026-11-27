@@ -179,7 +179,7 @@ describe("fotos de habitaciones (Fase 4.2, D1): sin URL públicas ni Storage fue
     expect(rpcUsers).toEqual(["lib/services/interests.ts", "lib/services/rooms.ts"]);
   });
 
-  it("interests.ts usa el cliente admin solo para sus cuatro rpc (Fases 5.1 y 6)", () => {
+  it("interests.ts usa el cliente admin solo para sus seis rpc (Fases 5.1 y 6, sesión 83)", () => {
     const interests = code("lib/services/interests.ts");
     expect(interests).not.toMatch(/\.storage\s*\.from\(/);
     // Ninguna tabla con el cliente admin: las lecturas propias van con el del usuario.
@@ -188,9 +188,11 @@ describe("fotos de habitaciones (Fase 4.2, D1): sin URL públicas ni Storage fue
       ...interests.matchAll(/\.interestsAdminClient\(\)\s*\.rpc\("([a-z_]+)"/g),
     ].map((match) => match[1]);
     expect(calls.sort()).toEqual([
+      "block_user",
       "record_interest",
       "record_interest",
       "room_interest_owner",
+      "unblock_user",
       "undo_match",
       "withdraw_interest",
     ]);
@@ -201,9 +203,23 @@ describe("fotos de habitaciones (Fase 4.2, D1): sin URL públicas ni Storage fue
     expect(interests.match(/createAdminClient\(\)/g)).toHaveLength(2);
     expect(interests).toContain("interestsAdminClient: () => createAdminClient(),");
     const callers = APP_FILES.filter((file) =>
-      /record_interest|withdraw_interest|undo_match|room_interest_owner/.test(code(file))
+      /record_interest|withdraw_interest|undo_match|room_interest_owner|block_user|unblock_user/.test(
+        code(file)
+      )
     );
     expect(callers).toEqual(["lib/services/interests.ts"]);
+  });
+
+  it("los reportes (sesión 83) no usan service_role: reports.ts escribe y lee con el cliente del usuario", () => {
+    for (const file of [
+      "lib/services/reports.ts",
+      "app/actions/safety.ts",
+      "app/actions/admin-reports.ts",
+    ]) {
+      const source = code(file);
+      expect(source).not.toMatch(/adminClient\(\)|createAdminClient|\.rpc\(/);
+    }
+    expect(code("lib/services/reports.ts")).toMatch(/^import "server-only";/);
   });
 
   it("el chat (Fase 6) no usa service_role: lib/services/chat.ts escribe con el cliente del usuario", () => {

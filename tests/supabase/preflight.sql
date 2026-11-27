@@ -53,8 +53,9 @@ begin
   raise notice 'P1 info - %', version();
 
   select count(*) into n_tables from pg_tables where schemaname = 'public';
-  if n_tables <> 18 then
-    raise exception 'FALLO P1: se esperaban 18 tablas en public, hay %', n_tables;
+  -- 20 desde 20261128120000 (user_blocks e interest_log).
+  if n_tables <> 20 then
+    raise exception 'FALLO P1: se esperaban 20 tablas en public, hay %', n_tables;
   end if;
 
   if to_regprocedure('public.is_conversation_participant(uuid)') is null then
@@ -289,7 +290,8 @@ end $$;
 -- `room_images_select_public` y `room_images_select_own` (solo
 -- authenticated): −1 +2. En 20261126120000 (Fase 5.1) se eliminan
 -- `interests_insert_own` e `interests_delete_own`: el interés lo escribe el
--- servidor. Total: 40 en 18 tablas.
+-- servidor. En 20261128120000 (sesión 83) se añaden `user_blocks_select_own`
+-- e `interest_log_no_client_access`. Total: 42 en 20 tablas.
 -- Se compara (tabla, política, comando) en los dos sentidos: falta o sobra
 -- cualquiera → fallo, con el nombre. Además (Fase 4.0), cada política de
 -- escritura de rooms, room_addresses y room_images exige la cuenta activa
@@ -325,6 +327,7 @@ begin
     ('housing_preferences', 'housing_preferences_insert_own', 'INSERT'),
     ('housing_preferences', 'housing_preferences_select_own', 'SELECT'),
     ('housing_preferences', 'housing_preferences_update_own', 'UPDATE'),
+    ('interest_log', 'interest_log_no_client_access', 'SELECT'),
     ('interests', 'interests_select_participant', 'SELECT'),
     ('matches', 'matches_select_participant', 'SELECT'),
     ('messages', 'messages_insert_participant', 'INSERT'),
@@ -352,6 +355,7 @@ begin
     ('rooms', 'rooms_select_own', 'SELECT'),
     ('rooms', 'rooms_update_own', 'UPDATE'),
     ('universities', 'universities_admin_write', 'ALL'),
+    ('user_blocks', 'user_blocks_select_own', 'SELECT'),
     ('universities', 'universities_select_all', 'SELECT')
   ),
   actual as (
@@ -367,8 +371,8 @@ begin
      from (select * from actual except select * from expected) a)
   into n_expected, missing, unexpected;
 
-  if n_expected <> 40 then
-    raise exception 'FALLO P3: la lista esperada no tiene 40 entradas (error del propio preflight)';
+  if n_expected <> 42 then
+    raise exception 'FALLO P3: la lista esperada no tiene 42 entradas (error del propio preflight)';
   end if;
   if missing is not null or unexpected is not null then
     raise exception 'FALLO P3: políticas distintas de las esperadas. Faltan: %. Sobran: %',
@@ -455,7 +459,7 @@ begin
     end if;
   end;
 
-  raise notice 'ok - P3: RLS activa en las 18 tablas, exactamente las 40 políticas esperadas, las escrituras de habitaciones exigen cuenta activa, la lectura pública de habitaciones y fotos aplica R7, storage.objects y storage.buckets tienen la RLS activa, storage.objects no tiene políticas y storage.buckets ninguna de escritura';
+  raise notice 'ok - P3: RLS activa en las 20 tablas, exactamente las 42 políticas esperadas, las escrituras de habitaciones exigen cuenta activa, la lectura pública de habitaciones y fotos aplica R7, storage.objects y storage.buckets tienen la RLS activa, storage.objects no tiene políticas y storage.buckets ninguna de escritura';
 end $$;
 
 -- ============================================================
@@ -818,10 +822,32 @@ begin
     failures := failures || 'service_role no puede ejecutar undo_match o room_interest_owner'::text;
   end if;
 
+  -- Sesión 83 (20261128120000): bloqueos solo del servidor; nadie lee
+  -- interest_log; reports, solo la resolución actualizable y sin DELETE.
+  foreach col in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] loop
+    if has_table_privilege('anon', 'public.user_blocks', col)
+       or has_table_privilege('anon', 'public.interest_log', col)
+       or has_table_privilege('authenticated', 'public.interest_log', col)
+       or (col <> 'SELECT' and has_table_privilege('authenticated', 'public.user_blocks', col)) then
+      failures := failures || format('privilegio %s inesperado en user_blocks o interest_log', col);
+    end if;
+  end loop;
+  if has_table_privilege('authenticated', 'public.reports', 'DELETE')
+     or has_column_privilege('authenticated', 'public.reports', 'reason', 'UPDATE')
+     or has_column_privilege('authenticated', 'public.reports', 'reporter_id', 'UPDATE')
+     or has_column_privilege('authenticated', 'public.reports', 'description', 'UPDATE')
+     or not has_column_privilege('authenticated', 'public.reports', 'status', 'UPDATE') then
+    failures := failures || 'privilegios de reports distintos de los esperados (sesión 83)'::text;
+  end if;
+  if not has_function_privilege('service_role', 'public.block_user(uuid, uuid)', 'EXECUTE')
+     or not has_function_privilege('service_role', 'public.unblock_user(uuid, uuid)', 'EXECUTE') then
+    failures := failures || 'service_role no puede ejecutar block_user o unblock_user'::text;
+  end if;
+
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms, public_profile_previews sin privilegios de clientes, interests y matches solo escritos por el servidor, y el chat de la Fase 6)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms, public_profile_previews sin privilegios de clientes, interests y matches solo escritos por el servidor, el chat de la Fase 6 y los bloqueos y reportes de la sesión 83)';
 end $$;
 
 -- ============================================================
@@ -909,7 +935,8 @@ end $$;
 -- 20261024120000 (integridad de room_images, Fase 4.2) y 20261031120000
 -- (fecha de publicación, sesión 71), y 20261126120000 (integridad de interests
 -- y matches, Fase 5.1) y 20261127120000 (conversación de cada match e
--- integridad de messages, Fase 6). Funciones: además, delete_own_room
+-- integridad de messages, Fase 6) y 20261128120000 (bloqueos, registro y
+-- límites de intereses e integridad de reports, sesión 83). Funciones: además, delete_own_room
 -- (20261030120000, sesión 65), record_interest y withdraw_interest (Fase 5.1),
 -- undo_match y room_interest_owner (Fase 6), SECURITY INVOKER.
 -- Seguridad de funciones según cada migración: SECURITY DEFINER solo
@@ -932,16 +959,20 @@ begin
     ('housing_preferences', 'trg_housing_preferences_neighborhoods', 'enforce_housing_preferences_neighborhoods()'),
     ('housing_preferences', 'trg_housing_preferences_university', 'enforce_housing_preferences_university()'),
     ('housing_preferences', 'trg_housing_preferences_updated_at', 'set_updated_at()'),
+    ('interests', 'trg_interests_abuse_limits', 'enforce_interests_abuse_limits()'),
     ('interests', 'trg_interests_integrity', 'enforce_interests_integrity()'),
+    ('interests', 'trg_interests_log', 'log_interest()'),
     ('interests', 'trg_interests_rate_limit', 'enforce_interest_rate_limit()'),
     ('matches', 'trg_matches_close_conversation', 'close_match_conversation()'),
     ('matches', 'trg_matches_integrity', 'enforce_matches_integrity()'),
+    ('matches', 'trg_matches_not_blocked', 'enforce_matches_not_blocked()'),
     ('matches', 'trg_matches_open_conversation', 'open_match_conversation()'),
     ('messages', 'trg_messages_integrity', 'enforce_messages_integrity()'),
     ('messages', 'trg_messages_touch_conversation', 'touch_conversation_on_message()'),
     ('neighborhoods', 'trg_neighborhoods_not_referenced', 'enforce_neighborhood_not_referenced()'),
     ('profiles', 'trg_profiles_onboarding_completion', 'enforce_onboarding_completion()'),
     ('profiles', 'trg_profiles_updated_at', 'set_updated_at()'),
+    ('reports', 'trg_reports_integrity', 'enforce_reports_integrity()'),
     ('room_addresses', 'trg_room_addresses_updated_at', 'set_updated_at()'),
     ('room_images', 'trg_room_images_integrity', 'enforce_room_images_integrity()'),
     ('rooms', 'trg_rooms_moderation', 'enforce_room_moderation()'),
@@ -991,6 +1022,14 @@ begin
     ('close_match_conversation()', false, 'search_path=""'),
     ('undo_match(uuid,uuid)', false, 'search_path=""'),
     ('room_interest_owner(uuid)', false, 'search_path=""'),
+    ('enforce_interests_abuse_limits()', false, 'search_path=""'),
+    ('log_interest()', false, 'search_path=""'),
+    ('enforce_matches_not_blocked()', false, 'search_path=""'),
+    ('enforce_reports_integrity()', false, 'search_path=""'),
+    ('block_user(uuid,uuid)', false, 'search_path=""'),
+    ('unblock_user(uuid,uuid)', false, 'search_path=""'),
+    ('purge_interest_log()', false, 'search_path=""'),
+    ('purge_closed_conversation_messages(timestamp with time zone)', false, 'search_path=""'),
     ('enforce_neighborhood_not_referenced()', true, 'search_path=""'),
     ('enforce_onboarding_completion()', false, 'search_path=""'),
     ('enforce_room_images_integrity()', false, 'search_path=""'),
@@ -1045,6 +1084,14 @@ begin
       ('public.close_match_conversation()', true),
       ('public.undo_match(uuid, uuid)', true),
       ('public.room_interest_owner(uuid)', true),
+      ('public.enforce_interests_abuse_limits()', true),
+      ('public.log_interest()', true),
+      ('public.enforce_matches_not_blocked()', true),
+      ('public.enforce_reports_integrity()', true),
+      ('public.block_user(uuid, uuid)', true),
+      ('public.unblock_user(uuid, uuid)', true),
+      ('public.purge_interest_log()', true),
+      ('public.purge_closed_conversation_messages(timestamptz)', true),
       ('public.set_room_published_at()', true)
     ) as v(sig, also_authenticated)
   loop
@@ -1063,5 +1110,5 @@ begin
     raise exception 'FALLO P6: %', array_to_string(failures, '; ');
   end if;
 
-  raise notice 'ok - P6: 21 triggers activos, 25 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
+  raise notice 'ok - P6: 25 triggers activos, 33 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
 end $$;

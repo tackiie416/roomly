@@ -213,7 +213,7 @@ describe("expressRoomInterest (Fase 6)", () => {
 
   it.each([
     ["sent", "/matches?aviso=habitacion-enviado"],
-    ["already_sent", "/matches?aviso=habitacion-ya-enviado"],
+    ["already_sent", "/matches?aviso=habitacion-enviado"],
     ["matched", "/matches?aviso=match"],
   ])("%s → %s", async (status, url) => {
     mocks.sendRoomInterest.mockResolvedValue({ ok: true, data: { status } });

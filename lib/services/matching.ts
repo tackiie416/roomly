@@ -400,6 +400,32 @@ function byScoreThenId(x: Scored, y: Scored): number {
 }
 
 /**
+ * Personas con un bloqueo con quien mira, en cualquiera de los dos sentidos
+ * (sesión 83). Se lee con service_role porque quien está bloqueada no puede
+ * leer los bloqueos que le han hecho (RLS de `user_blocks`: solo los
+ * propios), y así nunca sabe por la app quién la ha bloqueado: esa persona
+ * simplemente deja de salirle, como si su cuenta ya no estuviera disponible.
+ */
+async function blockedCounterparts(
+  deps: MatchingDeps,
+  viewerId: string
+): Promise<ServiceResult<Set<string>>> {
+  const { data, error } = await deps
+    .adminClient()
+    .from("user_blocks")
+    .select("blocker_id, blocked_id")
+    .or(`blocker_id.eq.${viewerId},blocked_id.eq.${viewerId}`)
+    .limit(5000);
+  if (error) return mapDbError(error);
+  const ids = new Set<string>();
+  for (const row of (data ?? []) as { blocker_id?: string; blocked_id?: string }[]) {
+    const other = row.blocker_id === viewerId ? row.blocked_id : row.blocker_id;
+    if (typeof other === "string" && other !== viewerId) ids.add(other);
+  }
+  return ok(ids);
+}
+
+/**
  * Página `page` (desde 1) de candidatos de la sesión, por score descendente
  * y, a igual score, por id ascendente. Sin límite total.
  */
@@ -436,8 +462,16 @@ export async function getCandidates(
     .eq("compatibility_responses.questionnaire_version", CURRENT_QUESTIONNAIRE_VERSION)
     .not("compatibility_responses.completed_at", "is", null);
   if (error) return mapDbError(error);
+  const blocked = await blockedCounterparts(deps, viewer.userId);
+  if (!blocked.ok) return blocked;
 
-  const scored = scoreRows(viewer, (data ?? []) as unknown as CandidateRow[], true);
+  const scored = scoreRows(
+    viewer,
+    ((data ?? []) as unknown as CandidateRow[]).filter(
+      (row) => !blocked.data.has(row.id)
+    ),
+    true
+  );
   scored.sort(byScoreThenId);
   const total = scored.length;
   const totalPages = Math.ceil(total / CANDIDATES_PAGE_SIZE);
@@ -494,10 +528,14 @@ export async function evaluateCounterparts(
     .eq("compatibility_responses.questionnaire_version", CURRENT_QUESTIONNAIRE_VERSION)
     .not("compatibility_responses.completed_at", "is", null);
   if (error) return mapDbError(error);
+  const blocked = await blockedCounterparts(deps, viewer.userId);
+  if (!blocked.ok) return blocked;
 
   const scored = scoreRows(
     viewer,
-    (data ?? []) as unknown as CandidateRow[],
+    ((data ?? []) as unknown as CandidateRow[]).filter(
+      (row) => !blocked.data.has(row.id)
+    ),
     options.requireHardFilters
   );
   scored.sort(byScoreThenId);
@@ -583,4 +621,34 @@ export async function getPersonProfile(
     seekingStatus: row.seeking_status as SeekingStatus,
     moveInMonth: housing?.move_in_date ? housing.move_in_date.slice(0, 7) : null,
   });
+}
+
+/**
+ * Nombres de las personas que quien mira ha bloqueado (sesión 83), para su
+ * lista de `/ajustes/bloqueos`: solo `id` y nombre, de cuentas activas. Los
+ * ids salen de los bloqueos propios, leídos antes con el cliente del usuario
+ * (nunca de un parámetro del navegador).
+ */
+export async function namesOfBlocked(
+  ids: readonly string[],
+  deps: MatchingDeps = DEFAULT_DEPS
+): Promise<ServiceResult<Map<string, string>>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return ok(new Map());
+  if (unique.length > MAX_COUNTERPARTS) return fail("validation");
+  const { data, error } = await deps
+    .adminClient()
+    .from("profiles")
+    .select("id, full_name")
+    .in("id", unique)
+    .is("deleted_at", null);
+  if (error) return mapDbError(error);
+  return ok(
+    new Map(
+      ((data ?? []) as { id: string; full_name: string }[]).map((p) => [
+        p.id,
+        p.full_name,
+      ])
+    )
+  );
 }

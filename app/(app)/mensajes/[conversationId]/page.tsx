@@ -15,6 +15,7 @@ import { personPath } from "@/lib/interests/paths";
 import { MESSAGE_MAX_LENGTH } from "@/lib/validation/chat";
 import { ChatLiveRefresh } from "@/components/chat/live-refresh";
 import { UndoMatch } from "@/components/chat/undo-match";
+import { SafetyActions } from "@/components/safety/safety-actions";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -202,6 +203,7 @@ export default async function ConversationPage({
       ) : null}
 
       <UndoMatch targetId={chat.otherId} name={name} />
+      <SafetyActions targetId={chat.otherId} name={name} />
       {realtime ? <ChatLiveRefresh conversationId={chat.id} /> : null}
     </main>
   );

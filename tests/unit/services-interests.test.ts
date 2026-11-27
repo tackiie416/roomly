@@ -414,7 +414,7 @@ describe("evaluateCounterparts", () => {
     );
     if (!result.ok) throw new Error(result.error);
     expect([...result.data.byId.keys()].sort()).toEqual([TARGET, FAR].sort());
-    expect(s.admin.calls).toHaveLength(1);
+    expect(s.admin.calls.map((c) => c.table)).toEqual(["profiles", "user_blocks"]);
     const [call] = s.admin.calls;
     expect(call.columns).not.toContain("*");
     expect(call.filters).toEqual(

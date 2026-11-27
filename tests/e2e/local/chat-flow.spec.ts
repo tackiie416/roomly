@@ -199,10 +199,10 @@ test("interés por habitación: la identidad solo en /matches", async ({ page })
       expect.objectContaining({ to_user_id: owner, room_id: roomId }),
     ])
   );
-  // Repetirlo no crea otro interés.
+  // Repetirlo no crea otro interés, y el aviso es el mismo (sesión 83).
   await page.goto(detailPath);
   await page.getByRole("button", { name: "Me interesa esta habitación" }).click();
-  await expect(page).toHaveURL(`${APP}/matches?aviso=habitacion-ya-enviado`);
+  await expect(page).toHaveURL(`${APP}/matches?aviso=habitacion-enviado`);
   expect(
     (await interestsState()).interests.filter((i) => i.to_user_id === owner)
   ).toHaveLength(1);

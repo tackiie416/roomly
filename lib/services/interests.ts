@@ -8,6 +8,7 @@ import {
   evaluateCounterparts,
   getPersonProfile,
   type MatchingDeps,
+  namesOfBlocked,
 } from "@/lib/services/matching";
 import {
   type DbClient,
@@ -28,9 +29,10 @@ import { uuidSchema } from "@/lib/validation/common";
  *     (lib/services/matching.ts): las mismas reglas que `/explorar` (cuenta
  *     elegible y filtros duros). Así nadie envía un interés a un id que no le
  *     saldría en `/explorar`, y el score sale del motor de TypeScript.
- *   - Este archivo usa el cliente admin SOLO para cuatro rpc:
- *     `record_interest` y `withdraw_interest` (20261126120000), y
- *     `undo_match` y `room_interest_owner` (Fase 6, 20261127120000), con
+ *   - Este archivo usa el cliente admin SOLO para seis rpc:
+ *     `record_interest` y `withdraw_interest` (20261126120000),
+ *     `undo_match` y `room_interest_owner` (Fase 6, 20261127120000), y
+ *     `block_user` y `unblock_user` (sesión 83, 20261128120000), con
  *     EXECUTE solo para service_role. Los clientes no escriben en `interests` ni en
  *     `matches`; la base de datos exige además, a todos los roles, cuentas
  *     válidas e interés mutuo para un match.
@@ -42,7 +44,7 @@ export type InterestStatus = "sent" | "already_sent" | "matched";
 export type WithdrawStatus = "withdrawn" | "not_found";
 
 export type InterestsDeps = MatchingDeps & {
-  /** Cliente con service_role, solo para las cuatro rpc. Se inyecta en los tests. */
+  /** Cliente con service_role, solo para las seis rpc. Se inyecta en los tests. */
   interestsAdminClient: () => DbClient;
 };
 
@@ -533,4 +535,144 @@ export async function sendRoomInterest(
   const status = data as unknown;
   if (!INTEREST_STATUSES.includes(status as InterestStatus)) return fail("unknown");
   return ok({ status: status as InterestStatus });
+}
+
+// ------------------------------------------------------------------
+// Bloqueos (sesión 83)
+// ------------------------------------------------------------------
+
+export type BlockStatus = "blocked" | "already_blocked";
+export type UnblockStatus = "unblocked" | "not_found";
+
+/** Bloqueos propios (cliente del usuario: RLS, solo los que ha hecho). */
+async function ownBlocks(
+  supabase: DbClient,
+  userId: string
+): Promise<ServiceResult<{ blocked_id: string; created_at: string }[]>> {
+  const { data, error } = await supabase
+    .from("user_blocks")
+    .select("blocked_id, created_at")
+    .eq("blocker_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(MAX_COUNTERPARTS);
+  if (error) return mapDbError(error);
+  return ok((data ?? []) as { blocked_id: string; created_at: string }[]);
+}
+
+/**
+ * ¿Puede quien mira referirse a `targetId` para bloquearla o reportarla? Solo
+ * a alguien que ya conoce por la app: con un interés o un match entre las dos,
+ * a quien ya ha bloqueado, o que le saldría en `/explorar` sin los filtros
+ * duros (cuenta elegible). Cualquier otro id es `not_found`: estas acciones no
+ * sirven para saber si un id existe.
+ */
+export async function knownCounterpart(
+  supabase: DbClient,
+  targetId: unknown,
+  deps: InterestsDeps = DEFAULT_DEPS
+): Promise<ServiceResult<{ userId: string; targetId: string; name: string | null }>> {
+  const parsed = uuidSchema.safeParse(targetId);
+  if (!parsed.success) return fail("not_found");
+  const user = await activeUserId(supabase);
+  if (!user.ok) return user;
+  if (parsed.data === user.data) return fail("not_found");
+
+  const blocks = await ownBlocks(supabase, user.data);
+  if (!blocks.ok) return blocks;
+  if (blocks.data.some((b) => b.blocked_id === parsed.data)) {
+    const names = await namesOfBlocked([parsed.data], deps);
+    if (!names.ok) return names;
+    return ok({
+      userId: user.data,
+      targetId: parsed.data,
+      name: names.data.get(parsed.data) ?? null,
+    });
+  }
+
+  const evaluated = await evaluateCounterparts(
+    supabase,
+    [parsed.data],
+    { requireHardFilters: false },
+    deps
+  );
+  if (!evaluated.ok) return evaluated;
+  const dto = evaluated.data.byId.get(parsed.data);
+  if (!dto) return fail("not_found");
+  return ok({ userId: user.data, targetId: parsed.data, name: dto.fullName });
+}
+
+/**
+ * Bloquea a `targetId` (sesión 83). La base de datos borra el match y los
+ * intereses de las dos y cierra su chat, y no deja crear nada nuevo entre
+ * ellas en ningún sentido. Para la otra persona es como si la cuenta dejara
+ * de estar disponible: no se le avisa ni puede leer el bloqueo.
+ */
+export async function blockUser(
+  supabase: DbClient,
+  targetId: unknown,
+  deps: InterestsDeps = DEFAULT_DEPS
+): Promise<ServiceResult<{ status: BlockStatus }>> {
+  const known = await knownCounterpart(supabase, targetId, deps);
+  if (!known.ok) return known;
+  const { data, error } = await deps.interestsAdminClient().rpc("block_user", {
+    p_blocker: known.data.userId,
+    p_blocked: known.data.targetId,
+  });
+  if (error) {
+    if ((error.message ?? "").includes("rate_limit_exceeded"))
+      return fail("rate_limited");
+    return mapDbError(error);
+  }
+  if (data === "blocked" || data === "already_blocked") return ok({ status: data });
+  return fail("unknown");
+}
+
+/** Quita un bloqueo propio. No devuelve el match ni los intereses borrados. */
+export async function unblockUser(
+  supabase: DbClient,
+  targetId: unknown,
+  deps: InterestsDeps = DEFAULT_DEPS
+): Promise<ServiceResult<{ status: UnblockStatus }>> {
+  const parsed = uuidSchema.safeParse(targetId);
+  if (!parsed.success) return fail("validation");
+  const user = await activeUserId(supabase);
+  if (!user.ok) return user;
+  if (parsed.data === user.data) return fail("validation");
+  const { data, error } = await deps.interestsAdminClient().rpc("unblock_user", {
+    p_blocker: user.data,
+    p_blocked: parsed.data,
+  });
+  if (error) return mapDbError(error);
+  if (data === "unblocked" || data === "not_found") return ok({ status: data });
+  return fail("unknown");
+}
+
+export type BlockedPerson = {
+  id: string;
+  /** `null` si la cuenta ya no está disponible. */
+  name: string | null;
+  blockedAt: string;
+};
+
+/** `/ajustes/bloqueos`: las personas que has bloqueado, las últimas primero. */
+export async function listBlockedPeople(
+  supabase: DbClient,
+  deps: InterestsDeps = DEFAULT_DEPS
+): Promise<ServiceResult<BlockedPerson[]>> {
+  const user = await activeUserId(supabase);
+  if (!user.ok) return user;
+  const blocks = await ownBlocks(supabase, user.data);
+  if (!blocks.ok) return blocks;
+  const names = await namesOfBlocked(
+    blocks.data.map((b) => b.blocked_id),
+    deps
+  );
+  if (!names.ok) return names;
+  return ok(
+    blocks.data.map((b) => ({
+      id: b.blocked_id,
+      name: names.data.get(b.blocked_id) ?? null,
+      blockedAt: b.created_at,
+    }))
+  );
 }

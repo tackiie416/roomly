@@ -40,6 +40,15 @@
 //           last_read_at y envía mensajes (trigger de integridad: match
 //           vigente, cuentas activas, 2000 caracteres, 30 por minuto y
 //           client_token único). rpc/room_interest_owner, solo service_role.
+//           Sesión 83 (20261128120000): user_blocks (authenticated solo lee
+//           los propios; rpc/block_user y rpc/unblock_user, solo
+//           service_role), sin intereses ni match con un bloqueo en ningún
+//           sentido; los límites del registro de intereses (30 en 24 h que no
+//           se saltan retirando, 10 por habitación y 3 a la misma persona en
+//           30 días); reports (INSERT propio con GRANT por columnas, motivos,
+//           longitud, uno abierto por persona, 10 en 24 h; lectura propia o
+//           de admin; UPDATE solo de admin) y admin_action_logs (solo
+//           añadir, del propio admin). profiles_admin_all para leer.
 //   Test  — /__test/*: el "buzón" (último enlace enviado a un email), reset,
 //           desactivar una cuenta (operación de servidor), leer el estado y,
 //           desde la Fase 4.2, sembrar una habitación y leer sus fotos y
@@ -242,6 +251,10 @@ function reset() {
     conversations: [], // { id, match_id, closed_at, last_message_at, created_at }
     participants: [], // { conversation_id, user_id, last_read_at }
     messages: [], // { id, conversation_id, sender_id, content, client_token, created_at }
+    blocks: [], // { blocker_id, blocked_id, created_at }
+    interestLog: [], // { from_user_id, to_user_id, room_id, created_at }
+    reports: [], // reports (columnas de la tabla)
+    adminLogs: [], // admin_action_logs
     log: [],
   };
 }
@@ -858,25 +871,54 @@ function recordInterest(body) {
   if (findMatch(from, to)) return "matched";
   let inserted = false;
   if (!hasInterest(from, to)) {
-    // trg_interests_rate_limit (20260925120000) y trg_interests_integrity.
+    // trg_interests_abuse_limits (20261128120000): bloqueo en cualquier
+    // sentido y límites del registro (retirar no los reinicia).
+    if (isBlockedPair(from, to))
+      throw new DbError(
+        400,
+        "23514",
+        "interest_party_invalid: alguna de las dos cuentas no puede enviar ni recibir intereses"
+      );
     const since = Date.now() - 24 * 3600 * 1000;
-    const recent = state.interests.filter(
+    const sent = state.interestLog.filter(
       (i) => i.from_user_id === from && Date.parse(i.created_at) > since
-    ).length;
-    if (recent >= 30)
+    );
+    if (sent.length >= 30)
       throw new DbError(400, "P0001", "rate_limit_exceeded: máximo 30 intereses en 24h");
+    if (roomId && sent.filter((i) => i.room_id).length >= 10)
+      throw new DbError(
+        400,
+        "P0001",
+        "rate_limit_exceeded: máximo 10 intereses por habitación en 24h"
+      );
+    const month = Date.now() - 30 * 24 * 3600 * 1000;
+    if (
+      state.interestLog.filter(
+        (i) =>
+          i.from_user_id === from &&
+          i.to_user_id === to &&
+          Date.parse(i.created_at) > month
+      ).length >= 3
+    )
+      throw new DbError(
+        400,
+        "P0001",
+        "rate_limit_exceeded: demasiados intereses a la misma persona"
+      );
     if (!interestParty(from) || !interestParty(to))
       throw new DbError(
         400,
         "23514",
         "interest_party_invalid: alguna de las dos cuentas no puede enviar ni recibir intereses"
       );
-    state.interests.push({
+    const row = {
       from_user_id: from,
       to_user_id: to,
       room_id: roomId,
       created_at: new Date().toISOString(),
-    });
+    };
+    state.interests.push(row);
+    state.interestLog.push({ ...row }); // trg_interests_log
     inserted = true;
   }
   if (!hasInterest(to, from)) return inserted ? "sent" : "already_sent";
@@ -934,6 +976,187 @@ function undoMatch(body) {
     }
   return "undone";
 }
+// ---------------------------------------------------------------- sesión 83
+const isBlockedPair = (a, b) =>
+  state.blocks.some(
+    (x) =>
+      (x.blocker_id === a && x.blocked_id === b) ||
+      (x.blocker_id === b && x.blocked_id === a)
+  );
+/** block_user: como undo_match, y además borra los intereses sueltos. */
+function blockUser(body) {
+  const { p_blocker: blocker, p_blocked: blocked } = body;
+  if (!UUID_RE.test(blocker ?? "") || !UUID_RE.test(blocked ?? "") || blocker === blocked)
+    throw new DbError(400, "22004", "block_invalid: faltan las personas o son la misma");
+  if (state.profiles.get(blocker)?.deleted_at !== null)
+    throw new DbError(
+      400,
+      "23514",
+      "block_invalid: la cuenta que bloquea no está activa"
+    );
+  if (state.blocks.some((b) => b.blocker_id === blocker && b.blocked_id === blocked))
+    return "already_blocked";
+  const since = Date.now() - 24 * 3600 * 1000;
+  if (
+    state.blocks.filter(
+      (b) => b.blocker_id === blocker && Date.parse(b.created_at) > since
+    ).length >= 50
+  )
+    throw new DbError(400, "P0001", "rate_limit_exceeded: máximo 50 bloqueos en 24h");
+  state.blocks.push({
+    blocker_id: blocker,
+    blocked_id: blocked,
+    created_at: new Date().toISOString(),
+  });
+  if (findMatch(blocker, blocked)) undoMatch({ p_user: blocker, p_other: blocked });
+  state.interests = state.interests.filter(
+    (i) =>
+      !(
+        (i.from_user_id === blocker && i.to_user_id === blocked) ||
+        (i.from_user_id === blocked && i.to_user_id === blocker)
+      )
+  );
+  return "blocked";
+}
+function unblockUser(body) {
+  const before = state.blocks.length;
+  state.blocks = state.blocks.filter(
+    (b) => !(b.blocker_id === body.p_blocker && b.blocked_id === body.p_blocked)
+  );
+  return state.blocks.length < before ? "unblocked" : "not_found";
+}
+const REPORT_INSERT = [
+  "reporter_id",
+  "reported_user_id",
+  "reported_room_id",
+  "reason",
+  "description",
+];
+const REPORT_REASONS = [
+  "spam",
+  "fake_profile",
+  "harassment",
+  "inappropriate",
+  "scam",
+  "other",
+];
+/** reports_insert_own + CHECK + uq_reports_open_user + trg_reports_integrity. */
+function insertReport(body, uid) {
+  checkColumns("reports", body, REPORT_INSERT);
+  if (body.reporter_id !== uid) throw rlsDenied("reports");
+  if (state.profiles.get(uid)?.deleted_at !== null)
+    throw new DbError(
+      400,
+      "23514",
+      "report_invalid: la cuenta que reporta no está activa"
+    );
+  if (!REPORT_REASONS.includes(body.reason))
+    throw new DbError(
+      400,
+      "23514",
+      'new row violates check constraint "chk_reports_reason"'
+    );
+  if (typeof body.description === "string" && [...body.description].length > 1000)
+    throw new DbError(
+      400,
+      "23514",
+      'new row violates check constraint "chk_reports_description_length"'
+    );
+  if (body.reported_user_id === uid)
+    throw new DbError(
+      400,
+      "23514",
+      'new row violates check constraint "chk_reports_not_self"'
+    );
+  const since = Date.now() - 24 * 3600 * 1000;
+  if (
+    state.reports.filter((r) => r.reporter_id === uid && Date.parse(r.created_at) > since)
+      .length >= 10
+  )
+    throw new DbError(400, "P0001", "rate_limit_exceeded: máximo 10 reportes en 24h");
+  if (
+    body.reported_user_id &&
+    state.reports.some(
+      (r) =>
+        r.reporter_id === uid &&
+        r.reported_user_id === body.reported_user_id &&
+        ["pending", "in_review"].includes(r.status)
+    )
+  )
+    throw new DbError(
+      409,
+      "23505",
+      'duplicate key value violates unique constraint "uq_reports_open_user"'
+    );
+  const row = {
+    id: randomUUID(),
+    reported_user_id: null,
+    reported_room_id: null,
+    description: null,
+    ...body,
+    status: "pending",
+    resolved_by: null,
+    resolved_at: null,
+    resolution_notes: null,
+    created_at: new Date().toISOString(),
+  };
+  state.reports.push(row);
+  return row;
+}
+function handleReports(req, res, url, body, uid, table, columns) {
+  if (table === "reports") {
+    if (req.method === "POST")
+      return respondRows(req, res, [insertReport(body, uid)], columns);
+    // reports_select_own y reports_admin_all; la persona reportada no ve nada.
+    const visible = state.reports.filter(
+      (r) => r.reporter_id === uid || isActiveAdmin(uid)
+    );
+    if (req.method === "GET")
+      return respondRows(req, res, applyFilters(visible, url), columns);
+    if (req.method === "PATCH") {
+      checkColumns(table, body, [
+        "status",
+        "resolution_notes",
+        "resolved_by",
+        "resolved_at",
+      ]);
+      if (!isActiveAdmin(uid)) return respondRows(req, res, [], columns);
+      const updated = applyFilters(visible, url).map((r) => {
+        const closed = ["resolved", "dismissed"].includes(body.status ?? r.status);
+        Object.assign(r, body, {
+          resolved_by: closed ? uid : null,
+          resolved_at: closed ? (r.resolved_at ?? new Date().toISOString()) : null,
+        });
+        return r;
+      });
+      return respondRows(req, res, updated, columns);
+    }
+    throw denied(table);
+  }
+  // admin_action_logs: solo añadir, con la autoría propia.
+  if (req.method === "POST") {
+    checkColumns(table, body, [
+      "admin_id",
+      "action",
+      "target_type",
+      "target_id",
+      "notes",
+    ]);
+    if (!isActiveAdmin(uid) || body.admin_id !== uid) throw rlsDenied(table);
+    const row = { id: randomUUID(), ...body, created_at: new Date().toISOString() };
+    state.adminLogs.push(row);
+    return respondRows(req, res, [row], columns);
+  }
+  if (req.method === "GET")
+    return respondRows(
+      req,
+      res,
+      isActiveAdmin(uid) ? applyFilters(state.adminLogs, url) : [],
+      columns
+    );
+  throw denied(table);
+}
+
 /** room_interest_owner: dueña de una habitación activa, con la cuenta válida. */
 function roomInterestOwner(body) {
   const room = state.rooms.get(body.p_room_id);
@@ -1097,6 +1320,15 @@ function handleService(req, res, url, body, table) {
   }
   if (table === "rpc/room_interest_owner" && req.method === "POST") {
     return send(res, 200, roomInterestOwner(body));
+  }
+  if (table === "rpc/block_user" && req.method === "POST") {
+    return send(res, 200, blockUser(body));
+  }
+  if (table === "rpc/unblock_user" && req.method === "POST") {
+    return send(res, 200, unblockUser(body));
+  }
+  if (table === "user_blocks" && req.method === "GET") {
+    return respondRows(req, res, applyFilters(state.blocks, url), parseSelect(url));
   }
   if (table === "profiles" && req.method === "GET") {
     return respondRows(req, res, candidateRows(url), null);
@@ -1549,6 +1781,15 @@ function handleRest(req, res, url, body, uid, isService) {
   if (["conversations", "conversation_participants", "messages"].includes(table))
     return handleChat(req, res, url, body, uid, table, columns);
 
+  if (table === "user_blocks") {
+    // user_blocks_select_own: solo los bloqueos que ha hecho; sin escritura.
+    if (req.method !== "GET") throw denied(table);
+    const own = state.blocks.filter((b) => b.blocker_id === uid);
+    return respondRows(req, res, applyFilters(own, url), columns);
+  }
+  if (table === "reports" || table === "admin_action_logs")
+    return handleReports(req, res, url, body, uid, table, columns);
+
   if (table === "rooms") return handleUserRooms(req, res, url, body, uid, columns);
   if (table === "room_images") {
     // room_images_select (R7): las fotos de las habitaciones que puede ver.
@@ -1564,9 +1805,11 @@ function handleRest(req, res, url, body, uid, isService) {
   if (table === "profiles") {
     // profiles_select_own_even_if_deleted: solo la fila propia, también
     // eliminada (Fase 2.9, H4: ya no existe profiles_select_authenticated).
-    // profiles_admin_all no se emula: un admin creado con /__test/make-admin
-    // solo lee su propia fila (lo único que usa la app para saber su rol).
-    const visible = () => [...state.profiles.values()].filter((p) => p.id === uid);
+    // profiles_admin_all: desde la sesión 83, un admin activo (creado con
+    // /__test/make-admin) lee todos los perfiles, como en la base de datos;
+    // escribir sigue limitado a su fila.
+    const visible = () =>
+      [...state.profiles.values()].filter((p) => p.id === uid || isActiveAdmin(uid));
     if (req.method === "GET")
       return respondRows(req, res, applyFilters(visible(), url), columns);
     if (req.method === "POST") {
@@ -1860,6 +2103,14 @@ function handleTest(req, res, url) {
       // Fase 5.1: intereses y matches guardados (para comprobar el resultado).
       return send(res, 200, { interests: state.interests, matches: state.matches });
     }
+    case "/__test/safety": {
+      // Sesión 83: bloqueos, reportes y registro de admin guardados.
+      return send(res, 200, {
+        blocks: state.blocks,
+        reports: state.reports,
+        adminLogs: state.adminLogs,
+      });
+    }
     case "/__test/chat": {
       // Fase 6: conversaciones, participantes y mensajes guardados.
       return send(res, 200, {
@@ -1897,9 +2148,14 @@ function handleTest(req, res, url) {
       const from = url.searchParams.get("from");
       if (!to || !state.profiles.get(from))
         return send(res, 404, { error: "sin perfil" });
-      return send(res, 200, {
-        status: recordInterest({ p_from: from, p_to: to.id, p_score: 50 }),
-      });
+      try {
+        return send(res, 200, {
+          status: recordInterest({ p_from: from, p_to: to.id, p_score: 50 }),
+        });
+      } catch (error) {
+        // Sesión 83: lo que rechaza la base de datos (bloqueo, límites).
+        return send(res, 400, { code: error.code, message: error.message });
+      }
     }
     case "/__test/seed-candidate": {
       // Otra persona que ya terminó onboarding y test (datos de servidor).

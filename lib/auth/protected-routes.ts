@@ -17,8 +17,9 @@ export const PROTECTED_PREFIXES = [
   "/habitaciones",
   // Fase 5.1: «Me interesa» y matches.
   "/matches",
-  // Fase 6: chat entre matches.
+  // Fase 6: chat entre matches y (sesión 83) reportar a una persona.
   "/mensajes",
+  "/reportar",
 ] as const;
 
 /** Coincide con el prefijo exacto o con una subruta (no con "/administracion"). */

@@ -1082,6 +1082,18 @@ cubren `tests/db/02` y `27`; «en tiempo real» depende de activar Realtime.
 Pendientes: bloquear y reportar, la retención de los mensajes tras deshacer
 un match y aplicar la migración en un proyecto real (con autorización).
 
+**Sesión 83 (en local, rama `claude/fase6-bloqueo-reportes`, apilada sobre la
+de la sesión 82; sin merge ni validación real):** bloquear y desbloquear
+(desde «Ver perfil» y el chat; lista en `/ajustes/bloqueos`), reportar
+(`/reportar/<id>`, con «Bloquear también») y la revisión de reportes en
+`/admin/reportes`, con la migración `20261128120000`: `user_blocks`,
+`interest_log`, límites de intereses por registro (por habitación, cuentas
+nuevas y misma persona), integridad de `reports` y auditoría de admin solo
+de añadir. Diseño de borrado de cuenta y conservación:
+`docs/PRIVACY_RETENTION.md`. Siguen pendientes: los plazos de conservación
+(decisión con legal), aplicar las migraciones en un proyecto real y las
+acciones de admin sobre la cuenta reportada (Fase 7).
+
 **Criterios de aceptación**: dos usuarios en un match pueden chatear en
 tiempo real; un tercer usuario no puede leer esa conversación ni aunque
 conozca el UUID (verificado con test de RLS).

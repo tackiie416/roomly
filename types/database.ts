@@ -450,6 +450,16 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["reports"]["Insert"]>;
         Relationships: [];
       };
+      /**
+       * 20261128120000 (sesión 83): bloqueos. Solo los escribe el servidor
+       * (block_user y unblock_user); cada persona lee solo los suyos.
+       */
+      user_blocks: {
+        Row: { blocker_id: string; blocked_id: string; created_at: string };
+        Insert: { blocker_id: string; blocked_id: string; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["user_blocks"]["Insert"]>;
+        Relationships: [];
+      };
       admin_action_logs: {
         Row: {
           id: string;
@@ -552,6 +562,15 @@ export interface Database {
       room_interest_owner: {
         Args: { p_room_id: string };
         Returns: string | null;
+      };
+      /** 20261128120000 (sesión 83): solo service_role (lib/services/interests.ts). */
+      block_user: {
+        Args: { p_blocker: string; p_blocked: string };
+        Returns: "blocked" | "already_blocked";
+      };
+      unblock_user: {
+        Args: { p_blocker: string; p_blocked: string };
+        Returns: "unblocked" | "not_found";
       };
     };
     Enums: {

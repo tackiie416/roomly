@@ -1244,7 +1244,7 @@ servicio o vista diseñada para ello; no se resuelve moviendo las columnas.
 
 **Chat** — `conversations`, `conversation_participants` (tabla de unión, no columnas fijas — permite grupo más adelante), `messages`. Desde la Fase 6 (`20261127120000`), una conversación por match: la abre y la cierra (`closed_at`) la base de datos con triggers de `matches`; los mensajes tienen `client_token` (sin duplicados), 2000 caracteres como máximo y un trigger de integridad para todos los roles. Detalle en `docs/SECURITY.md`, «Fase 6».
 
-**Confianza y seguridad** — `reports`, `admin_action_logs`.
+**Confianza y seguridad** — `reports`, `admin_action_logs`, `user_blocks` e `interest_log`. Desde la sesión 83 (`20261128120000`): `user_blocks` (solo lo escriben `block_user` y `unblock_user`, service_role; cada persona lee solo los bloqueos que ha hecho), `interest_log` (registro de envíos para los límites, sin acceso de clientes), `reports` con seis motivos (`chk_reports_reason`; el comentario de la Fase 0 sobre validar el motivo solo en Zod queda superado), 1000 caracteres, un reporte abierto por persona y objetivo y `trg_reports_integrity`, y `admin_action_logs` solo de añadir. Las FK de `reports` no tienen cascada (ver `docs/PRIVACY_RETENTION.md`). Detalle en `docs/SECURITY.md`, «Bloqueos, reportes y límites contra el abuso».
 
 **Notificaciones** — `notifications` (in-app; el email es un efecto lateral del servicio, no una tabla).
 
@@ -1260,6 +1260,8 @@ servicio o vista diseñada para ello; no se resuelve moviendo las columnas.
 `deleted_at` en `profiles`/`rooms` es una herramienta de **producto** (ventana de deshacer, no romper integridad referencial de matches/conversaciones existentes) — **no** satisface por sí sola el derecho al olvido del RGPD, porque el dato personal sigue existiendo físicamente, solo queda oculto.
 
 **REQUIERE REVISIÓN LEGAL**: el diseño técnico anticipa un job periódico que, pasado un plazo de gracia tras el soft-delete, anonimice o elimine en duro los campos personales (nombre, foto, bio, mensajes) de una cuenta borrada. El plazo exacto y qué campos deben anonimizarse vs. eliminarse (p. ej. los mensajes de una conversación donde el otro participante no ha borrado su cuenta) son decisiones legales, no técnicas — no las fijamos aquí.
+
+Diseño del borrado de cuenta (H6) y de la conservación de mensajes, sin implementar: `docs/PRIVACY_RETENTION.md` (sesión 83).
 
 ## Edad mínima
 

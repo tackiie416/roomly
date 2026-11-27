@@ -228,11 +228,24 @@ describe("comprobaciones de quien mira (sin lectura cruzada)", () => {
 });
 
 describe("la lectura cruzada", () => {
-  it("es UNA consulta con service_role, columnas explícitas y los filtros en SQL", async () => {
+  it("es UNA consulta de perfiles con service_role, columnas explícitas y los filtros en SQL (más la de bloqueos)", async () => {
     const { admin, adminCalls } = await run({}, [candidate()]);
-    expect(adminCalls()).toBe(1);
-    expect(admin.calls).toHaveLength(1);
-    const [call] = admin.calls;
+    expect(adminCalls()).toBe(2);
+    expect(admin.calls).toHaveLength(2);
+    const [call, blocks] = admin.calls;
+    // Sesión 83: los bloqueos en los dos sentidos, solo dos columnas.
+    expect(blocks).toMatchObject({
+      table: "user_blocks",
+      operation: "select",
+      columns: "blocker_id, blocked_id",
+    });
+    expect(blocks.filters).toEqual([
+      {
+        kind: "or",
+        column: "",
+        value: `blocker_id.eq.${VIEWER},blocked_id.eq.${VIEWER}`,
+      },
+    ]);
     expect(call).toMatchObject({
       table: "profiles",
       operation: "select",
