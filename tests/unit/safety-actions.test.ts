@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   blockUser: vi.fn(),
   unblockUser: vi.fn(),
   reportUser: vi.fn(),
+  reportRoom: vi.fn(),
   resolveReport: vi.fn(),
   requireCompletedQuestionnaire: vi.fn(),
   requireActiveProfile: vi.fn(),
@@ -24,17 +25,25 @@ vi.mock("@/lib/services/interests", () => ({
 }));
 vi.mock("@/lib/services/reports", () => ({
   reportUser: mocks.reportUser,
+  reportRoom: mocks.reportRoom,
   resolveReport: mocks.resolveReport,
+}));
+vi.mock("@/lib/supabase/public", () => ({
+  createPublicClient: () => ({ visitor: true }),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
     throw Object.assign(new Error("NEXT_REDIRECT"), { url });
   },
+  notFound: () => {
+    throw Object.assign(new Error("NEXT_NOT_FOUND"), { url: "404" });
+  },
 }));
 
 import {
   blockUserAction,
+  reportRoomAction,
   reportUserAction,
   unblockUserAction,
 } from "@/app/actions/safety";
@@ -219,5 +228,66 @@ describe("resolveReportAction", () => {
       )
     ).toBe("/admin/reportes?aviso=error");
     expect(mocks.resolveReport).not.toHaveBeenCalled();
+  });
+});
+
+describe("reportRoomAction", () => {
+  const ROOM = "f0000000-0000-4000-8000-000000000001";
+  const page = `/reportar/habitacion/${ROOM}`;
+
+  it.each([
+    ["created", "anuncio-reportado"],
+    ["duplicate", "anuncio-ya-reportado"],
+  ])("%s → %s, con la sesión y el cliente de visitante", async (status, notice) => {
+    mocks.reportRoom.mockResolvedValue({ ok: true, data: { status } });
+    expect(
+      await redirectOf(reportRoomAction(form({ roomId: ROOM, reason: "scam" })))
+    ).toBe(`${page}?aviso=${notice}`);
+    expect(mocks.requireActiveProfile).toHaveBeenCalledWith(page);
+    expect(mocks.reportRoom).toHaveBeenCalledWith(
+      { client: true },
+      { visitor: true },
+      { roomId: ROOM, reason: "scam", description: "" }
+    );
+  });
+
+  it("un reporter_id o un reported_user_id inyectado: error sin llamar al servicio", async () => {
+    for (const extra of ["reporterId", "reported_user_id"])
+      expect(
+        await redirectOf(
+          reportRoomAction(form({ roomId: ROOM, reason: "scam", [extra]: ROOM }))
+        )
+      ).toBe(`${page}?aviso=error`);
+    expect(mocks.reportRoom).not.toHaveBeenCalled();
+  });
+
+  it("un id que no es UUID: 404 sin guard ni servicio", async () => {
+    expect(
+      await redirectOf(reportRoomAction(form({ roomId: "x", reason: "scam" })))
+    ).toBe("404");
+    expect(mocks.reportRoom).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["not_found", "404"],
+    ["rate_limited", `${page}?aviso=limite`],
+    ["deleted", "/cuenta-desactivada"],
+    ["unknown", `${page}?aviso=error`],
+  ])("%s → %s", async (error, url) => {
+    mocks.reportRoom.mockResolvedValue({ ok: false, error });
+    expect(
+      await redirectOf(reportRoomAction(form({ roomId: ROOM, reason: "scam" })))
+    ).toBe(url);
+  });
+
+  it("validación del motivo: vuelve con el error del campo", async () => {
+    mocks.reportRoom.mockResolvedValue({
+      ok: false,
+      error: "validation",
+      fieldErrors: { reason: ["Elige un motivo."] },
+    });
+    expect(await redirectOf(reportRoomAction(form({ roomId: ROOM })))).toBe(
+      `${page}?error=motivo`
+    );
   });
 });

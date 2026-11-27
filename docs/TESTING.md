@@ -1695,6 +1695,17 @@ workflow manual.
   (al repetirlo, 5/5), lint, typecheck, format y build en verde. Orientativo:
   la referencia es la CI.
 
+### Reportar un anuncio (sesión 84, rama `claude/reportar-habitacion`)
+
+- Unitarios: `services-room-report` (11: público y ajeno, 404
+  indistinguible, sin consultas con un id no válido, campos del GRANT,
+  duplicado, límite y motivos de la lista de anuncios) y `safety-actions`
+  (`reportRoomAction`: guard, campos inyectados, avisos y 404).
+- E1: `room-report.spec.ts` (enlace en la ficha pública que lleva al login
+  sin sesión, reporte y duplicado, 404 para un borrador, un id inventado y
+  el anuncio propio, y resolución del admin retirando la habitación, con
+  `report_resolved` y `room_removed`). El mock aplica `uq_reports_open_room`.
+
 ## Fase 6 — Bloqueos, reportes y límites contra el abuso (sesión 83, en local)
 
 - `tests/db/28_blocks_reports.sql` (BR0–BR7, 61 comprobaciones): catálogo y

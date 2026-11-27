@@ -1091,6 +1091,28 @@ function insertReport(body, uid) {
       "23505",
       'duplicate key value violates unique constraint "uq_reports_open_user"'
     );
+  // Fase 7: uno abierto por persona y anuncio (uq_reports_open_room); la FK a
+  // rooms solo comprueba que existe.
+  if (body.reported_room_id && !state.rooms.has(body.reported_room_id))
+    throw new DbError(
+      409,
+      "23503",
+      'insert or update on table "reports" violates foreign key constraint'
+    );
+  if (
+    body.reported_room_id &&
+    state.reports.some(
+      (r) =>
+        r.reporter_id === uid &&
+        r.reported_room_id === body.reported_room_id &&
+        ["pending", "in_review"].includes(r.status)
+    )
+  )
+    throw new DbError(
+      409,
+      "23505",
+      'duplicate key value violates unique constraint "uq_reports_open_room"'
+    );
   const row = {
     id: randomUUID(),
     reported_user_id: null,

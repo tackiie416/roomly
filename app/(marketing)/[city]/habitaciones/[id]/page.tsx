@@ -9,6 +9,7 @@ import { publicRoomPath, roomSearchPath } from "@/lib/validation/room-search";
 import { NeighborhoodsAttribution } from "@/components/rooms/neighborhoods-attribution";
 import { Button } from "@/components/ui/button";
 import { expressRoomInterest } from "@/app/actions/interests";
+import { roomReportPath } from "@/lib/safety/paths";
 import {
   bedroomsText,
   formatEuros,
@@ -26,6 +27,9 @@ import {
  * id no es válido, la ciudad no existe o no está activa, o la habitación no
  * existe, es de otra ciudad o no es pública (borrador, pausada, alquilada,
  * retirada, eliminada o de una cuenta desactivada).
+ *
+ * «Reportar el anuncio» (Fase 7) es un enlace a `/reportar/habitacion/<id>`,
+ * que pide sesión; la página pública sigue sin leer la sesión.
  *
  * «Me interesa esta habitación» (Fase 6) es un formulario con su Server
  * Action: la página no lee la sesión ni sabe de quién es la habitación; solo
@@ -259,6 +263,18 @@ export default async function PublicRoomPage({ params }: PageProps) {
           <Button type="submit">Me interesa esta habitación</Button>
         </form>
       </section>
+
+      <p className="text-sm text-[var(--muted)]">
+        ¿Algo no cuadra en este anuncio?{" "}
+        <Link
+          href={roomReportPath(room.id)}
+          className="underline"
+          data-testid="room-report-link"
+          rel="nofollow"
+        >
+          Reportar el anuncio
+        </Link>
+      </p>
 
       {room.neighborhood ? <NeighborhoodsAttribution /> : null}
     </main>

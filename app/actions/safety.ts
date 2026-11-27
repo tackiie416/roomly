@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireActiveProfile, requireCompletedQuestionnaire } from "@/lib/auth/session";
 import {
@@ -15,10 +15,11 @@ import {
   loginPath,
 } from "@/lib/auth/destination";
 import { blockUser, unblockUser } from "@/lib/services/interests";
-import { reportUser } from "@/lib/services/reports";
+import { reportRoom, reportUser } from "@/lib/services/reports";
+import { createPublicClient } from "@/lib/supabase/public";
 import type { ServiceResult } from "@/lib/services/result";
 import type { SafetyNoticeCode } from "@/lib/safety/notices";
-import { reportPath } from "@/lib/safety/paths";
+import { reportPath, roomReportPath } from "@/lib/safety/paths";
 import { uuidSchema } from "@/lib/validation/common";
 
 /**
@@ -125,4 +126,37 @@ export async function reportUserAction(formData: FormData): Promise<void> {
 /** Alguien a quien no conoces por la app: lo mismo que una persona no disponible. */
 function notFoundRedirect(): never {
   redirect(`${MATCHES_PATH}?aviso=no-disponible`);
+}
+
+/**
+ * Reportar un anuncio (Fase 7). Basta una cuenta activa (no hace falta el
+ * test). Del navegador solo llegan el id de la habitación, el motivo y la
+ * descripción; quién reporta sale de la sesión. Un anuncio que no es público
+ * o es propio da el mismo 404.
+ */
+export async function reportRoomAction(formData: FormData): Promise<void> {
+  const room = uuidSchema.safeParse(formData.get("roomId"));
+  if (!room.success) notFound();
+  const page = roomReportPath(room.data);
+  await requireActiveProfile(page);
+  if (!hasOnly(formData, ["roomId", "reason", "description"]))
+    redirect(`${page}?aviso=error`);
+
+  const result = await reportRoom(await createClient(), createPublicClient(), {
+    roomId: room.data,
+    reason: formData.get("reason"),
+    description: formData.get("description") ?? "",
+  });
+  if (!result.ok) {
+    redirectForAccount(result, page);
+    if (result.error === "not_found") notFound();
+    if (result.error === "validation") {
+      const field = Object.keys(result.fieldErrors ?? {})[0];
+      redirect(`${page}?error=${field === "description" ? "descripcion" : "motivo"}`);
+    }
+    redirect(`${page}?aviso=${failureNotice(result.error)}`);
+  }
+  redirect(
+    `${page}?aviso=${result.data.status === "created" ? "anuncio-reportado" : "anuncio-ya-reportado"}`
+  );
 }

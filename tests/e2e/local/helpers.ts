@@ -294,6 +294,7 @@ export type MockSafetyState = {
     id: string;
     reporter_id: string;
     reported_user_id: string | null;
+    reported_room_id?: string | null;
     reason: string;
     description: string | null;
     status: string;
