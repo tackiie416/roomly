@@ -1655,6 +1655,26 @@ workflow manual.
   interés por habitación) y `student-flow` con «Mensajes» en la navegación.
   El mock emula las tres tablas, el trigger y las dos rpc nuevas.
 
+## Cuentas suspendidas, enumeración y herramientas de staging (sesión 88, en local)
+
+- `tests/db/32_suspended_account_deletion.sql` (SD0–SD5): una cuenta
+  suspendida por un admin pide y completa la eliminación; con la eliminación
+  pendiente, reactivarla da 23514; la suspensión y el reporte se conservan;
+  reactivar después da P0002.
+- E1: `admin-panel.spec.ts` (suspendida → «Eliminación pendiente», sin botón
+  de reactivar, y eliminación desde `/cuenta-desactivada`) y
+  `login-enumeration.spec.ts` (con el registro cerrado, misma respuesta con y
+  sin cuenta). El mock tiene `/__test/signups` y `/__test/request-deletion`.
+- `scripts/staging/staging-selftest.sh` (en `test:infra`): 28 comprobaciones
+  de la guarda de staging, el dry run, `--apply`, el preflight y los datos
+  ficticios, con proyectos simulados en PostgreSQL local.
+
+Resultados en local: `test` 1957/1957, `test:db` 1262 ok, `test:infra` 529
+ok, smoke 6/6, lint, typecheck, format y build en verde. E1: 69/71 con los
+dos fallos de `upload-size.spec.ts` (el >5 MB y el 413 simulado), que dependen
+del entorno local; la referencia es la CI del PR. `npm audit`: 0
+vulnerabilidades. Nada se ha ejecutado contra un Supabase real.
+
 ## Eliminación de cuenta, exportación y staging (sesión 87, en local)
 
 Resultados en este entorno (2026-11-28), sin Supabase real:

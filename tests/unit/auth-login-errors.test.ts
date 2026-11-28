@@ -5,6 +5,7 @@ import {
   otpErrorCode,
   toLoginErrorCode,
 } from "@/lib/auth/login-errors";
+import { isSignupClosedError } from "@/lib/auth/login-errors";
 
 const sessionMock = vi.hoisted(() => ({ state: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentProfileState: sessionMock.state }));
@@ -122,5 +123,23 @@ describe("LoginPage", () => {
       sessionMock.state.mockResolvedValue({ ok: true, data: state });
       await expect(render({ next })).rejects.toMatchObject({ url: expected });
     }
+  });
+});
+
+describe("isSignupClosedError (sesión 88, sin enumeración de cuentas)", () => {
+  it.each(["otp_disabled", "signup_disabled", "user_not_found"])(
+    "%s: el formulario responde como si hubiera enviado el enlace",
+    (code) => {
+      expect(isSignupClosedError({ code, status: 422 })).toBe(true);
+    }
+  );
+  it.each([
+    [{ status: 429 }],
+    [{ code: "over_email_send_rate_limit" }],
+    [{ code: "email_address_invalid" }],
+    [{ code: "unexpected_failure", status: 500 }],
+    [{}],
+  ])("%j sigue siendo un error visible", (error) => {
+    expect(isSignupClosedError(error)).toBe(false);
   });
 });

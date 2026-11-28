@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { serializeNextCookie } from "@/lib/auth/next-cookie";
-import { LOGIN_ERROR_MESSAGES, otpErrorCode } from "@/lib/auth/login-errors";
+import {
+  LOGIN_ERROR_MESSAGES,
+  isSignupClosedError,
+  otpErrorCode,
+} from "@/lib/auth/login-errors";
 
 type Status = "idle" | "sending" | "sent" | "error";
 
@@ -45,7 +49,9 @@ export function LoginForm({
       options: { emailRedirectTo: `${window.location.origin}/callback` },
     });
 
-    if (error) {
+    // Registro cerrado y email sin cuenta: misma respuesta que un envío
+    // correcto, para no revelar qué emails tienen cuenta (sesión 88).
+    if (error && !isSignupClosedError(error)) {
       setStatus("error");
       setErrorMessage(LOGIN_ERROR_MESSAGES[otpErrorCode(error)]);
       return;
@@ -74,7 +80,8 @@ export function LoginForm({
 
         {status === "sent" ? (
           <p className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 text-sm">
-            Revisa tu correo: te hemos enviado un enlace para entrar.
+            Revisa tu correo: si puedes entrar en Roomly con esa dirección, te hemos
+            enviado un enlace.
           </p>
         ) : (
           <form onSubmit={handleMagicLink} className="flex flex-col gap-3">

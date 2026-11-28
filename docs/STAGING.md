@@ -74,19 +74,61 @@ chat.
    - registro público cerrado salvo en las ventanas de prueba;
    - caducidad del JWT: valorar bajarla de 1 h (afecta al JWT residual tras
      eliminar una cuenta, `docs/PRIVACY_RETENTION.md`).
-3. (C, autorizado) Aplicar **todas** las migraciones de `master` en una
-   transacción y el seed (mismo procedimiento que `migrate` en
-   `docs/SUPABASE_VALIDATION.md`, contra el proyecto de staging, nunca contra
-   uno de validación). Hoy son 25, desde la Fase 0 hasta
-   `20261201120000_account_deletion.sql`.
-4. (C) Preflight P0–P6 (`tests/supabase/preflight.sql`: 21 tablas, 43
-   políticas, 27 triggers, 51 funciones) y suite SQL. La suite usa
+3. (P) Marcar la base de datos del proyecto, una sola vez, desde el SQL
+   editor: `comment on database postgres is 'roomly-staging';`. Sin esa marca
+   exacta las herramientas de staging no hacen nada, y la guarda de
+   validación (`tests/supabase/guard.sh`) rechaza `roomly-staging`: un
+   proyecto de staging no puede usarse para runs de validación ni al revés.
+4. (C, autorizado) Aplicar **todas** las migraciones de `master` y el seed
+   con `scripts/staging/apply-migrations.sh` (sección 3.1). Hoy son 26, desde
+   la Fase 0 hasta `20261202120000_suspended_account_deletion.sql`.
+5. (C) Preflight P0–P6 con `scripts/staging/preflight.sh` (21 tablas, 43
+   políticas, 27 triggers, 51 funciones). La suite SQL de `tests/db` usa
    transacciones con ROLLBACK, pero crea y borra usuarios de prueba: solo en
    staging vacío y con autorización.
-5. (P) Bucket `room-images`: privado (lo crea la migración; comprobar en el
+6. (P) Bucket `room-images`: privado (lo crea la migración; comprobar en el
    panel que no se ha hecho público).
-6. (P) Primer admin: cambiar el rol desde el SQL editor (service_role), nunca
+7. (P) Primer admin: cambiar el rol desde el SQL editor (service_role), nunca
    desde la app.
+
+### 3.1. Herramientas de staging (`scripts/staging/`, sesión 88)
+
+Preparadas y probadas solo en local (`scripts/staging/staging-selftest.sh`,
+dentro de `npm run test:infra`). **Nunca se han ejecutado contra un proyecto
+real**; la primera ejecución necesita autorización.
+
+Variables (se cargan en la shell de quien ejecuta, nunca en el repositorio
+ni en un chat):
+
+| Variable | Obligatoria | Qué es |
+| --- | --- | --- |
+| `STAGING_PROJECT_REF` | sí | ref del proyecto de staging (20 caracteres `a-z0-9`) |
+| `STAGING_DB_URL` | sí | cadena de conexión del pooler o directa; secreta. Debe contener `postgres.<ref>:` o `@db.<ref>.supabase.co` |
+| `STAGING_CONFIRM` | sí | confirmación manual: el texto exacto `roomly-staging` |
+| `STAGING_SUPABASE_URL` | no | si se da, debe ser `https://<ref>.supabase.co` |
+| `DEPLOY_FORBIDDEN_SUPABASE_REFS` | no | refs prohibidos, separados por comas, además de `uwxb…` |
+
+La guarda (`scripts/staging/guard.sh`) aborta si falta algo, si el ref no
+coincide con la URL, si el ref está prohibido o si la base de datos no tiene
+la marca exacta `roomly-staging` (una marca de validación también aborta).
+
+```
+bash scripts/staging/apply-migrations.sh          # dry run: todo en una transacción que termina en ROLLBACK
+bash scripts/staging/apply-migrations.sh --apply  # aplica; se niega si public.profiles ya existe
+bash scripts/staging/preflight.sh                 # P0–P6 con expected_marker=roomly-staging
+bash scripts/staging/seed-demo.sh                 # datos ficticios (idempotente)
+bash scripts/staging/seed-demo.sh --cleanup       # borra solo los datos ficticios
+```
+
+Datos de demostración (`seed-demo.sql`): 4 personas ficticias con ids
+`de0000de-…` y emails `demo-0N@roomly.invalid` (dominio reservado, nunca
+entrega correo), sin contraseña ni forma de entrar, y 3 habitaciones activas
+en Barcelona, sin dirección exacta ni fotos. Nada procede de datos reales.
+`cleanup-demo.sql` borra solo esos ids y ese dominio.
+
+Recuperación: el dry run y `--apply` son una única transacción, así que un
+fallo no deja el esquema a medias. Si `--apply` terminó y hay que empezar de
+cero, lo más seguro en staging es crear un proyecto nuevo (no hay «down»).
 
 ## 4. Checklist de despliegue
 

@@ -356,3 +356,15 @@ export async function accountDeletionState(
   expect(response.status).toBe(200);
   return (await response.json()) as MockAccountDeletionState;
 }
+
+/** Sesión 88: deja pedida (y sin terminar) la eliminación de una cuenta. */
+export async function requestDeletionPending(id: string): Promise<void> {
+  expect(
+    (await mock(`/__test/request-deletion?id=${encodeURIComponent(id)}`)).status
+  ).toBe(200);
+}
+
+/** Sesión 88: abre o cierra el registro público de Auth en el mock. */
+export async function setSignupsOpen(open: boolean): Promise<void> {
+  expect((await mock(`/__test/signups?open=${open ? "1" : "0"}`)).status).toBe(200);
+}

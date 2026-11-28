@@ -10,6 +10,7 @@ import {
   seedRoom,
   uniqueEmail,
   userState,
+  requestDeletionPending,
 } from "./helpers";
 
 // Fase 7 — panel de administración en E1 (Supabase simulado). El mock emula
@@ -193,4 +194,44 @@ test("un admin retira y restaura una habitación, con su registro, y ve las mét
   await expect(admin.page.locator("main")).not.toContainText("@");
 
   for (const who of [admin, owner]) await who.context.close();
+});
+
+test("una cuenta suspendida puede eliminarse; con la eliminación pendiente no se reactiva", async ({
+  browser,
+}) => {
+  const admin = await person(browser, "admin-elim", "Admin Elimina");
+  await makeAdmin(admin.email);
+  const target = await person(browser, "suspendida-elim", "Yago Suspendido");
+
+  await admin.page.goto(`/admin/usuarios/${target.id}`);
+  await confirmAction(admin.page, "admin-suspend-form", "Estafa reportada");
+  await expect(admin.page).toHaveURL(
+    `${APP}/admin/usuarios/${target.id}?aviso=suspendida`
+  );
+
+  // Una eliminación pedida que se quedó a medias: el panel no ofrece reactivar.
+  await requestDeletionPending(target.id);
+  await admin.page.goto(`/admin/usuarios/${target.id}`);
+  await expect(admin.page.getByTestId("admin-user-badges")).toContainText(
+    "Eliminación pendiente"
+  );
+  await expect(admin.page.getByTestId("admin-deletion-pending")).toBeVisible();
+  await expect(admin.page.getByTestId("admin-reactivate-form")).toHaveCount(0);
+
+  // La suspensión no impide terminar la eliminación desde /cuenta-desactivada.
+  await target.page.goto("/perfil");
+  await expect(target.page).toHaveURL(/\/cuenta-desactivada/);
+  await target.page.getByTestId("account-deletion-link").click();
+  await target.page.getByLabel(/Escribe ELIMINAR/).fill("ELIMINAR");
+  await target.page.getByLabel("Entiendo que la eliminación es definitiva.").check();
+  await target.page.getByTestId("account-deletion-submit").click();
+  await expect(target.page).toHaveURL(`${APP}/cuenta-eliminada`);
+
+  // La suspensión sigue en la auditoría; la ficha ya no existe.
+  expect((await safetyState()).adminLogs).toEqual([
+    expect.objectContaining({ action: "user_suspended", target_id: target.id }),
+  ]);
+  const gone = await admin.page.goto(`/admin/usuarios/${target.id}`);
+  expect(gone?.status()).toBe(404);
+  for (const who of [admin, target]) await who.context.close();
 });

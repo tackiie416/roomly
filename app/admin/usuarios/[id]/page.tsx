@@ -73,6 +73,9 @@ export default async function AdminUserPage({
         ) : (
           <AdminBadge tone="ok">Activa</AdminBadge>
         )}
+        {user.deletionRequestedAt ? (
+          <AdminBadge tone="danger">Eliminación pendiente</AdminBadge>
+        ) : null}
         {user.onboardingCompletedAt ? null : (
           <AdminBadge>Perfil sin completar</AdminBadge>
         )}
@@ -201,6 +204,14 @@ export default async function AdminUserPage({
               danger
               testId="admin-suspend-form"
             />
+          ) : user.deletionRequestedAt ? (
+            <p
+              className="text-sm text-[var(--muted)]"
+              data-testid="admin-deletion-pending"
+            >
+              La persona ha pedido eliminar su cuenta y la eliminación no ha terminado: no
+              se puede reactivar. Se completará cuando vuelva a pedirla.
+            </p>
           ) : user.suspendedByAdmin ? (
             <ConfirmActionForm
               action={moderateUserAction}

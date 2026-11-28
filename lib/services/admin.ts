@@ -168,6 +168,8 @@ export type AdminUserDetail = {
   onboardingCompletedAt: string | null;
   deactivatedAt: string | null;
   suspendedByAdmin: boolean;
+  /** Eliminación pedida y sin terminar (sesión 88): no se ofrece reactivar. */
+  deletionRequestedAt: string | null;
   hasQuestionnaire: boolean;
   matchesCount: number;
   blockedByCount: number;
@@ -224,6 +226,7 @@ export async function getUserForAdmin(
     onboardingCompletedAt: strOrNull(d.onboarding_completed_at),
     deactivatedAt: strOrNull(d.deleted_at),
     suspendedByAdmin: d.suspended_by_admin === true,
+    deletionRequestedAt: strOrNull(d.deletion_requested_at),
     hasQuestionnaire: d.has_questionnaire === true,
     matchesCount: Number(d.matches_count ?? 0),
     blockedByCount: Number(d.blocked_by_count ?? 0),

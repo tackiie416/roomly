@@ -259,6 +259,7 @@ function reset() {
     reports: [], // reports (columnas de la tabla)
     adminLogs: [], // admin_action_logs
     deletionRequests: new Map(), // user_id → { user_id, requested_at, completed_at }
+    signupsOpen: true, // sesión 88: registro público de Auth (beta cerrada: false)
     log: [],
   };
 }
@@ -350,6 +351,13 @@ function handleAuth(req, res, url, body) {
     }
     let user = [...state.users.values()].find((u) => u.email === email);
     if (!user) {
+      if (!state.signupsOpen)
+        return authError(
+          res,
+          422,
+          "signup_disabled",
+          "Signups not allowed for this instance"
+        );
       if (body.create_user === false)
         return authError(res, 422, "otp_disabled", "Signups not allowed for otp");
       user = { id: randomUUID(), email, created_at: new Date().toISOString() };
@@ -2024,6 +2032,10 @@ function adminGetUser(body) {
     onboarding_completed_at: p.onboarding_completed_at ?? null,
     deleted_at: p.deleted_at,
     suspended_by_admin: p.deleted_at !== null && lastSuspensionByAdmin(p.id),
+    deletion_requested_at:
+      state.deletionRequests.get(p.id)?.completed_at === null
+        ? state.deletionRequests.get(p.id).requested_at
+        : null,
     has_questionnaire: state.responses.has(p.id),
     matches_count: state.matches.filter(
       (m) => m.user_a_id === p.id || m.user_b_id === p.id
@@ -2196,6 +2208,12 @@ function adminReactivateUser(adminId, body) {
   if (!p) throw adminFail(404, "P0002", "admin_not_found: la cuenta no existe");
   if (p.deleted_at === null)
     throw adminFail(400, "23514", "admin_state: la cuenta ya está activa");
+  if (state.deletionRequests.get(p.id)?.completed_at === null)
+    throw adminFail(
+      400,
+      "23514",
+      "admin_state: la cuenta tiene una eliminación pendiente"
+    );
   if (!lastSuspensionByAdmin(p.id))
     throw adminFail(
       400,
@@ -2742,6 +2760,23 @@ function handleTest(req, res, url) {
         conversation.match_id = null;
       }
       return send(res, 200, { conversation: conversation.id });
+    }
+    case "/__test/signups": {
+      // Sesión 88: abre o cierra el registro público (open=0|1).
+      state.signupsOpen = url.searchParams.get("open") !== "0";
+      return send(res, 200, { open: state.signupsOpen });
+    }
+    case "/__test/request-deletion": {
+      // Sesión 88: una eliminación pedida que se quedó a medias (por id).
+      try {
+        return send(
+          res,
+          200,
+          requestAccountDeletion({ p_user_id: url.searchParams.get("id") })
+        );
+      } catch (error) {
+        return send(res, 400, { code: error.code, message: error.message });
+      }
     }
     case "/__test/account-deletion": {
       // Sesión 87: lo que queda de una cuenta (por id) tras eliminarla.

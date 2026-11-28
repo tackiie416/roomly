@@ -600,6 +600,17 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
   habitación (los reportes se conservan con el UUID como seudónimo): no las
   vuelvas a añadir ni uses cascadas sobre ellos. Preflight: 21 tablas, 43
   políticas, 27 triggers y 51 funciones.
+- **Cuentas suspendidas** (sesión 88, rama `claude/project-thread-5tguj4`,
+  sin merge y sin aplicar en real): `20261202120000`. Una cuenta suspendida
+  puede eliminarse; con una eliminación pendiente, `admin_reactivate_user` se
+  niega. No conviertas la suspensión en una barrera para eliminar la cuenta.
+  Con el registro cerrado, el login responde igual con y sin cuenta
+  (`isSignupClosedError`): no reveles qué emails están registrados.
+- **Herramientas de staging** (sesión 88, solo en local):
+  `scripts/staging/` (guarda con la marca `roomly-staging` y
+  `STAGING_CONFIRM`, migraciones con dry run, preflight y datos ficticios),
+  probadas por `scripts/staging/staging-selftest.sh` en `test:infra`. Nunca
+  ejecutadas contra un proyecto real; hacerlo necesita autorización.
 - **Staging** (sesión 87, preparación sin ejecutar): `docs/STAGING.md`,
   `npm run check:deploy-config` y `npm run test:smoke`. No conectes ni
   modifiques Netlify, Vercel ni Supabase sin autorización.

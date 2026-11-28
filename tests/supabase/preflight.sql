@@ -16,6 +16,8 @@
 -- validación anteriores (Fase 2.8 y Fase 1), producción y cualquier marca
 -- desconocida. run-preflight.sh pasa además la marca esperada con
 -- -v expected_marker=<marca>, y entonces P0 exige coincidencia exacta.
+-- Staging (sesión 88): 'roomly-staging' solo pasa si además es la marca
+-- esperada exacta (scripts/staging/preflight.sh).
 -- ============================================================
 \if :{?expected_marker}
 \else
@@ -32,6 +34,13 @@ declare
      from pg_database d where d.datname = current_database()), '');
   expected  text := coalesce(current_setting('roomly.expected_marker', true), '');
 begin
+  -- Staging (sesión 88): solo con la marca esperada exacta 'roomly-staging'
+  -- (scripts/staging/preflight.sh, tras su guarda). La guarda de validación
+  -- (tests/supabase/guard.sh) nunca la acepta como marca esperada.
+  if db_marker = 'roomly-staging' and expected = 'roomly-staging' then
+    raise notice 'ok - P0: destino roomly-staging y coincide con la marca esperada';
+    return;
+  end if;
   if db_marker not in ('roomly-validation-3', 'roomly-validation-4') then
     raise exception 'FALLO P0: el destino NO es un proyecto de validación permitido (su marca no está en la allow-list roomly-validation-3 / roomly-validation-4). Abortado.';
   end if;
