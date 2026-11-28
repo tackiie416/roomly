@@ -137,6 +137,19 @@ export async function requireOnboardingStep(step: OnboardingStep): Promise<Profi
   return state;
 }
 
+export const ACCOUNT_DELETION_PATH = "/ajustes/eliminar-cuenta";
+
+/**
+ * Eliminación de la cuenta (sesión 87): una sesión con perfil, activo o
+ * desactivado (también suspendido por un admin: el derecho a pedir la
+ * eliminación no depende de poder usar la app). Sin perfil, al onboarding.
+ */
+export async function requireAccountForDeletion(): Promise<ProfileState> {
+  const state = await requireSessionState(ACCOUNT_DELETION_PATH);
+  if (state.status === "no_profile") redirect(resolveDestination(state));
+  return state;
+}
+
 /** Pantalla de cuenta desactivada: solo para cuentas con `deleted_at`. */
 export async function requireDeletedAccount(): Promise<void> {
   const state = await requireSessionState(DEACTIVATED_PATH);

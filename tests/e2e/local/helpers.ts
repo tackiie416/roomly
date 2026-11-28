@@ -320,3 +320,39 @@ export async function trySeedInterest(
   if (response.status === 200) return null;
   return ((await response.json()) as { code: string }).code;
 }
+
+/** Sesión 87: un match con su chat y un mensaje de cada persona; `closed` lo cierra. */
+export async function seedChat(
+  a: string,
+  b: string,
+  options: { fromA?: string; fromB?: string; closed?: boolean } = {}
+): Promise<string> {
+  const params = new URLSearchParams({ a, b });
+  if (options.fromA) params.set("fromA", options.fromA);
+  if (options.fromB) params.set("fromB", options.fromB);
+  if (options.closed) params.set("closed", "1");
+  const response = await mock(`/__test/seed-chat?${params}`);
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { conversation: string }).conversation;
+}
+
+export type MockAccountDeletionState = {
+  userExists: boolean;
+  profile: Record<string, unknown> | null;
+  request: { requested_at: string; completed_at: string | null } | null;
+  activeSessions: number;
+  rooms: number;
+  objects: string[];
+  messages: Array<{ sender_id: string; content: string }>;
+  conversations: Array<{ id: string; closed: boolean }>;
+  reports: Array<{ reporter_id: string; reported_user_id: string | null }>;
+};
+
+/** Sesión 87: lo que queda de una cuenta en el mock tras eliminarla. */
+export async function accountDeletionState(
+  id: string
+): Promise<MockAccountDeletionState> {
+  const response = await mock(`/__test/account-deletion?id=${encodeURIComponent(id)}`);
+  expect(response.status).toBe(200);
+  return (await response.json()) as MockAccountDeletionState;
+}

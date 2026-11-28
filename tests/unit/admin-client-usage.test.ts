@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 
-// Fase 3.1 (D17) — service_role solo en el servidor y solo en cinco servicios:
+// Fase 3.1 (D17) — service_role solo en el servidor y solo en seis servicios:
 //   - lib/services/matching.ts: lectura cruzada de candidatos;
 //   - lib/services/compatibility.ts: escritura del test propio;
 //   - lib/services/room-images.ts (Fase 4.2, D17 ampliada): escritura de las
@@ -13,7 +13,10 @@ import path from "node:path";
 //     (20261030120000). Ni tablas ni Storage con el cliente admin;
 //   - lib/services/interests.ts (Fase 5.1, D17 ampliada): solo
 //     `rpc("record_interest")` y `rpc("withdraw_interest")` (20261126120000).
-//     Quién puede recibir un interés y el score los decide matching.ts.
+//     Quién puede recibir un interés y el score los decide matching.ts;
+//   - lib/services/account-deletion.ts (sesión 87, D17 ampliada): solo las
+//     tres rpc de 20261201120000 y `auth.admin.deleteUser` (borrar el usuario
+//     de Auth y revocar sus sesiones). Storage, en room-images.ts.
 // Ningún otro archivo de la app (app/, components/, lib/, proxy.ts) puede
 // importar lib/supabase/admin.ts ni usar createAdminClient(); la clave solo
 // la leen lib/env.server.ts (server-only) y lib/supabase/admin.ts; ningún
@@ -23,6 +26,7 @@ import path from "node:path";
 // el build de E1: tests/e2e/local/no-service-key-in-client.spec.ts).
 
 const ALLOWED = [
+  "lib/services/account-deletion.ts",
   "lib/services/compatibility.ts",
   "lib/services/interests.ts",
   "lib/services/matching.ts",
@@ -59,8 +63,8 @@ const APP_FILES = [
   ...(existsSync("proxy.ts") ? ["proxy.ts"] : []),
 ];
 
-describe("createAdminClient / service_role: solo en los cinco servicios autorizados", () => {
-  it("solo lib/services/{matching,compatibility,room-images,rooms,interests}.ts importan lib/supabase/admin", () => {
+describe("createAdminClient / service_role: solo en los seis servicios autorizados", () => {
+  it("solo lib/services/{matching,compatibility,room-images,rooms,interests,account-deletion}.ts importan lib/supabase/admin", () => {
     const importers = APP_FILES.filter((file) =>
       /from\s+["']@\/lib\/supabase\/admin["']|require\(["']@\/lib\/supabase\/admin["']\)/.test(
         code(file)
@@ -69,7 +73,7 @@ describe("createAdminClient / service_role: solo en los cinco servicios autoriza
     expect(importers).toEqual(ALLOWED);
   });
 
-  it("solo esos cinco archivos (y la definición) mencionan createAdminClient", () => {
+  it("solo esos seis archivos (y la definición) mencionan createAdminClient", () => {
     const users = APP_FILES.filter((file) =>
       code(file).includes("createAdminClient")
     ).sort();
@@ -97,7 +101,7 @@ describe("createAdminClient / service_role: solo en los cinco servicios autoriza
     expect(admin).not.toMatch(/process\.env/);
   });
 
-  it("los cinco servicios, el sanitizador de fotos, el cliente admin y la configuración privada son server-only", () => {
+  it("los seis servicios, el sanitizador de fotos, el cliente admin y la configuración privada son server-only", () => {
     for (const file of [
       ...ALLOWED,
       "lib/images/sanitize-room-image.ts",
@@ -172,12 +176,14 @@ describe("fotos de habitaciones (Fase 4.2, D1): sin URL públicas ni Storage fue
     expect(rooms).toContain("adminClient: () => createAdminClient(),");
   });
 
-  it("delete_own_room solo la llama rooms.ts, y solo rooms.ts, interests.ts y admin.ts usan .rpc(", () => {
+  it("delete_own_room solo la llama rooms.ts, y solo esos servicios usan .rpc(", () => {
     const callers = APP_FILES.filter((file) => /delete_own_room/.test(code(file)));
     expect(callers).toEqual(["lib/services/rooms.ts"]);
     const rpcUsers = APP_FILES.filter((file) => /\.rpc\(/.test(code(file))).sort();
     expect(rpcUsers).toEqual([
+      "lib/services/account-deletion.ts",
       "lib/services/admin.ts",
+      "lib/services/data-export.ts",
       "lib/services/interests.ts",
       "lib/services/rooms.ts",
     ]);
@@ -268,6 +274,47 @@ describe("fotos de habitaciones (Fase 4.2, D1): sin URL públicas ni Storage fue
     expect(chat.match(/\.update\(/g)).toHaveLength(1);
     expect(chat).toMatch(/\.update\(\{ last_read_at: newest\.created_at \}\)/);
     expect(chat).not.toMatch(/\.delete\(|\.upsert\(/);
+  });
+
+  it("account-deletion.ts usa el cliente admin solo para sus tres rpc y auth.admin.deleteUser (sesión 87)", () => {
+    const source = code("lib/services/account-deletion.ts");
+    expect(source).toMatch(/^import "server-only";/);
+    expect(source).not.toMatch(/\.from\(|\.storage\b/);
+    const calls = [...source.matchAll(/admin\.rpc\("([a-z_]+)"/g)].map((m) => m[1]);
+    expect(calls).toEqual([
+      "request_account_deletion",
+      "delete_account_data",
+      "complete_account_deletion",
+    ]);
+    expect(source.match(/\.rpc\(/g)).toHaveLength(3);
+    expect(source.match(/\.auth\.admin\./g)).toHaveLength(1);
+    expect(source).toContain("admin.auth.admin.deleteUser(userId)");
+    expect(source.match(/deps\.deletionAdminClient\(\)/g)).toHaveLength(1);
+    expect(source.match(/createAdminClient\(\)/g)).toHaveLength(1);
+    expect(source).toContain("deletionAdminClient: () => createAdminClient(),");
+    // El id es siempre el de la sesión.
+    expect(source).toContain("const userId = await getSessionUserId(supabase);");
+    const callers = APP_FILES.filter((file) =>
+      /request_account_deletion|delete_account_data|complete_account_deletion|deleteOwnAccount|removeAccountRoomObjects/.test(
+        code(file)
+      )
+    ).sort();
+    expect(callers).toEqual([
+      "app/actions/account-deletion.ts",
+      "lib/services/account-deletion.ts",
+      "lib/services/room-images.ts",
+    ]);
+    // Ningún otro sitio de la app usa la API de administración de Auth.
+    const authAdmin = APP_FILES.filter((file) => /\.auth\.admin\b/.test(code(file)));
+    expect(authAdmin).toEqual(["lib/services/account-deletion.ts"]);
+  });
+
+  it("la exportación (sesión 87) no usa service_role: data-export.ts solo llama a export_own_messages con el cliente del usuario", () => {
+    const source = code("lib/services/data-export.ts");
+    expect(source).not.toMatch(/adminClient\(\)|createAdminClient|lib\/supabase\/admin/);
+    expect(source.match(/\.rpc\(/g)).toHaveLength(1);
+    expect(source).toContain('supabase.rpc("export_own_messages")');
+    expect(source).not.toMatch(/\.insert\(|\.update\(|\.delete\(|\.upsert\(/);
   });
 
   it("nada de la app borra habitaciones con DELETE: desde 20261030120000 solo delete_own_room", () => {

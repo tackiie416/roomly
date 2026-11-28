@@ -6,6 +6,72 @@ próximos pasos.**
 
 ---
 
+## 2026-11-28 — Sesión 87: merge del PR #44, eliminación de cuenta, exportación con chats cerrados y preparación de staging
+
+Con la autorización del propietario del 2026-11-28 (merge del PR #44 si sus
+checks estaban en verde; seguir con la eliminación de cuentas con criterios
+provisionales, la exportación y la preparación de staging sin servicios
+reales; sin migraciones remotas ni merges de PR nuevos).
+
+**Qué se hizo**
+- PR #44: merge `59e6054` con la CI en verde; CI de `master` después del
+  merge en verde (run 115).
+- Migración `20261201120000_account_deletion.sql` (en local, sin aplicar en
+  ningún Supabase real):
+  - `account_deletion_requests` (RLS con política de denegación, sin
+    privilegios de clientes) y `request_account_deletion`,
+    `delete_account_data` y `complete_account_deletion` (SECURITY DEFINER,
+    EXECUTE solo de service_role, idempotentes; Storage antes que las filas);
+  - `reports` sin FK de persona ni habitación: los reportes se conservan con
+    el UUID como seudónimo. `trg_reports_integrity` (ahora SECURITY DEFINER)
+    sigue exigiendo que el destino exista al reportar, y `delete_own_room`
+    sigue rechazando borrar una habitación reportada;
+  - `export_own_messages()` para la exportación (solo los mensajes propios,
+    también de chats cerrados, con un número de conversación).
+- App: `/ajustes/eliminar-cuenta` (sin JavaScript, «ELIMINAR» y casilla,
+  validados en el servidor), `/cuenta-eliminada`, enlaces desde `/ajustes` y
+  `/cuenta-desactivada`. `lib/services/account-deletion.ts` (sexto servicio
+  con service_role, solo las tres rpc y `auth.admin.deleteUser`) y
+  `removeAccountRoomObjects` en `room-images.ts`.
+- «Descargar mis datos», versión 2 del formato: mensajes de chats cerrados y
+  notas de limitaciones en el JSON; sigue sin service_role.
+- Staging, sin tocar servicios: `docs/STAGING.md` (aislamiento, variables,
+  checklist de despliegue, pruebas manuales de Auth, redirects, RLS, Storage
+  y 4 MiB, rollback, comprobación de seguridad),
+  `npm run check:deploy-config` (`scripts/deploy-config-check.mjs`),
+  `npm run test:smoke` (`playwright.smoke.config.ts`, solo lecturas anónimas)
+  y `scripts/make-upload-fixtures.mjs`.
+- Documentación: `docs/PRIVACY_RETENTION.md` (sección 3 reescrita, puntos
+  legales), `docs/SECURITY.md`, `docs/TESTING.md`, `docs/LAUNCH_CHECKLIST.md`
+  y `CLAUDE.md`.
+
+**Resultados** (detalle en `docs/TESTING.md`): `test` 1949/1949, `test:db`
+1249 ok, `test:infra` 500 ok, E1 68/69 (el fallo es el `upload-size`
+inestable conocido), smoke 6/6 en local, lint, typecheck, format y build en
+verde.
+
+**Qué queda**
+- Revisión legal de lo que se conserva al eliminar una cuenta y de sus plazos
+  (`docs/PRIVACY_RETENTION.md`, secciones 5 y 6).
+- Aplicar `20261201120000` (y las de las Fases 5–7) en staging, con
+  autorización; validar allí el runtime completo y la subida de 4 MiB.
+
+**Problemas encontrados**
+- Sin las FK, el trigger de reportes no podía comprobar el destino con la RLS
+  de quien reporta: se hizo SECURITY DEFINER.
+- Una tabla con RLS y sin políticas la rechaza P5 del preflight: se añadió
+  una política de denegación explícita (43 políticas).
+- En un archivo `"use server"` solo se pueden exportar funciones async (el
+  build falló con una constante exportada).
+
+**Decisiones técnicas**
+- La eliminación es inmediata y reintentable, no programada: si un paso
+  falla, la cuenta queda desactivada y la solicitud pendiente.
+- Los mensajes que otras personas escribieron a la cuenta eliminada se
+  quedan en el chat cerrado (son también suyos); los propios se borran.
+
+---
+
 ## 2026-11-27 — Sesión 86: descargar mis datos (RGPD)
 
 Con la autorización del propietario para seguir hacia la beta (prioridad:

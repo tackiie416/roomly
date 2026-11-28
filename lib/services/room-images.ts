@@ -148,7 +148,9 @@ export type RecoveryEvent =
   | "room_objects_cleanup_skipped"
   | "room_objects_invalid_path"
   | "room_image_orphan_after_room_delete"
-  | "room_objects_unverified";
+  | "room_objects_unverified"
+  | "account_room_objects_skipped"
+  | "account_room_objects_remaining";
 
 export type RoomImagesDeps = {
   /** Cliente con service_role para escribir y firmar. Se inyecta en los tests. */
@@ -825,4 +827,91 @@ export async function removeDeletedRoomObjects(
     deps.reportRecovery("room_image_orphan_after_room_delete", `${folder}${name}`);
   }
   return { complete: remaining.length === 0 && invalid === 0 };
+}
+
+/** Pasadas de borrado y listado de una carpeta, como mucho. */
+const ACCOUNT_ROOM_CLEANUP_PASSES = 3;
+
+/**
+ * Eliminación de una cuenta (sesión 87, 20261201120000): borra del bucket
+ * **todos** los objetos de la carpeta `roomId/` de una habitación de una
+ * cuenta con la eliminación pedida, **antes** de que `delete_account_data`
+ * borre sus filas (docs/SECURITY.md, «Cascadas desde profiles y Auth»). Lo
+ * orquesta lib/services/account-deletion.ts, que nunca recibe la carpeta del
+ * navegador.
+ *
+ *   1. Con service_role se comprueba que la habitación existe y es de
+ *      `ownerId`, que esa cuenta está desactivada y que tiene una solicitud de
+ *      eliminación sin completar. Si no, no se borra nada: impide usar la
+ *      función para vaciar la carpeta de otra habitación o de una cuenta
+ *      activa;
+ *   2. se lista la carpeta y se borra todo lo que hay (fotos y huérfanos de
+ *      subidas ambiguas: todo es de esa habitación), hasta que quede vacía o
+ *      se agoten las pasadas;
+ *   3. `complete` solo es `true` si el último listado sale vacío. La base de
+ *      datos lo vuelve a comprobar (account_deletion_storage_pending).
+ */
+export async function removeAccountRoomObjects(
+  roomId: unknown,
+  ownerId: unknown,
+  deps: RoomImagesDeps = DEFAULT_DEPS
+): Promise<RoomObjectsCleanup> {
+  const room = uuidSchema.safeParse(roomId);
+  const owner = uuidSchema.safeParse(ownerId);
+  if (!room.success || !owner.success) return { complete: false };
+  const id = room.data;
+  const folder = `${id}/`;
+
+  const admin = deps.adminClient();
+  try {
+    const [roomRead, profileRead, requestRead] = await Promise.all([
+      admin.from("rooms").select("id, owner_id").eq("id", id).maybeSingle(),
+      admin.from("profiles").select("id, deleted_at").eq("id", owner.data).maybeSingle(),
+      admin
+        .from("account_deletion_requests")
+        .select("user_id, completed_at")
+        .eq("user_id", owner.data)
+        .maybeSingle(),
+    ]);
+    const roomRow = roomRead.data as { owner_id?: string } | null;
+    const profileRow = profileRead.data as { deleted_at?: string | null } | null;
+    const requestRow = requestRead.data as { completed_at?: string | null } | null;
+    if (
+      roomRead.error ||
+      profileRead.error ||
+      requestRead.error ||
+      roomRow?.owner_id !== owner.data ||
+      !profileRow?.deleted_at ||
+      !requestRow ||
+      requestRow.completed_at
+    ) {
+      deps.reportRecovery("account_room_objects_skipped", folder);
+      return { complete: false };
+    }
+  } catch {
+    deps.reportRecovery("account_room_objects_skipped", folder);
+    return { complete: false };
+  }
+
+  const bucket = admin.storage.from(ROOM_IMAGES_BUCKET);
+  for (let pass = 0; pass < ACCOUNT_ROOM_CLEANUP_PASSES; pass += 1) {
+    const names = await listRoomObjects(bucket, id);
+    if (names === null) {
+      deps.reportRecovery("room_objects_unverified", folder);
+      return { complete: false };
+    }
+    if (names.length === 0) return { complete: true };
+    try {
+      await bucket.remove(names.map((name) => `${folder}${name}`));
+    } catch {
+      // El siguiente listado dirá qué queda.
+    }
+  }
+  const remaining = await listRoomObjects(bucket, id);
+  if (remaining === null) {
+    deps.reportRecovery("room_objects_unverified", folder);
+    return { complete: false };
+  }
+  if (remaining.length > 0) deps.reportRecovery("account_room_objects_remaining", folder);
+  return { complete: remaining.length === 0 };
 }

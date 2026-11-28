@@ -94,9 +94,13 @@ select roomly_test.ok(
                        'public.purge_closed_conversation_messages(timestamptz)'::regprocedure,
                        'public.enforce_interests_abuse_limits()'::regprocedure,
                        'public.log_interest()'::regprocedure,
-                       'public.enforce_matches_not_blocked()'::regprocedure,
-                       'public.enforce_reports_integrity()'::regprocedure)),
-  'BR0: funciones nuevas solo de service_role, SECURITY INVOKER y search_path vacío');
+                       'public.enforce_matches_not_blocked()'::regprocedure))
+  -- Desde 20261201120000, enforce_reports_integrity es SECURITY DEFINER: sin
+  -- las FK de reports, comprueba que el destino existe sin la RLS de quien
+  -- reporta. Sigue sin EXECUTE de clientes y con search_path vacío.
+  and (select p.prosecdef and p.proconfig @> array['search_path=""']
+       from pg_proc p where p.oid = 'public.enforce_reports_integrity()'::regprocedure),
+  'BR0: funciones nuevas solo de service_role, SECURITY INVOKER (salvo el trigger de reports) y search_path vacío');
 select roomly_test.ok(
   -- Desde la Fase 7 (20261129120000) ningún cliente actualiza reports: un
   -- admin los resuelve con admin_set_report_status (tests/db/29).

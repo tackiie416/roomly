@@ -37,9 +37,22 @@ function respondWith(overrides: Partial<Record<string, (call: Call) => unknown>>
           data: [{ created_at: "2026-11-03T00:00:00Z", compatibility_score: 82 }],
           error: null,
         };
-      case "messages":
+      case "rpc:export_own_messages":
         return {
-          data: [{ created_at: "2026-11-04T00:00:00Z", content: "Hola" }],
+          data: [
+            {
+              conversation_number: 1,
+              conversation_closed: false,
+              created_at: "2026-11-04T00:00:00Z",
+              content: "Hola",
+            },
+            {
+              conversation_number: 2,
+              conversation_closed: true,
+              created_at: "2026-11-05T00:00:00Z",
+              content: "Adiós",
+            },
+          ],
           error: null,
         };
       case "user_blocks":
@@ -89,7 +102,9 @@ describe("exportOwnData", () => {
   it("un error de la base de datos no se propaga con detalles", async () => {
     const fake = createFakeSupabase({
       userId: ME,
-      respond: respondWith({ messages: () => dbError("XX000", "detalle interno") }),
+      respond: respondWith({
+        "rpc:export_own_messages": () => dbError("XX000", "detalle interno"),
+      }),
     });
     const result = await exportOwnData(fake.client, NOW);
     expect(result.ok).toBe(false);
@@ -104,12 +119,15 @@ describe("exportOwnData", () => {
     const data = result.data;
     expect(data).toMatchObject({
       format: "roomly-data-export",
-      version: 1,
+      version: 2,
       generatedAt: "2026-11-27T10:00:00.000Z",
       account: { id: ME },
       interestsReceivedCount: 3,
       matches: [{ compatibilityScore: 82 }],
-      messagesSent: [{ content: "Hola" }],
+      messagesSent: [
+        { conversationNumber: 1, conversationClosed: false, content: "Hola" },
+        { conversationNumber: 2, conversationClosed: true, content: "Adiós" },
+      ],
       blocksMade: [{ createdAt: "2026-11-05T00:00:00Z" }],
       reportsMade: [{ target: "person", reason: "spam", status: "resolved" }],
     });
@@ -125,7 +143,18 @@ describe("exportOwnData", () => {
   it("cada consulta, con columnas explícitas y acotada a quien pide", async () => {
     const fake = createFakeSupabase({ userId: ME, respond: respondWith() });
     await exportOwnData(fake.client, NOW);
-    for (const call of fake.calls) {
+    // Los mensajes, con la función de 20261201120000 (solo los de quien
+    // pregunta, por auth.uid(); sin argumentos que el navegador pueda cambiar).
+    const rpc = fake.calls.filter((c) => c.operation === "rpc");
+    expect(rpc).toEqual([
+      {
+        table: "rpc:export_own_messages",
+        operation: "rpc",
+        filters: [],
+        terminal: "await",
+      },
+    ]);
+    for (const call of fake.calls.filter((c) => c.operation !== "rpc")) {
       expect(call.operation, call.table).toBe("select");
       expect(call.columns, call.table).toBeTruthy();
       expect(call.columns, call.table).not.toContain("*");
@@ -139,12 +168,8 @@ describe("exportOwnData", () => {
     }
     const reports = fake.calls.find((c) => c.table === "reports");
     expect(reports?.columns).not.toMatch(/resolution_notes|resolved_by/);
-    const messages = fake.calls.find((c) => c.table === "messages");
-    expect(messages?.filters).toContainEqual({
-      kind: "eq",
-      column: "sender_id",
-      value: ME,
-    });
+    // Ninguna lectura directa de messages: la tabla solo da los chats abiertos.
+    expect(fake.calls.map((c) => c.table)).not.toContain("messages");
   });
 
   it("sin N+1: el número de consultas no crece con las habitaciones", async () => {

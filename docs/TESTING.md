@@ -1655,6 +1655,39 @@ workflow manual.
   interés por habitación) y `student-flow` con «Mensajes» en la navegación.
   El mock emula las tres tablas, el trigger y las dos rpc nuevas.
 
+## Eliminación de cuenta, exportación y staging (sesión 87, en local)
+
+Resultados en este entorno (2026-11-28), sin Supabase real:
+
+- `test` 1949/1949 (81 archivos), `lint`, `typecheck`, `format:check` y
+  `build` en verde.
+- `test:db` 1249 `ok`, 0 fallos, con `tests/db/31_account_deletion.sql`
+  (AD0–AD8: privilegios y catálogo, clientes rechazados, sin solicitud,
+  solicitud idempotente, Storage antes que las filas, qué se borra y qué se
+  conserva, completar tras borrar en Auth, `export_own_messages` y reportes
+  sin FK). Ajustados: el recuento de políticas (43) en `tests/db/10`, `13`,
+  `14`, `20` y `21`; `tests/db/28` (BR0: `enforce_reports_integrity` ahora es
+  SECURITY DEFINER) y `tests/db/30` (PS0 ya no espera las FK de `reports`).
+- `test:infra` 500 `ok`, 0 fallos (preflight de 21 tablas, 43 políticas, 27
+  triggers y 51 funciones).
+- Unitarios nuevos: `services-account-deletion` (orden, idempotencia,
+  Storage antes que datos y Auth, ids que no son UUID, la limpieza de Storage
+  solo de la carpeta propia y nunca «completa» sin verificar),
+  `account-deletion-actions`, `deploy-config-check` (25) y los cambios de
+  `services-data-export` (los mensajes, solo con la rpc). El cliente
+  simulado (`tests/unit/helpers/fake-supabase.ts`) registra ahora `rpc`.
+- E1: 68/69 con el Chromium preinstalado. El nuevo
+  `account-deletion.spec.ts` (3) pasa: exportación con los mensajes propios
+  de un chat abierto y otro cerrado sin los de la otra persona; eliminación
+  con la confirmación del servidor, fotos fuera del bucket, usuario y
+  sesiones fuera de Auth, chat cerrado para la otra persona y rutas privadas
+  de vuelta al login; y eliminación desde una cuenta desactivada. El fallo es
+  el `upload-size.spec.ts` de más de 5 MB, inestable en este entorno y en
+  verde en la CI.
+- Smoke tests de despliegue (`npm run test:smoke`, nuevo, fuera de la CI):
+  6/6 contra el build de producción local con el mock. **Nunca contra un
+  despliegue.** Procedimiento: `docs/STAGING.md`.
+
 ## Auditoría con actor seudónimo (sesión 85, en local)
 
 - `tests/db/30_admin_audit_pseudonym.sql` (PS0–PS4, 13): sin FK en

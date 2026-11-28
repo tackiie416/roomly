@@ -582,10 +582,27 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
     `admin_action_logs.admin_id` y `reports.resolved_by` (el UUID queda como
     seudónimo) y el INSERT/UPDATE de service_role en el registro. No
     vuelvas a hacerlas FK ni uses `set null`/`cascade` sobre la auditoría.
-- **Descargar mis datos** (sesión 86, sin merge): `GET /ajustes/mis-datos` y
-  `lib/services/data-export.ts`, solo con el cliente del usuario. No le des
-  service_role ni le añadas datos o ids de otras personas, notas de
-  moderación ni `room_addresses` (`docs/PRIVACY_RETENTION.md`, punto 2).
+- **Descargar mis datos** (sesión 86, integrada con el PR #44, `59e6054`):
+  `GET /ajustes/mis-datos` y `lib/services/data-export.ts`, solo con el
+  cliente del usuario. No le des service_role ni le añadas datos o ids de
+  otras personas, notas de moderación ni `room_addresses`
+  (`docs/PRIVACY_RETENTION.md`, punto 2). Desde la sesión 87 (sin merge) los
+  mensajes propios salen con `rpc("export_own_messages")`, también de chats
+  cerrados; no leas `messages` directamente ni devuelvas mensajes ajenos.
+- **Eliminar la cuenta** (sesión 87, rama `claude/project-thread-5tguj4`, sin
+  merge y **sin aplicar en Supabase real**; criterios provisionales del
+  propietario del 2026-11-28, puntos legales en
+  `docs/PRIVACY_RETENTION.md`, sección 3): migración `20261201120000`,
+  `/ajustes/eliminar-cuenta` y `lib/services/account-deletion.ts`. Orden
+  fijo: solicitud y desactivación → Storage → `delete_account_data` →
+  `auth.admin.deleteUser` → completar. No cambies el orden ni borres filas
+  antes de vaciar Storage. `reports` ya no tiene FK de persona ni de
+  habitación (los reportes se conservan con el UUID como seudónimo): no las
+  vuelvas a añadir ni uses cascadas sobre ellos. Preflight: 21 tablas, 43
+  políticas, 27 triggers y 51 funciones.
+- **Staging** (sesión 87, preparación sin ejecutar): `docs/STAGING.md`,
+  `npm run check:deploy-config` y `npm run test:smoke`. No conectes ni
+  modifiques Netlify, Vercel ni Supabase sin autorización.
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.
@@ -670,6 +687,8 @@ npm run test:db              # tests de seguridad/RLS contra PostgreSQL local (v
 npm run test:supabase         # validación contra el Supabase de validación (solo vía workflow manual, ver docs/SUPABASE_VALIDATION.md)
 npm run test:e2e              # E1: Playwright contra el Supabase simulado (necesita `npx playwright install chromium`)
 npm run test:e2e:real         # E2: alta real contra roomly-validation-3 (solo desde el workflow manual)
+npm run check:deploy-config   # comprueba las variables de un despliegue sin conectarse (docs/STAGING.md)
+npm run test:smoke            # smoke tests de solo lectura contra SMOKE_BASE_URL (docs/STAGING.md)
 npm run test:infra            # auto-tests de guarda, runner SQL, preflight, actualización, R8, conciliación de fotos (4.2), verificación de la limpieza, propuesta de privilegios por defecto y runbook del incidente, contra PostgreSQL local
 npm run format                  # Prettier --write
 npm run format:check             # Prettier --check
@@ -790,7 +809,9 @@ sobreingeniería (`docs/DATABASE.md`, "Revisión crítica").
     bloqueo de cuentas eliminadas **también a service_role**: el bloqueo
     RLS de cuentas eliminadas no le afecta, por BYPASSRLS.
   - No reabras la escritura de `authenticated`.
-- **service_role solo en cinco servicios** (Fase 3, D17; ampliada en la 4.2,
+- **service_role solo en seis servicios** (desde la sesión 87, también
+  `lib/services/account-deletion.ts`: solo sus tres rpc y
+  `auth.admin.deleteUser`) (Fase 3, D17; ampliada en la 4.2,
   en la sesión 65 y en la Fase 5.1): `lib/services/matching.ts` (lectura cruzada de
   candidatos, columnas explícitas, `CandidateDTO` con lista blanca, y desde
   la sesión 83 los bloqueos de quien mira, en los dos sentidos),

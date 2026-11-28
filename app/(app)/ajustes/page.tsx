@@ -60,6 +60,15 @@ export default async function SettingsPage() {
             enviados y reportes)
           </span>
         </p>
+        <p className="text-sm">
+          <Link
+            href="/ajustes/eliminar-cuenta"
+            className="underline"
+            data-testid="account-deletion-link"
+          >
+            Eliminar mi cuenta
+          </Link>
+        </p>
       </Card>
       <Card className="flex flex-col gap-3">
         <h2 className="text-sm font-medium">Sesión</h2>

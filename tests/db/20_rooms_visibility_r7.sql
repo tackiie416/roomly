@@ -276,6 +276,6 @@ rollback;
 reset role;
 select roomly_test.ok(
   has_function_privilege('anon', 'public.is_room_publicly_visible(uuid)', 'EXECUTE')
-  and (select count(*) = 42 from pg_policies where schemaname = 'public'),
-  'VR6: los controles se deshicieron: anon conserva EXECUTE y siguen 42 políticas (40 hasta 20261128120000, 42 hasta la Fase 5.1)');
+  and (select count(*) = 43 from pg_policies where schemaname = 'public'),
+  'VR6: los controles se deshicieron: anon conserva EXECUTE y siguen 43 políticas (42 hasta 20261201120000; 40 hasta 20261128120000, 42 hasta la Fase 5.1)');
 drop view r7_rooms, r7_images;

@@ -1855,6 +1855,51 @@ menciones describen el estado de entonces.
 - La propietaria no ve el reporte. El admin lo resuelve en `/admin/reportes`,
   y puede retirar el anuncio como medida, con su registro.
 
+## Eliminación de la cuenta y exportación (20261201120000, sesión 87, en local)
+
+Sin aplicar en ningún Supabase real. Diseño, qué se conserva y puntos legales:
+`docs/PRIVACY_RETENTION.md`, sección 3.
+
+- `request_account_deletion`, `delete_account_data` y
+  `complete_account_deletion`: SECURITY DEFINER, `search_path = ''`,
+  EXECUTE solo de service_role (ni PUBLIC, ni anon, ni authenticated). El id
+  lo pone el servidor desde la sesión (`getSessionUserId`), nunca el
+  navegador; el esquema del formulario es estricto.
+- `account_deletion_requests`: RLS activada con una única política de
+  denegación (`using (false)`), sin privilegios de clientes; service_role solo
+  SELECT. Las funciones son las únicas que escriben.
+- `delete_account_data` rechaza borrar si queda alguna foto en Storage
+  (55000), exige la solicitud y la cuenta desactivada, y exige READ
+  COMMITTED. Es idempotente: con el perfil ya borrado devuelve
+  `profile_absent`.
+- **D17 ampliada (sexto servicio con service_role):**
+  `lib/services/account-deletion.ts`, solo para esas tres rpc y
+  `auth.admin.deleteUser`. Storage lo borra `room-images.ts`
+  (`removeAccountRoomObjects`, que comprueba propiedad, cuenta desactivada y
+  solicitud pendiente). Ningún otro archivo usa `auth.admin`
+  (`tests/unit/admin-client-usage.test.ts`).
+- Las sesiones se revocan al borrar el usuario de Auth. El JWT de acceso ya
+  emitido caduca solo (ver las limitaciones en PRIVACY_RETENTION).
+- `reports`: sin FK de persona ni de habitación. La existencia del destino al
+  reportar la comprueba `trg_reports_integrity`, ahora SECURITY DEFINER (con
+  `search_path` vacío) porque la RLS de quien reporta no le deja leer perfiles
+  ajenos; solo devuelve el error 23503, nunca datos. `delete_own_room` sigue
+  rechazando borrar una habitación reportada.
+- `export_own_messages()`: SECURITY DEFINER, solo filas con
+  `sender_id = auth.uid()`, sin argumentos, EXECUTE solo de authenticated.
+  Devuelve un número de conversación (no su id), si está cerrada, la fecha y
+  el texto. `data-export.ts` sigue sin service_role.
+- Preflight: 21 tablas, 43 políticas, 27 triggers y 51 funciones.
+
+## Configuración de un despliegue (sesión 87)
+
+`npm run check:deploy-config -- --target=staging` (o `production`) comprueba
+las variables del proceso sin conectarse a nada y sin imprimir valores: URL
+https de un proyecto `<ref>.supabase.co` que no sea uno prohibido (`uwxb…` y
+los de `DEPLOY_FORBIDDEN_SUPABASE_REFS`), claves anon y service_role del mismo
+proyecto y con su rol, ninguna `NEXT_PUBLIC_*` con un secreto, y
+`NEXT_PUBLIC_SITE_URL` https. Detalle: `docs/STAGING.md`.
+
 ## Privacidad de ubicación
 
 `room_addresses.address_exact` en tabla separada, RLS restringida al
