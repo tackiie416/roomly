@@ -90,6 +90,12 @@ tampoco: es una guía para decidirlo.
 - [ ] (L) Si «Descargar mis datos» basta para el derecho de acceso y la
       portabilidad (desde la sesión 87 incluye los mensajes propios de chats
       cerrados).
+- [ ] (P/C) Accesibilidad: revisión manual con teclado y lector de
+      pantalla de los flujos principales. Lo automático ya pasa (axe, WCAG 2.1
+      A y AA, y sin scroll horizontal a 375 px en 22 páginas, en escritorio y
+      en móvil: `tests/e2e/local/accessibility.spec.ts`, sesión 88), pero axe
+      no detecta el orden de lectura, la claridad de los textos ni los
+      problemas de uso con teclado.
 - [ ] (P) Canal de soporte y de avisos de seguridad, y quién atiende los
       reportes y en qué plazo.
 

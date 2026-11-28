@@ -2021,6 +2021,10 @@ cuanto exista.
   Claude Code (`docs/TESTING.md`). Repetir `npm audit` antes del primer
   despliegue.
 
+- **Sesión 88.** Nueva dependencia de desarrollo `@axe-core/playwright`
+  4.14.0, con la versión exacta (solo para E1; `axe-core` ya estaba en el
+  árbol por `eslint-plugin-jsx-a11y`). `npm audit`: 0 vulnerabilidades.
+
 ## Cabeceras HTTP (sesión 86)
 
 `next.config.ts` (`SECURITY_HEADERS`, fijado por

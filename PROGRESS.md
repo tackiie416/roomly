@@ -29,14 +29,19 @@ externos, sin migraciones remotas, sin desplegar y sin merges de PR nuevos).
   defecto), `preflight.sh`, `seed-demo.sh`, `seed-demo.sql` y
   `cleanup-demo.sql`, con `staging-selftest.sh` en `test:infra`. P0 del
   preflight acepta `roomly-staging` solo si se pide expresamente.
+- Accesibilidad: `tests/e2e/local/accessibility.spec.ts` con
+  `@axe-core/playwright` 4.14.0 (WCAG 2.1 A y AA y sin scroll horizontal en
+  22 páginas, a 1280 y 375 px). Pasó sin cambios en la interfaz; la revisión
+  manual sigue pendiente.
+- CI: `staging-selftest.sh` en el job `db-security`.
 - Documentación: `docs/STAGING.md` (sección 3.1, 26 migraciones),
   `docs/SECURITY.md`, `docs/TESTING.md`, `docs/LAUNCH_CHECKLIST.md` y
   `CLAUDE.md`.
 
 **Resultados** (detalle en `docs/TESTING.md`): `test` 1957/1957, `test:db`
-1262 ok, `test:infra` 529 ok, smoke 6/6, E1 69/71 en local (los dos fallos
-son de `upload-size.spec.ts` y dependen del entorno), lint, typecheck,
-format, build y `npm audit` en verde.
+1262 ok, `test:infra` 529 ok, smoke 6/6, E1 74/75 en local (el fallo es de
+`upload-size.spec.ts` y depende del entorno; en la CI del PR #46 pasó), lint,
+typecheck, format, build y `npm audit` en verde.
 
 **Qué queda**
 - Revisión legal: si un reporte abierto debe retrasar la eliminación y si se

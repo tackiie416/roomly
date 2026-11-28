@@ -1665,14 +1665,20 @@ workflow manual.
   de reactivar, y eliminación desde `/cuenta-desactivada`) y
   `login-enumeration.spec.ts` (con el registro cerrado, misma respuesta con y
   sin cuenta). El mock tiene `/__test/signups` y `/__test/request-deletion`.
-- `scripts/staging/staging-selftest.sh` (en `test:infra`): 28 comprobaciones
-  de la guarda de staging, el dry run, `--apply`, el preflight y los datos
-  ficticios, con proyectos simulados en PostgreSQL local.
+- E1 `accessibility.spec.ts` (`@axe-core/playwright`): WCAG 2.1 A y AA sin
+  infracciones y sin scroll horizontal en 22 páginas (públicas, con sesión y
+  de admin), a 1280 px y a 375 px. Comprueba que no hay redirección y que axe
+  evaluó más de 10 reglas en cada página. No sustituye una revisión manual.
+- `scripts/staging/staging-selftest.sh` (en `test:infra` y en el job
+  `db-security` de la CI): 28 comprobaciones de la guarda de staging, el dry
+  run, `--apply`, el preflight y los datos ficticios, con proyectos simulados
+  en PostgreSQL local.
 
 Resultados en local: `test` 1957/1957, `test:db` 1262 ok, `test:infra` 529
-ok, smoke 6/6, lint, typecheck, format y build en verde. E1: 69/71 con los
-dos fallos de `upload-size.spec.ts` (el >5 MB y el 413 simulado), que dependen
-del entorno local; la referencia es la CI del PR. `npm audit`: 0
+ok, smoke 6/6, lint, typecheck, format y build en verde. E1: 74/75 con
+`accessibility.spec.ts`. El fallo es uno de `upload-size.spec.ts` (el 413
+simulado), que depende del entorno local; la CI del PR #46 pasó E1 entero
+sobre `1c93fb2`. `npm audit`: 0
 vulnerabilidades. Nada se ha ejecutado contra un Supabase real.
 
 ## Eliminación de cuenta, exportación y staging (sesión 87, en local)
