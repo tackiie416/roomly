@@ -9,7 +9,7 @@ import type { DbClient } from "@/lib/services/result";
  * reacciona a cada respuesta.
  */
 
-export type Operation = "select" | "insert" | "update" | "delete";
+export type Operation = "select" | "insert" | "update" | "delete" | "rpc";
 
 export type Call = {
   table: string;
@@ -181,12 +181,24 @@ export function createFakeSupabase(options: {
       },
     },
     from: (table: string) => builder(table),
+    /** `rpc(name, args)`: se registra con `table = "rpc:<name>"` y los argumentos en `payload`. */
+    rpc: (name: string, args?: Record<string, unknown>) => {
+      const recorded: Call = {
+        table: `rpc:${name}`,
+        operation: "rpc",
+        ...(args ? { payload: args } : {}),
+        filters: [],
+        terminal: "await",
+      };
+      calls.push(recorded);
+      return Promise.resolve(respond(recorded, calls.length - 1));
+    },
   };
 
   return { client: client as unknown as DbClient, calls, authCalls };
 }
 
-/** Todos los payloads de escritura (insert/update) registrados. */
+/** Todos los payloads de escritura (insert/update/delete) registrados. */
 export function writePayloads(calls: Call[]) {
-  return calls.filter((call) => call.operation !== "select");
+  return calls.filter((call) => call.operation !== "select" && call.operation !== "rpc");
 }

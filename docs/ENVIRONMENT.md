@@ -130,6 +130,10 @@ Mientras no se decida, el primer despliegue sigue pendiente de decisión
 («Pendiente de decisión humana» en `CLAUDE.md`): Vercel, como dice la
 documentación, o Netlify, que es lo que hay conectado.
 
+Preparación de un staging aislado (variables sin valores, comprobación con
+`npm run check:deploy-config`, despliegue, smoke tests y rollback):
+`docs/STAGING.md` (sesión 87, sin ejecutar).
+
 ## Runtime del proxy
 
 `proxy.ts` (antes `middleware.ts`) se ejecuta en **Node.js**: es el único

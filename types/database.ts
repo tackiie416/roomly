@@ -482,6 +482,17 @@ export interface Database {
         Update: never; // append-only
         Relationships: [];
       };
+      /**
+       * 20261201120000 (sesión 87): solicitudes de eliminación de cuenta. Sin
+       * acceso de clientes; service_role solo la lee (las escriben las
+       * funciones de eliminación).
+       */
+      account_deletion_requests: {
+        Row: { user_id: string; requested_at: string; completed_at: string | null };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
       notifications: {
         Row: {
           id: string;
@@ -571,6 +582,32 @@ export interface Database {
       unblock_user: {
         Args: { p_blocker: string; p_blocked: string };
         Returns: "unblocked" | "not_found";
+      };
+      /**
+       * 20261201120000 (sesión 87): eliminación de la cuenta propia. Solo
+       * service_role (lib/services/account-deletion.ts).
+       */
+      request_account_deletion: {
+        Args: { p_user_id: string };
+        Returns: Json;
+      };
+      delete_account_data: {
+        Args: { p_user_id: string };
+        Returns: Json;
+      };
+      complete_account_deletion: {
+        Args: { p_user_id: string };
+        Returns: boolean;
+      };
+      /** 20261201120000: los mensajes propios, también de chats cerrados (authenticated). */
+      export_own_messages: {
+        Args: Record<string, never>;
+        Returns: {
+          conversation_number: number;
+          conversation_closed: boolean;
+          created_at: string;
+          content: string;
+        }[];
       };
     };
     Enums: {

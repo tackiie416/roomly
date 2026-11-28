@@ -45,10 +45,8 @@ select roomly_test.ok(
    where tgrelid = 'public.admin_action_logs'::regclass and not tgisinternal
      and tgname in ('trg_admin_action_logs_append_only', 'trg_admin_action_logs_no_truncate')) = 2,
   'PS0: los dos triggers de solo añadir siguen activos');
-select roomly_test.ok(
-  (select count(*) from pg_constraint
-   where conrelid = 'public.reports'::regclass and contype = 'f') = 3,
-  'PS0: reports conserva sus otras tres FK (quién reporta, a quién y qué habitación)');
+-- Desde 20261201120000 las otras tres columnas de reports tampoco son FK
+-- (tests/db/31, AD0).
 
 -- ------------------------------------------------------------
 -- 1. X actúa: suspende y reactiva a W y cierra el reporte de U

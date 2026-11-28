@@ -1,6 +1,7 @@
 # Checklist de staging, beta cerrada y lanzamiento
 
-Sesión 86 (2026-11-28). Reúne en un solo sitio los pendientes que ya están
+Sesión 86 (2026-11-28), actualizada en la sesión 87. Procedimiento de
+staging (variables, despliegue, smoke tests, rollback): `docs/STAGING.md`. Reúne en un solo sitio los pendientes que ya están
 documentados en `CLAUDE.md`, `docs/SECURITY.md`, `docs/PRIVACY_RETENTION.md`,
 `docs/SUPABASE_VALIDATION.md` y `docs/ROADMAP.md`. **No cierra ninguno ni
 añade criterios de fase.** Cada punto dice quién lo decide o lo hace: el
@@ -25,8 +26,11 @@ tampoco: es una guía para decidirlo.
 - [ ] (C) Aplicar las migraciones de `master` en una transacción, incluidas
       las que aún no están en ningún proyecto real:
       `20261126120000` (intereses y matches), `20261127120000` (chat),
-      `20261128120000` (bloqueos y reportes), `20261129120000` (admin) y, si
-      se integra el PR #44, `20261130120000` (auditoría seudónima).
+      `20261128120000` (bloqueos y reportes), `20261129120000` (admin),
+      `20261130120000` (auditoría seudónima) y `20261201120000` (eliminación
+      de cuenta).
+- [ ] (P/C) `npm run check:deploy-config -- --target=staging` sin errores con
+      las variables del sitio.
 - [ ] (C) Preflight P0–P6, suite SQL completa, api-suite y AU3/AU5 en verde
       contra staging.
 - [ ] (P) `SUPABASE_SERVICE_ROLE_KEY` solo en el servidor de staging, nunca en
@@ -44,8 +48,10 @@ tampoco: es una guía para decidirlo.
       `/test`, `/explorar`, «Me interesa», `/matches`, chat, fotos, CRUD de
       habitaciones, búsqueda pública, bloqueos, reportes y panel de admin.
 - [ ] (C) E2 real con las Fases 4–7 (hoy solo llega a `/test`).
+- [ ] (C) `npm run test:smoke` contra la URL de staging (6 comprobaciones de
+      solo lectura; 6/6 en local).
 - [ ] (C) Medir la subida de una foto de 4 MiB en la plataforma real (en local:
-      4 195 232 bytes). Si el límite es menor, bajar `ROOM_IMAGE_MAX_BYTES`
+      4 195 232 bytes; fotos con `scripts/make-upload-fixtures.mjs`). Si el límite es menor, bajar `ROOM_IMAGE_MAX_BYTES`
       o cambiar el modelo de subida.
 - [ ] (C) Comprobar las cabeceras de `next.config.ts` en el dominio real
       (HSTS solo aplica por HTTPS) y probar una CSP de scripts con nonces.
@@ -68,11 +74,14 @@ tampoco: es una guía para decidirlo.
 - [ ] (P/L) Conservación de mensajes de chats cerrados, reportes y auditoría
       (`docs/PRIVACY_RETENTION.md`, puntos 4–6). Ninguna purga se ejecuta ni
       se programa hasta decidirlo.
-- [ ] (P/L) Borrado de cuenta (H6): desde la app o por soporte. Mientras no
-      exista, un procedimiento manual documentado para atender solicitudes,
-      que limpie Storage antes de borrar el perfil.
+- [ ] (P/L) Eliminación de cuenta (implementada en local, sesión 87): validar
+      con legal lo que se conserva (reportes, auditoría, la solicitud, los
+      mensajes que otras personas le escribieron), sus plazos, el texto de
+      `/ajustes/eliminar-cuenta` y si una cuenta suspendida puede eliminarse.
+- [ ] (C) Probar la eliminación en staging (`docs/STAGING.md`, sección 6).
 - [ ] (L) Si «Descargar mis datos» basta para el derecho de acceso y la
-      portabilidad, y si debe incluir los mensajes de chats cerrados.
+      portabilidad (desde la sesión 87 incluye los mensajes propios de chats
+      cerrados).
 - [ ] (P) Canal de soporte y de avisos de seguridad, y quién atiende los
       reportes y en qué plazo.
 

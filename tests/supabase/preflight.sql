@@ -53,9 +53,10 @@ begin
   raise notice 'P1 info - %', version();
 
   select count(*) into n_tables from pg_tables where schemaname = 'public';
-  -- 20 desde 20261128120000 (user_blocks e interest_log).
-  if n_tables <> 20 then
-    raise exception 'FALLO P1: se esperaban 20 tablas en public, hay %', n_tables;
+  -- 20 desde 20261128120000 (user_blocks e interest_log); 21 desde
+  -- 20261201120000 (account_deletion_requests).
+  if n_tables <> 21 then
+    raise exception 'FALLO P1: se esperaban 21 tablas en public, hay %', n_tables;
   end if;
 
   if to_regprocedure('public.is_conversation_participant(uuid)') is null then
@@ -291,7 +292,8 @@ end $$;
 -- authenticated): −1 +2. En 20261126120000 (Fase 5.1) se eliminan
 -- `interests_insert_own` e `interests_delete_own`: el interés lo escribe el
 -- servidor. En 20261128120000 (sesión 83) se añaden `user_blocks_select_own`
--- e `interest_log_no_client_access`. Total: 42 en 20 tablas.
+-- e `interest_log_no_client_access`. Total: 42 en 20 tablas. En 20261201120000 se añade
+-- `account_deletion_requests_no_client_access`. Total: 43 en 21 tablas.
 -- Se compara (tabla, política, comando) en los dos sentidos: falta o sobra
 -- cualquiera → fallo, con el nombre. Además (Fase 4.0), cada política de
 -- escritura de rooms, room_addresses y room_images exige la cuenta activa
@@ -328,6 +330,7 @@ begin
     ('housing_preferences', 'housing_preferences_select_own', 'SELECT'),
     ('housing_preferences', 'housing_preferences_update_own', 'UPDATE'),
     ('interest_log', 'interest_log_no_client_access', 'SELECT'),
+    ('account_deletion_requests', 'account_deletion_requests_no_client_access', 'SELECT'),
     ('interests', 'interests_select_participant', 'SELECT'),
     ('matches', 'matches_select_participant', 'SELECT'),
     ('messages', 'messages_insert_participant', 'INSERT'),
@@ -371,8 +374,8 @@ begin
      from (select * from actual except select * from expected) a)
   into n_expected, missing, unexpected;
 
-  if n_expected <> 42 then
-    raise exception 'FALLO P3: la lista esperada no tiene 42 entradas (error del propio preflight)';
+  if n_expected <> 43 then
+    raise exception 'FALLO P3: la lista esperada no tiene 43 entradas (error del propio preflight)';
   end if;
   if missing is not null or unexpected is not null then
     raise exception 'FALLO P3: políticas distintas de las esperadas. Faltan: %. Sobran: %',
@@ -459,7 +462,7 @@ begin
     end if;
   end;
 
-  raise notice 'ok - P3: RLS activa en las 20 tablas, exactamente las 42 políticas esperadas, las escrituras de habitaciones exigen cuenta activa, la lectura pública de habitaciones y fotos aplica R7, storage.objects y storage.buckets tienen la RLS activa, storage.objects no tiene políticas y storage.buckets ninguna de escritura';
+  raise notice 'ok - P3: RLS activa en las 21 tablas, exactamente las 43 políticas esperadas, las escrituras de habitaciones exigen cuenta activa, la lectura pública de habitaciones y fotos aplica R7, storage.objects y storage.buckets tienen la RLS activa, storage.objects no tiene políticas y storage.buckets ninguna de escritura';
 end $$;
 
 -- ============================================================
@@ -870,6 +873,22 @@ begin
      or has_table_privilege('anon', 'public.profiles', 'TRUNCATE') then
     failures := failures || 'un cliente puede borrar perfiles (Fase 7)'::text;
   end if;
+  -- 20261201120000: reports sin FK (actor y destino seudónimos) y las
+  -- solicitudes de eliminación sin acceso de clientes.
+  if exists (select 1 from pg_constraint
+             where conrelid = 'public.reports'::regclass and contype = 'f') then
+    failures := failures || 'reports vuelve a tener FK (impedirían borrar cuentas)'::text;
+  end if;
+  if has_table_privilege('authenticated', 'public.account_deletion_requests', 'SELECT')
+     or has_table_privilege('anon', 'public.account_deletion_requests', 'SELECT')
+     or has_table_privilege('service_role', 'public.account_deletion_requests', 'INSERT')
+     or has_table_privilege('service_role', 'public.account_deletion_requests', 'UPDATE')
+     or has_table_privilege('service_role', 'public.account_deletion_requests', 'DELETE') then
+    failures := failures || 'account_deletion_requests con privilegios de más'::text;
+  end if;
+  if not has_function_privilege('service_role', 'public.delete_account_data(uuid)', 'EXECUTE') then
+    failures := failures || 'service_role no puede ejecutar delete_account_data'::text;
+  end if;
   if not has_function_privilege('service_role', 'public.block_user(uuid, uuid)', 'EXECUTE')
      or not has_function_privilege('service_role', 'public.unblock_user(uuid, uuid)', 'EXECUTE') then
     failures := failures || 'service_role no puede ejecutar block_user o unblock_user'::text;
@@ -878,7 +897,7 @@ begin
   if array_length(failures, 1) > 0 then
     raise exception 'FALLO P4: %', array_to_string(failures, '; ');
   end if;
-  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms, public_profile_previews sin privilegios de clientes, interests y matches solo escritos por el servidor, el chat de la Fase 6, los bloqueos y reportes de la sesión 83 y la administración de la Fase 7)';
+  raise notice 'ok - P4: permisos de columna y de función como se esperaba (incluidos housing_preferences, compatibility_responses, rooms sin borrado de clientes, room_images, delete_own_room, is_room_publicly_visible, la lectura de anon por columnas en rooms, public_profile_previews sin privilegios de clientes, interests y matches solo escritos por el servidor, el chat de la Fase 6, los bloqueos y reportes de la sesión 83, la administración de la Fase 7 y la eliminación de cuentas)';
 end $$;
 
 -- ============================================================
@@ -1058,7 +1077,11 @@ begin
     ('enforce_interests_abuse_limits()', false, 'search_path=""'),
     ('log_interest()', false, 'search_path=""'),
     ('enforce_matches_not_blocked()', false, 'search_path=""'),
-    ('enforce_reports_integrity()', false, 'search_path=""'),
+    ('enforce_reports_integrity()', true, 'search_path=""'),
+    ('request_account_deletion(uuid)', true, 'search_path=""'),
+    ('delete_account_data(uuid)', true, 'search_path=""'),
+    ('complete_account_deletion(uuid)', true, 'search_path=""'),
+    ('export_own_messages()', true, 'search_path=""'),
     ('block_user(uuid,uuid)', false, 'search_path=""'),
     ('unblock_user(uuid,uuid)', false, 'search_path=""'),
     ('purge_interest_log()', false, 'search_path=""'),
@@ -1144,6 +1167,12 @@ begin
       ('public.admin_require()', true),
       ('public.admin_clean_reason(text, boolean)', true),
       ('public.admin_log(uuid, text, text, uuid, text)', true),
+      -- 20261201120000: la eliminación de cuentas, solo service_role; la
+      -- exportación de los mensajes propios, también authenticated.
+      ('public.request_account_deletion(uuid)', true),
+      ('public.delete_account_data(uuid)', true),
+      ('public.complete_account_deletion(uuid)', true),
+      ('public.export_own_messages()', false),
       -- Fase 7: las funciones del panel las ejecuta authenticated (cada una
       -- comprueba is_admin()); anon y PUBLIC, nunca.
       ('public.admin_list_users(text, text, text, text, boolean, integer, integer)', false),
@@ -1173,5 +1202,5 @@ begin
     raise exception 'FALLO P6: %', array_to_string(failures, '; ');
   end if;
 
-  raise notice 'ok - P6: 27 triggers activos, 47 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
+  raise notice 'ok - P6: 27 triggers activos, 51 funciones propias con la seguridad esperada, EXECUTE revocado donde toca';
 end $$;

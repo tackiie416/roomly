@@ -246,11 +246,11 @@ function preflightValues(block: RegExp) {
 describe("preflight.sql: lista exacta derivada de las migraciones", () => {
   const derived = fromMigrations();
 
-  it("42 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
+  it("43 políticas, las mismas (tabla, política) que dejan las migraciones", () => {
     const expected = preflightValues(
       /-- P3[\s\S]*?with expected\(tablename, policyname, cmd\) as \(values([\s\S]*?)\n  \),/
     );
-    expect(derived.policies.size).toBe(42);
+    expect(derived.policies.size).toBe(43);
     expect([...expected].sort()).toEqual([...derived.policies].sort());
   });
 

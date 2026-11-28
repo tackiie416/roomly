@@ -281,10 +281,14 @@ describe("/ajustes — página", () => {
     expect(typeof signOut).toBe("function");
   });
 
-  it("sin borrado de cuenta ni campos protegidos", async () => {
+  it("eliminar la cuenta es solo un enlace a su página (sesión 87); sin campos protegidos", async () => {
     fakeDb({});
     const html = renderToStaticMarkup(await SettingsPage());
-    expect(html).not.toMatch(/borrar|eliminar|delete/i);
+    // Sin formulario ni botón de borrado aquí: la confirmación está en
+    // /ajustes/eliminar-cuenta.
+    expect(html).toContain('href="/ajustes/eliminar-cuenta"');
+    expect(html.match(/eliminar/gi)).toHaveLength(2); // el href y el texto del enlace
+    expect(html).not.toMatch(/borrar|delete/i);
     const names = [...html.matchAll(/name="([^"]+)"/g)].map((match) => match[1]);
     expect(new Set(names)).toEqual(new Set(["email_notifications_enabled"]));
   });

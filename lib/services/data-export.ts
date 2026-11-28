@@ -17,9 +17,13 @@ import {
  * (a quién envió un interés, con quién tiene un match, a quién bloqueó o
  * reportó, o lo que escribieron otros en un chat), ni las notas internas de
  * moderación. De esas relaciones solo salen la fecha, el tipo y, si es suya,
- * la habitación. Tampoco incluye los mensajes de chats cerrados: hoy nadie los
- * puede leer desde la app (decisión del 2026-11-26) y su acceso es una
- * decisión pendiente (docs/PRIVACY_RETENTION.md).
+ * la habitación.
+ *
+ * Mensajes (sesión 87, versión 2 del formato): los que escribió la persona,
+ * también en chats cerrados, con `export_own_messages()` (20261201120000,
+ * SECURITY DEFINER, solo `sender_id = auth.uid()`, EXECUTE solo de
+ * authenticated). Cada conversación sale con un número correlativo, no con su
+ * id ni con el de la otra persona; los mensajes de la otra persona no salen.
  *
  * Una consulta por tabla, en paralelo (sin N+1). Las fotos se piden con la
  * lista de sus habitaciones. Sin dirección exacta: la app no la recoge ni la
@@ -27,7 +31,7 @@ import {
  * que exportar.
  */
 
-export const DATA_EXPORT_FORMAT_VERSION = 1;
+export const DATA_EXPORT_FORMAT_VERSION = 2;
 
 const PROFILE_COLUMNS =
   "id, full_name, date_of_birth, bio, seeking_status, email_notifications_enabled, onboarding_completed_at, created_at, updated_at, deleted_at";
@@ -53,7 +57,12 @@ export type DataExport = {
   interestsSent: { createdAt: string; roomId: string | null }[];
   interestsReceivedCount: number;
   matches: { createdAt: string; compatibilityScore: number }[];
-  messagesSent: { createdAt: string; content: string }[];
+  messagesSent: {
+    conversationNumber: number;
+    conversationClosed: boolean;
+    createdAt: string;
+    content: string;
+  }[];
   blocksMade: { createdAt: string }[];
   reportsMade: {
     createdAt: string;
@@ -115,11 +124,7 @@ export async function exportOwnData(
       .select("created_at, compatibility_score")
       .or(`user_a_id.eq.${me},user_b_id.eq.${me}`)
       .order("created_at"),
-    supabase
-      .from("messages")
-      .select("created_at, content")
-      .eq("sender_id", me)
-      .order("created_at"),
+    supabase.rpc("export_own_messages"),
     supabase
       .from("user_blocks")
       .select("created_at")
@@ -192,7 +197,14 @@ export async function exportOwnData(
         compatibilityScore: m.compatibility_score,
       })
     ),
-    messagesSent: rows<{ created_at: string; content: string }>(messages).map((m) => ({
+    messagesSent: rows<{
+      conversation_number: number;
+      conversation_closed: boolean;
+      created_at: string;
+      content: string;
+    }>(messages).map((m) => ({
+      conversationNumber: Number(m.conversation_number),
+      conversationClosed: m.conversation_closed === true,
       createdAt: m.created_at,
       content: m.content,
     })),
@@ -216,7 +228,8 @@ export async function exportOwnData(
     })),
     notes: [
       "Incluye los datos que puedes ver de ti en Roomly. No incluye datos de otras personas (a quién enviaste intereses, con quién tienes match, a quién bloqueaste o reportaste, ni lo que escribieron otras personas).",
-      "No incluye los mensajes de conversaciones cerradas: ya no se pueden leer desde la app.",
+      "Incluye los mensajes que escribiste, también los de conversaciones cerradas. Cada conversación aparece con un número, sin identificar a la otra persona, y sin sus mensajes.",
+      "No incluye secretos ni datos internos: ni contraseñas, ni tokens de sesión, ni notas de moderación, ni identificadores internos de otras personas.",
       "Los identificadores de ciudad, universidad y barrio corresponden a los catálogos públicos de Roomly.",
     ],
   });

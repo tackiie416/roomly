@@ -258,6 +258,7 @@ function reset() {
     interestLog: [], // { from_user_id, to_user_id, room_id, created_at }
     reports: [], // reports (columnas de la tabla)
     adminLogs: [], // admin_action_logs
+    deletionRequests: new Map(), // user_id → { user_id, requested_at, completed_at }
     log: [],
   };
 }
@@ -1308,8 +1309,159 @@ function withdrawInterest(body) {
   return state.interests.length < before ? "withdrawn" : "not_found";
 }
 
+// ---------------------------------------------------------------- sesión 87
+/** request_account_deletion: desactiva la cuenta y anota la solicitud (idempotente). */
+function requestAccountDeletion(body) {
+  const user = body.p_user_id;
+  if (!UUID_RE.test(user ?? ""))
+    throw new DbError(400, "22004", "account_deletion_invalid");
+  const profile = state.profiles.get(user);
+  if (!profile) {
+    if (state.deletionRequests.has(user)) return { status: "profile_absent", rooms: [] };
+    throw new DbError(404, "P0002", "account_not_found");
+  }
+  const now = new Date().toISOString();
+  if (profile.deleted_at === null) profile.deleted_at = now;
+  if (!state.deletionRequests.has(user))
+    state.deletionRequests.set(user, {
+      user_id: user,
+      requested_at: now,
+      completed_at: null,
+    });
+  const rooms = [...state.rooms.values()]
+    .filter((room) => room.owner_id === user)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+    .map((room) => room.id);
+  return { status: "pending", rooms };
+}
+/** delete_account_data: exige Storage vacío; borra lo propio y anonimiza el perfil. */
+function deleteAccountData(body) {
+  const user = body.p_user_id;
+  const profile = state.profiles.get(user);
+  if (!profile) {
+    if (state.deletionRequests.has(user)) return { status: "profile_absent" };
+    throw new DbError(403, "42501", "account_deletion_not_requested");
+  }
+  if (!state.deletionRequests.has(user))
+    throw new DbError(403, "42501", "account_deletion_not_requested");
+  if (profile.deleted_at === null)
+    throw new DbError(403, "42501", "account_deletion_not_deactivated");
+  const roomIds = new Set(
+    [...state.rooms.values()].filter((r) => r.owner_id === user).map((r) => r.id)
+  );
+  const pending = [...state.objects.keys()].filter((path) =>
+    roomIds.has(path.split("/")[0])
+  );
+  if (pending.length)
+    throw new DbError(
+      409,
+      "55000",
+      `account_deletion_storage_pending: ${pending.length} fotos`
+    );
+  const now = new Date().toISOString();
+  state.messages = state.messages.filter((m) => m.sender_id !== user);
+  state.participants = state.participants.filter((p) => p.user_id !== user);
+  const gone = new Set(
+    state.matches
+      .filter((m) => m.user_a_id === user || m.user_b_id === user)
+      .map((m) => m.id)
+  );
+  state.matches = state.matches.filter((m) => !gone.has(m.id));
+  for (const c of state.conversations)
+    if (gone.has(c.match_id)) {
+      c.closed_at = now;
+      c.match_id = null;
+    }
+  state.interests = state.interests.filter(
+    (i) => i.from_user_id !== user && i.to_user_id !== user
+  );
+  state.interestLog = state.interestLog.filter(
+    (i) => i.from_user_id !== user && i.to_user_id !== user
+  );
+  state.blocks = state.blocks.filter(
+    (b) => b.blocker_id !== user && b.blocked_id !== user
+  );
+  state.responses.delete(user);
+  state.preferences.delete(user);
+  for (const id of roomIds) {
+    state.rooms.delete(id);
+    for (const [imageId, image] of state.images)
+      if (image.room_id === id) state.images.delete(imageId);
+  }
+  Object.assign(profile, {
+    full_name: "Cuenta eliminada",
+    bio: null,
+    avatar_url: null,
+    date_of_birth: "1900-01-01",
+    email_notifications_enabled: false,
+  });
+  return { status: "deleted" };
+}
+/** complete_account_deletion: solo cuando el perfil ya no existe. */
+function completeAccountDeletion(body) {
+  const user = body.p_user_id;
+  if (state.profiles.has(user)) return false;
+  const request = state.deletionRequests.get(user);
+  if (!request) return false;
+  request.completed_at ??= new Date().toISOString();
+  return true;
+}
+/** auth.admin.deleteUser: borra el usuario, revoca sus sesiones y el perfil cae en cascada. */
+function deleteAuthUser(res, id) {
+  if (!state.users.has(id))
+    return authError(res, 404, "user_not_found", "User not found");
+  state.users.delete(id);
+  for (const session of state.sessions.values())
+    if (session.userId === id) session.revoked = true;
+  state.profiles.delete(id);
+  state.preferences.delete(id);
+  state.responses.delete(id);
+  return send(res, 200, { id });
+}
+/** export_own_messages(): los mensajes propios, también de chats cerrados. */
+function exportOwnMessages(uid) {
+  const own = state.messages.filter((m) => m.sender_id === uid);
+  const firsts = new Map();
+  for (const m of state.messages) {
+    const first = firsts.get(m.conversation_id);
+    if (!first || m.created_at < first) firsts.set(m.conversation_id, m.created_at);
+  }
+  const order = [...new Set(own.map((m) => m.conversation_id))].sort(
+    (a, b) =>
+      (firsts.get(a) ?? "").localeCompare(firsts.get(b) ?? "") || a.localeCompare(b)
+  );
+  return own
+    .map((m) => {
+      const c = state.conversations.find((x) => x.id === m.conversation_id);
+      return {
+        conversation_number: order.indexOf(m.conversation_id) + 1,
+        conversation_closed: !c || c.closed_at !== null || c.match_id === null,
+        created_at: m.created_at,
+        content: m.content,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.conversation_number - b.conversation_number ||
+        a.created_at.localeCompare(b.created_at)
+    );
+}
+
 function handleService(req, res, url, body, table) {
   // service_role (BYPASSRLS): solo lo que usa la app en el servidor.
+  if (table === "rpc/request_account_deletion" && req.method === "POST")
+    return send(res, 200, requestAccountDeletion(body));
+  if (table === "rpc/delete_account_data" && req.method === "POST")
+    return send(res, 200, deleteAccountData(body));
+  if (table === "rpc/complete_account_deletion" && req.method === "POST")
+    return send(res, 200, completeAccountDeletion(body));
+  if (table === "account_deletion_requests" && req.method === "GET")
+    return respondRows(
+      req,
+      res,
+      applyFilters([...state.deletionRequests.values()], url),
+      parseSelect(url)
+    );
   if (table === "rpc/delete_own_room" && req.method === "POST") {
     return send(res, 200, deleteOwnRoom(body));
   }
@@ -2174,6 +2326,8 @@ function handleRest(req, res, url, body, uid, isService) {
     table.slice(4) in ADMIN_RPC
   )
     return handleAdminRpc(res, body, uid, table.slice(4));
+  if (table === "rpc/export_own_messages" && req.method === "POST" && uid)
+    return send(res, 200, exportOwnMessages(uid));
   if (table.startsWith("rpc/"))
     // Solo service_role tiene EXECUTE de las funciones que usa la app.
     throw new DbError(403, "42501", `permission denied for function ${table.slice(4)}`);
@@ -2550,6 +2704,71 @@ function handleTest(req, res, url) {
         adminLogs: state.adminLogs,
       });
     }
+    case "/__test/seed-chat": {
+      // Sesión 87: un match con su conversación y un mensaje de cada persona
+      // (a y b, por id). closed=1 la cierra como undo_match.
+      const a = url.searchParams.get("a");
+      const b = url.searchParams.get("b");
+      if (!state.profiles.get(a) || !state.profiles.get(b))
+        return send(res, 404, { error: "sin perfil" });
+      const created = new Date().toISOString();
+      const match = {
+        id: randomUUID(),
+        user_a_id: a < b ? a : b,
+        user_b_id: a < b ? b : a,
+        room_id: null,
+        compatibility_score: 70,
+        created_at: created,
+      };
+      state.matches.push(match);
+      openMatchConversation(match);
+      const conversation = state.conversations.at(-1);
+      [
+        [a, url.searchParams.get("fromA") ?? "Hola"],
+        [b, url.searchParams.get("fromB") ?? "Hola también"],
+      ].forEach(([sender, content], index) =>
+        state.messages.push({
+          id: randomUUID(),
+          conversation_id: conversation.id,
+          sender_id: sender,
+          content,
+          client_token: randomUUID(),
+          created_at: new Date(Date.now() + index).toISOString(),
+        })
+      );
+      if (url.searchParams.get("closed") === "1") {
+        state.matches = state.matches.filter((m) => m !== match);
+        conversation.closed_at = new Date().toISOString();
+        conversation.match_id = null;
+      }
+      return send(res, 200, { conversation: conversation.id });
+    }
+    case "/__test/account-deletion": {
+      // Sesión 87: lo que queda de una cuenta (por id) tras eliminarla.
+      const id = url.searchParams.get("id");
+      return send(res, 200, {
+        userExists: state.users.has(id),
+        profile: state.profiles.get(id) ?? null,
+        request: state.deletionRequests.get(id) ?? null,
+        activeSessions: [...state.sessions.values()].filter(
+          (session) => session.userId === id && !session.revoked
+        ).length,
+        rooms: [...state.rooms.values()].filter((room) => room.owner_id === id).length,
+        objects: [...state.objects.keys()],
+        messages: state.messages.map((m) => ({
+          sender_id: m.sender_id,
+          content: m.content,
+        })),
+        conversations: state.conversations.map((c) => ({
+          id: c.id,
+          closed: c.closed_at !== null || c.match_id === null,
+        })),
+        reports: state.reports.map((r) => ({
+          reporter_id: r.reporter_id,
+          reported_user_id: r.reported_user_id,
+        })),
+      });
+    }
     case "/__test/chat": {
       // Fase 6: conversaciones, participantes y mensajes guardados.
       return send(res, 200, {
@@ -2688,13 +2907,21 @@ const server = createServer((req, res) => {
       apikey === MOCK_SERVICE_ROLE_KEY && bearer === MOCK_SERVICE_ROLE_KEY;
     if (!isVerifyLink && !isSignedObject && apikey !== MOCK_ANON_KEY && !isService)
       return authError(res, 401, "no_api_key", "Invalid API key");
-    // La clave service_role solo vale para REST y Storage (lo que usa la app).
+    // La clave service_role solo vale para REST, Storage y, desde la sesión 87,
+    // DELETE /auth/v1/admin/users/<id> (eliminar la cuenta propia).
+    const adminUserDelete =
+      req.method === "DELETE" &&
+      /^\/auth\/v1\/admin\/users\/[0-9a-f-]{36}$/.test(url.pathname);
     if (
       isService &&
+      !adminUserDelete &&
       !url.pathname.startsWith("/rest/v1/") &&
       !url.pathname.startsWith("/storage/v1/")
     )
       return authError(res, 401, "no_api_key", "service_role solo en REST y Storage");
+    if (adminUserDelete && !isService)
+      return authError(res, 403, "not_admin", "User not allowed");
+    if (adminUserDelete) return deleteAuthUser(res, url.pathname.split("/").pop());
     if (url.pathname.startsWith("/storage/v1/")) {
       try {
         return handleStorage(req, res, url, rawBuffer, isService);
