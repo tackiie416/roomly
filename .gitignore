@@ -7,6 +7,7 @@ node_modules/
 /coverage
 /test-results
 /test-results-real
+/test-results-smoke
 /playwright-report
 
 # Next.js
@@ -44,3 +45,4 @@ pnpm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 .idea/
+/upload-fixtures
