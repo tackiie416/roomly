@@ -43,6 +43,23 @@ export default async function SettingsPage() {
             Personas bloqueadas
           </Link>
         </p>
+        <p className="text-sm">
+          {/* Enlace normal (no <Link>): es una descarga de un Route Handler, no
+              una página; no debe precargarse ni navegarse en el cliente. */}
+          <a
+            href="/ajustes/mis-datos"
+            download
+            className="underline"
+            data-testid="data-export-link"
+          >
+            Descargar mis datos
+          </a>
+          <span className="text-neutral-600">
+            {" "}
+            (un archivo JSON con tu perfil, preferencias, test, habitaciones, mensajes
+            enviados y reportes)
+          </span>
+        </p>
       </Card>
       <Card className="flex flex-col gap-3">
         <h2 className="text-sm font-medium">Sesión</h2>

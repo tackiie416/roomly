@@ -21,8 +21,8 @@ las llama y no hay ningún trabajo programado que las use.
 | `interest_log` (sesión 83) | registro de envíos de intereses (para los límites) | Cascada; `purge_interest_log()` borraría lo de más de 30 días |
 | `conversations`, `conversation_participants`, `messages` | chat entre matches | Al deshacer un match o bloquear, el chat se cierra y los mensajes **se conservan sin acceso de clientes** |
 | `user_blocks` (sesión 83) | quién ha bloqueado a quién | Desbloquear o cascada |
-| `reports` (sesión 83) | quién reporta a quién, motivo y descripción | Sin borrado desde la app. Sus FK (`reporter_id`, `reported_user_id`, `reported_room_id`, `resolved_by`) **no tienen cascada**: mientras exista un reporte, no se puede borrar ese perfil (ni su usuario de Auth) ni esa habitación (23503) |
-| `admin_action_logs` | auditoría de moderación | Solo se añade (sesión 83); `admin_id` sin cascada |
+| `reports` (sesión 83) | quién reporta a quién, motivo y descripción | Sin borrado desde la app. Sus FK `reporter_id`, `reported_user_id` y `reported_room_id` **no tienen cascada**: mientras exista un reporte, no se puede borrar ese perfil (ni su usuario de Auth) ni esa habitación (23503). `resolved_by` ya no es FK (sesión 85): cerrar reportes no bloquea el borrado del admin |
+| `admin_action_logs` | auditoría de moderación | Inmutable para todos los roles (Fase 7). Desde la sesión 85 `admin_id` no es FK: borrar al admin no lo impide y su UUID queda como seudónimo |
 | `notifications` | avisos | Cascada |
 
 ## 2. Comportamiento actual que se mantiene
@@ -34,6 +34,22 @@ las llama y no hay ningún trabajo programado que las use.
 - **Desbloquear** no devuelve nada de lo borrado (match, intereses, chat).
 - **Cuenta desactivada** (`deleted_at`): no escribe en ninguna tabla ni
   aparece en `/explorar`, matches o chats; sus datos siguen guardados.
+
+- **Descargar mis datos** (sesión 86, `GET /ajustes/mis-datos`, enlace en
+  `/ajustes`): un JSON con lo que la persona puede leer de sí misma con su
+  propio cliente (RLS de siempre, sin service_role,
+  `lib/services/data-export.ts`). Incluye la cuenta (id y email), el perfil,
+  las preferencias, el test, sus habitaciones con el número y la fecha de sus
+  fotos, los intereses que envió (fecha y, si la hay, la habitación), cuántos
+  recibió, sus matches (fecha y puntuación), los mensajes que escribió en
+  chats que aún puede leer, sus bloqueos (solo la fecha) y sus reportes
+  (motivo, descripción, estado y fechas). **No** incluye datos ni
+  identificadores de otras personas, las notas internas de moderación ni los
+  mensajes de chats cerrados (nadie los lee desde la app; ver el punto 2).
+  Tampoco una dirección exacta: la app no la recoge (R2). Funciona también con
+  la cuenta desactivada. Si el formato basta para el derecho de acceso y la
+  portabilidad (art. 15 y 20 RGPD), y si deben incluirse los mensajes de
+  chats cerrados, **REQUIERE REVISIÓN LEGAL**.
 
 ## 3. Diseño del borrado de cuenta (H6, sin implementar)
 
@@ -64,9 +80,26 @@ datos de terceros no deberían desaparecer con la cuenta:
      sido reportada falla con 23503 hasta que se decida qué hacer con sus
      reportes. La app solo reporta personas (nunca habitaciones), así que
      `delete_own_room` no se ve afectado.
-6. **Auditoría de admin:** se conserva; `admin_id` no tiene cascada, así que
-   no se puede borrar un perfil de admin con registros sin decidir antes
-   cómo anonimizarlos.
+6. **Auditoría de admin (decisión del propietario, 2026-11-27):** se
+   mantiene íntegra e inmutable, y haber actuado como admin **no** bloquea el
+   borrado de la cuenta. Implementado en local en la sesión 85
+   (`20261130120000`, `tests/db/30`):
+   - `admin_action_logs.admin_id` y `reports.resolved_by` dejan de ser FK y
+     guardan el UUID tal cual. Al borrar la cuenta, ninguna fila cambia y el
+     UUID queda como identificador seudónimo: ninguna tabla de la app lo
+     relaciona ya con una persona. El panel muestra esas acciones como de
+     una «cuenta de administración eliminada»;
+   - se descartaron `on delete set null` y `cascade`: reescribirían o
+     borrarían filas de la auditoría (los triggers lo rechazan) y
+     `set null` perdería qué acciones hizo una misma persona;
+   - sin la FK, la integridad la dan los privilegios: solo las funciones
+     `admin_*` añaden filas (ni clientes ni service_role tienen INSERT o
+     UPDATE) y `admin_log` solo recibe el uid de un admin activo;
+   - minimización: las notas las escribe el admin y pueden contener datos
+     personales de terceros. El panel pide no incluir más de lo necesario;
+     su plazo de conservación está sin decidir (**REQUIERE REVISIÓN LEGAL**);
+   - no se borra ni se reescribe ningún registro existente sin una política
+     definida y autorización.
 7. **Auth:** borrar el usuario de `auth.users` al final, desde el servidor
    (service_role), cuando lo anterior esté verificado.
 
@@ -91,7 +124,21 @@ decisión de seguridad.
 que ya no cuenta para ningún límite. Es la parte menos discutible, pero
 tampoco está programada.
 
-## 5. Decisiones pendientes (del propietario, con legal)
+## 5. Puntos que requieren revisión legal (borrado de cuenta y auditoría)
+
+- Si un UUID sin cuenta asociada es un dato seudonimizado o anónimo: depende
+  de lo que se conserve fuera de las tablas (copias de seguridad, logs de
+  Auth y de la plataforma) y de durante cuánto tiempo.
+- Base jurídica y plazo para conservar la auditoría de moderación y los
+  reportes después de borrar la cuenta (interés legítimo, defensa ante
+  reclamaciones, obligaciones de cooperación con autoridades).
+- Qué hacer con los reportes que hizo o recibió una cuenta que se borra:
+  anonimizar quien reporta (la columna es `not null` y FK: necesita una
+  migración con decisión), conservarlos un plazo o borrarlos.
+- Qué hacer con los mensajes de chats cerrados (sección 4).
+- Qué se le dice a la persona al borrar su cuenta sobre lo que se conserva.
+
+## 6. Decisiones pendientes (del propietario, con legal)
 
 1. Plazo de conservación de los mensajes de chats cerrados y si se aplica
    la opción C (**REQUIERE REVISIÓN LEGAL**).
@@ -103,3 +150,5 @@ tampoco está programada.
    registro.
 5. Cuándo se programan las purgas (Supabase cron o un trabajo externo) y en
    qué entorno; ninguna se ejecuta hasta que se decida.
+6. Si la descarga de datos debe incluir los mensajes propios de chats
+   cerrados (hoy no; **REQUIERE REVISIÓN LEGAL**).

@@ -616,7 +616,14 @@ function respondRows(req, res, rows, columns) {
       );
     return send(res, 200, projected[0]);
   }
-  return send(res, 200, projected);
+  // `select(..., { count: "exact" })`: PostgREST devuelve el total en
+  // Content-Range (con `head: true` llega como HEAD y sin cuerpo).
+  const headers = (req.headers.prefer ?? "").includes("count=exact")
+    ? {
+        "content-range": `${projected.length ? `0-${projected.length - 1}` : "*"}/${projected.length}`,
+      }
+    : {};
+  return send(res, 200, req.method === "HEAD" ? undefined : projected, headers);
 }
 
 class DbError extends Error {
@@ -2201,8 +2208,8 @@ function handleRest(req, res, url, body, uid, isService) {
 
   if (table === "interests" || table === "matches") {
     // interests_select_participant y matches_select_participant; sin INSERT,
-    // UPDATE ni DELETE para authenticated (20261126120000).
-    if (req.method !== "GET") throw denied(table);
+    // UPDATE ni DELETE para authenticated (20261126120000). HEAD: conteo.
+    if (req.method !== "GET" && req.method !== "HEAD") throw denied(table);
     const own =
       table === "interests"
         ? state.interests.filter((i) => i.from_user_id === uid || i.to_user_id === uid)

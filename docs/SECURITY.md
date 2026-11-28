@@ -1813,13 +1813,18 @@ menciones describen el estado de entonces.
   todos los roles, también service_role y el dueño de la tabla (AM8). Acciones
   y tipos de objetivo de un catálogo cerrado; `target_id` obligatorio; notas
   de hasta 2000 caracteres.
-  - Consecuencia conocida: `admin_action_logs.admin_id` referencia
-    `profiles` sin cascada, así que **una cuenta de admin que ha actuado no
-    se puede borrar** (23503). Es coherente con conservar la auditoría, pero
-    afecta al diseño del borrado de cuenta (H6, `docs/PRIVACY_RETENTION.md`)
-    y a la limpieza de los proyectos de validación: la api-suite real ya no
-    ejecuta acciones de admin con éxito (RO4, RO7 y RE9 comprueban el
-    rechazo), y esas acciones se prueban solo en `tests/db/29`, con ROLLBACK.
+  - Sesión 85 (`20261130120000`, en local): por decisión del propietario,
+    `admin_action_logs.admin_id` y `reports.resolved_by` ya no son FK, así
+    que una cuenta de admin que ha actuado sí se puede borrar y su UUID
+    queda como seudónimo, sin tocar ninguna fila. service_role pierde
+    INSERT, UPDATE y TRUNCATE en el registro (sin la FK podría inventar un
+    actor). Detalle en `docs/PRIVACY_RETENTION.md`, punto 6. Antes de ese
+    cambio, una cuenta de admin que había actuado no se podía borrar
+    (23503).
+  - Las filas del registro no se pueden borrar, así que la api-suite real
+    sigue sin ejecutar acciones de admin con éxito (dejarían filas
+    permanentes en el proyecto de validación): RO4, RO7 y RE9 comprueban el
+    rechazo, y esas acciones se prueban en `tests/db/29` y `30`.
 - **Lo que ve el admin.** Sin emails, sin fecha de nacimiento, sin la
   dirección exacta ni las coordenadas aproximadas de las habitaciones, sin
   respuestas del test ni mensajes. Las métricas son solo recuentos agregados.
@@ -1924,6 +1929,38 @@ cuanto exista.
   - Después: `npm audit` con 0 vulnerabilidades. Lint, typecheck, `test`,
     `build` y E1 (55/55, con el límite de subida de 5 MB: 500 sin ejecutar
     la acción, igual que con 16.4.3) en verde en local.
+
+- **Revisión del 2026-11-28 (sesión 86).** `npm audit --omit=dev`: 0
+  vulnerabilidades. `npm outdated` solo muestra versiones menores o de
+  parche (supabase-js 2.119, Tailwind 4.3.5, Vitest 5.1, Prettier 3.10,
+  Playwright 1.65) y mayores sin urgencia (TypeScript 7, ESLint 10, React
+  19.3). No se actualiza nada: sin avisos de seguridad, cada subida cambia el
+  lockfile y Playwright está fijado en 1.63 por el Chromium del entorno de
+  Claude Code (`docs/TESTING.md`). Repetir `npm audit` antes del primer
+  despliegue.
+
+## Cabeceras HTTP (sesión 86)
+
+`next.config.ts` (`SECURITY_HEADERS`, fijado por
+`tests/unit/next-config.test.ts` y comprobado en E1 por
+`data-export.spec.ts`) añade a todas las rutas:
+
+- `Content-Security-Policy: frame-ancestors 'none'; base-uri 'self';
+  form-action 'self'; object-src 'none'` y `X-Frame-Options: DENY`: nadie
+  puede incrustar la app (clickjacking en las confirmaciones del panel de
+  admin, del borrado de habitaciones o del bloqueo) ni enviar sus formularios
+  a otro origen;
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  strict-origin-when-cross-origin` (los ids de las URL no salen a otros
+  sitios) y `Permissions-Policy` sin cámara, micrófono, ubicación ni pagos;
+- `Strict-Transport-Security` de dos años (sin `preload`: requiere decidir el
+  dominio de producción), y sin `X-Powered-By`.
+
+**Pendiente:** una CSP de scripts y estilos (`script-src` con nonces desde el
+proxy). Next.js inyecta scripts en línea, así que necesita
+`headers()` dinámicos y probarla en el despliegue; no se añade a ciegas.
+Las fotos se sirven con URL firmadas de Supabase: una `img-src` tendrá que
+incluir ese dominio.
 
 ## RGPD — lo que es responsabilidad técnica y lo que no
 

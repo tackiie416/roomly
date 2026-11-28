@@ -571,9 +571,21 @@ cierre: `docs/ROADMAP.md` («Cierre de la Fase 3») y `PROGRESS.md`, sesión 41.
   - `lib/services/admin.ts` **no usa service_role**; no se lo des;
   - panel `/admin/{usuarios,habitaciones,reportes,metricas}`, sin
     JavaScript, con motivo y confirmación en el servidor;
-  - un admin no se suspende a sí mismo ni a otro admin, y una cuenta de
-    admin con acciones registradas no se puede borrar (FK de `admin_id`,
-    pendiente de decisión para H6). Preflight: 27 triggers y 47 funciones.
+  - un admin no se suspende a sí mismo ni a otro admin. Preflight: 27
+    triggers y 47 funciones;
+  - integrada en `master` el 2026-11-27 con autorización (PR #42, merge
+    `b3860f3`) junto con reportar un anuncio (PR #43, merge `5aad7f3`). Sin
+    aplicar en Supabase real;
+  - sesión 85 (decisión del propietario del 2026-11-27): la auditoría se
+    mantiene íntegra e inmutable, pero haber actuado como admin no bloquea
+    el borrado de la cuenta. `20261130120000` quita las FK de
+    `admin_action_logs.admin_id` y `reports.resolved_by` (el UUID queda como
+    seudónimo) y el INSERT/UPDATE de service_role en el registro. No
+    vuelvas a hacerlas FK ni uses `set null`/`cascade` sobre la auditoría.
+- **Descargar mis datos** (sesión 86, sin merge): `GET /ajustes/mis-datos` y
+  `lib/services/data-export.ts`, solo con el cliente del usuario. No le des
+  service_role ni le añadas datos o ids de otras personas, notas de
+  moderación ni `room_addresses` (`docs/PRIVACY_RETENTION.md`, punto 2).
 - **Diferido por decisión del usuario**: Google OAuth y Apple OAuth.
 - Antes de hacer nada, ejecuta `git status` y compáralo con `PROGRESS.md`
   — no asumas que un commit existe porque el código existe en disco.

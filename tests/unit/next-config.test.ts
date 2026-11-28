@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import nextConfig from "@/next.config";
+import nextConfig, { SECURITY_HEADERS } from "@/next.config";
 import { ROOM_IMAGE_MAX_BYTES } from "@/lib/validation/room-images";
 
 // El mismo parser que usa Next.js para el límite (action-handler.js).
@@ -30,5 +30,26 @@ describe("next.config.ts: límite del cuerpo de las Server Actions", () => {
   it("no supera el búfer del proxy (10 MB por defecto: proxyClientMaxBodySize sin cambiar)", () => {
     expect(nextConfig.experimental?.proxyClientMaxBodySize).toBeUndefined();
     expect(bytes.parse(String(limit))).toBeLessThan(10 * 1024 * 1024);
+  });
+});
+
+// Sesión 86: cabeceras de seguridad en todas las rutas.
+describe("next.config.ts: cabeceras de seguridad", () => {
+  it("se aplican a todas las rutas y sin X-Powered-By", async () => {
+    expect(nextConfig.poweredByHeader).toBe(false);
+    const rules = await nextConfig.headers!();
+    expect(rules).toEqual([{ source: "/:path*", headers: [...SECURITY_HEADERS] }]);
+  });
+
+  it("impiden el iframe, el sniffing y los formularios a otro origen", () => {
+    const byKey = Object.fromEntries(SECURITY_HEADERS.map((h) => [h.key, h.value]));
+    expect(byKey["X-Frame-Options"]).toBe("DENY");
+    expect(byKey["X-Content-Type-Options"]).toBe("nosniff");
+    expect(byKey["Content-Security-Policy"]).toContain("frame-ancestors 'none'");
+    expect(byKey["Content-Security-Policy"]).toContain("form-action 'self'");
+    // Sin script-src: una política de scripts sin nonces rompería Next.js.
+    expect(byKey["Content-Security-Policy"]).not.toContain("script-src");
+    expect(byKey["Permissions-Policy"]).toContain("camera=()");
+    expect(byKey["Strict-Transport-Security"]).toMatch(/max-age=\d+/);
   });
 });

@@ -6,6 +6,80 @@ próximos pasos.**
 
 ---
 
+## 2026-11-27 — Sesión 86: descargar mis datos (RGPD)
+
+Con la autorización del propietario para seguir hacia la beta (prioridad:
+privacidad y ciclo de vida de los datos). En la rama
+`claude/project-thread-5tguj4`, encima del PR #44. Sin migraciones y sin
+tocar Supabase real.
+
+- `GET /ajustes/mis-datos` (Route Handler) y `lib/services/data-export.ts`:
+  JSON adjunto (`roomly-mis-datos-AAAA-MM-DD.json`, `no-store`, `nosniff`)
+  con el cliente del usuario, columnas explícitas y una consulta por tabla en
+  paralelo (más una de fotos si tiene habitaciones). Sin sesión, al login;
+  sin perfil, al onboarding; con la cuenta desactivada, también descarga.
+- Minimización: sin ids ni datos de terceros, sin notas de moderación, sin
+  mensajes de chats cerrados y sin `room_addresses` (la regla R2 de
+  `tests/unit/rooms-crud-static.test.ts` sigue igual: la app no la nombra).
+  Detalle: `docs/PRIVACY_RETENTION.md`, punto 2.
+- Enlace «Descargar mis datos» en `/ajustes` («Privacidad y seguridad»),
+  como `<a download>` (no `<Link>`: no se precarga).
+- Mock de E1: `count=exact` con `Content-Range` y HEAD en `interests`.
+- Pruebas en local: `lint`, `typecheck`, `format:check`, `test` 1891/1891
+  (7 nuevos en `tests/unit/services-data-export.test.ts`), `build` y E1 64/66
+  con `data-export.spec.ts` en verde; los 2 fallos son
+  `upload-size.spec.ts`, intermitentes en local y anteriores a esta sesión.
+  `test:db` y `test:infra` no cambian (sin SQL).
+- Pendiente de decisión: si la descarga incluye los mensajes propios de chats
+  cerrados (REQUIERE REVISIÓN LEGAL).
+- Configuración: `next.config.ts` añade cabeceras de seguridad a todas las
+  rutas (CSP sin scripts: `frame-ancestors`, `base-uri`, `form-action` y
+  `object-src`; `X-Frame-Options`, `nosniff`, `Referrer-Policy`,
+  `Permissions-Policy`, HSTS) y quita `X-Powered-By`
+  (`docs/SECURITY.md`, «Cabeceras HTTP»). E1 64/66 otra vez, con los mismos
+  dos fallos de `upload-size.spec.ts`.
+- Dependencias: `npm audit` sin alertas; no se actualiza nada
+  (`docs/SECURITY.md`, «Dependencias»).
+- `docs/LAUNCH_CHECKLIST.md`: lista de lo que falta antes de staging, de la
+  beta cerrada y del lanzamiento, con quién lo decide. Recoge pendientes ya
+  documentados; no cierra ninguno.
+
+## 2026-11-27 — Sesión 85: merges de #42 y #43 y auditoría con actor seudónimo
+
+**Contexto.** El propietario autorizó los merges de #42 y #43 y decidió
+sobre la auditoría: se mantiene íntegra e inmutable, pero haber actuado
+como admin no debe bloquear el borrado futuro de una cuenta; el actor se
+seudonimiza, se minimizan los datos y no se borra ningún registro existente
+sin política. Después, seguir con el trabajo de la beta.
+
+**Qué se hizo.**
+- Merges: PR #42 (`b3860f3`) y PR #43 (`5aad7f3`, con la base cambiada a
+  `master` antes del merge), con la CI de `master` en verde después de cada uno.
+- Migración `20261130120000_admin_audit_pseudonymous_actor.sql` (en local,
+  sin aplicar): `admin_action_logs.admin_id` y `reports.resolved_by` dejan
+  de ser FK (el UUID queda como seudónimo), service_role pierde INSERT,
+  UPDATE y TRUNCATE en el registro, y las fichas del panel usan LEFT JOIN
+  para seguir mostrando las acciones de un admin borrado. Ninguna fila
+  existente cambia.
+- Interfaz: el historial dice «Cuenta de administración eliminada».
+- `docs/PRIVACY_RETENTION.md`: punto 6 del diseño del borrado y los puntos
+  que requieren revisión legal.
+
+**Problema encontrado.** service_role conservaba INSERT y UPDATE en
+`admin_action_logs` por los privilegios por defecto (la Fase 7 solo los
+quitó a los clientes). Con la FK no podía inventar un admin inexistente;
+sin ella sí. Corregido en la misma migración, y `docs/SECURITY.md` ya no
+dice que service_role no escribe el registro sin matizarlo.
+
+**Tests (en local).** `test:db` en verde con `tests/db/30` (13) y AM8
+adaptado; `test:infra` en verde; `test` 1884/1884.
+
+**Qué queda.** El resto del borrado de cuenta (H6) sigue sin implementar:
+los reportes hechos o recibidos y los mensajes necesitan una política
+(REQUIERE REVISIÓN LEGAL).
+
+---
+
 ## 2026-11-27 — Sesión 84: merges de #40 y #41 y Fase 7 (administración)
 
 **Contexto.** El propietario autorizó el merge de los PR #40 y #41 con la CI
