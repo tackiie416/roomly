@@ -6,6 +6,57 @@ próximos pasos.**
 
 ---
 
+## 2026-11-28 — Sesión 88: merge del PR #45, eliminación de cuentas suspendidas, enumeración en el login y herramientas de staging
+
+Con la autorización del propietario del 2026-11-28 (merge del PR #45 si sus
+checks estaban en verde; seguir con la preparación de la beta sin servicios
+externos, sin migraciones remotas, sin desplegar y sin merges de PR nuevos).
+
+**Qué se hizo**
+- PR #45: merge `e8b1090` con la CI en verde; CI de `master` después del
+  merge en verde (run 117).
+- Migración `20261202120000_suspended_account_deletion.sql` (en local, sin
+  aplicar en ningún Supabase real): `admin_get_user` devuelve
+  `deletion_requested_at` y `admin_reactivate_user` se niega con una
+  eliminación pendiente. Panel: «Eliminación pendiente» en lugar de
+  reactivar. Preflight sin cambios (solo reemplaza funciones).
+- `docs/PRIVACY_RETENTION.md`: la limitación de las cuentas suspendidas se
+  sustituye por el diseño actual (la suspensión no impide eliminar; qué se
+  conserva, REQUIERE REVISIÓN LEGAL, sin plazos).
+- Login: con el registro cerrado, un email sin cuenta recibe la misma
+  respuesta que uno registrado (`isSignupClosedError`).
+- `scripts/staging/`: `guard.sh`, `apply-migrations.sh` (dry run por
+  defecto), `preflight.sh`, `seed-demo.sh`, `seed-demo.sql` y
+  `cleanup-demo.sql`, con `staging-selftest.sh` en `test:infra`. P0 del
+  preflight acepta `roomly-staging` solo si se pide expresamente.
+- Accesibilidad: `tests/e2e/local/accessibility.spec.ts` con
+  `@axe-core/playwright` 4.14.0 (WCAG 2.1 A y AA y sin scroll horizontal en
+  22 páginas, a 1280 y 375 px). Pasó sin cambios en la interfaz; la revisión
+  manual sigue pendiente.
+- CI: `staging-selftest.sh` en el job `db-security`.
+- Documentación: `docs/STAGING.md` (sección 3.1, 26 migraciones),
+  `docs/SECURITY.md`, `docs/TESTING.md`, `docs/LAUNCH_CHECKLIST.md` y
+  `CLAUDE.md`.
+
+**Resultados** (detalle en `docs/TESTING.md`): `test` 1957/1957, `test:db`
+1262 ok, `test:infra` 529 ok, smoke 6/6, E1 74/75 en local (el fallo es de
+`upload-size.spec.ts` y depende del entorno; en la CI del PR #46 pasó), lint,
+typecheck, format, build y `npm audit` en verde.
+
+**Qué queda**
+- Revisión legal: si un reporte abierto debe retrasar la eliminación y si se
+  guarda algo para impedir el re-registro (hoy no se guarda nada).
+- Ejecutar las herramientas de staging contra un proyecto real, con
+  autorización.
+
+**Problemas encontrados**
+- El slug de Gràcia es `la-vila-de-gracia`; el seed de demostración usaba
+  otro.
+- En E1, `getByRole("alert")` también encuentra el anunciador de rutas de
+  Next.js: la comprobación se limita a `main`.
+
+---
+
 ## 2026-11-28 — Sesión 87: merge del PR #44, eliminación de cuenta, exportación con chats cerrados y preparación de staging
 
 Con la autorización del propietario del 2026-11-28 (merge del PR #44 si sus

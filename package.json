@@ -16,7 +16,7 @@
     "test:e2e": "playwright test",
     "test:e2e:real": "playwright test -c playwright.real.config.ts",
     "test:smoke": "playwright test -c playwright.smoke.config.ts",
-    "test:infra": "bash tests/supabase/guard-selftest.sh && bash tests/supabase/sql-suite-selftest.sh && bash tests/supabase/preflight-selftest.sh && bash tests/supabase/migration-upgrade-selftest.sh && bash tests/supabase/phase4-upgrade-selftest.sh && bash tests/supabase/room-images-reconcile-selftest.sh && bash tests/supabase/validation-cleanup-check-selftest.sh && bash tests/supabase/default-privileges-selftest.sh && bash tests/supabase/incident-runbook-selftest.sh",
+    "test:infra": "bash tests/supabase/guard-selftest.sh && bash tests/supabase/sql-suite-selftest.sh && bash tests/supabase/preflight-selftest.sh && bash tests/supabase/migration-upgrade-selftest.sh && bash tests/supabase/phase4-upgrade-selftest.sh && bash tests/supabase/room-images-reconcile-selftest.sh && bash tests/supabase/validation-cleanup-check-selftest.sh && bash tests/supabase/default-privileges-selftest.sh && bash tests/supabase/incident-runbook-selftest.sh && bash scripts/staging/staging-selftest.sh",
     "check:deploy-config": "node scripts/deploy-config-check.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -34,6 +34,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22",

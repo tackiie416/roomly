@@ -1,6 +1,6 @@
 # Checklist de staging, beta cerrada y lanzamiento
 
-Sesión 86 (2026-11-28), actualizada en la sesión 87. Procedimiento de
+Sesión 86 (2026-11-28), actualizada en las sesiones 87 y 88. Procedimiento de
 staging (variables, despliegue, smoke tests, rollback): `docs/STAGING.md`. Reúne en un solo sitio los pendientes que ya están
 documentados en `CLAUDE.md`, `docs/SECURITY.md`, `docs/PRIVACY_RETENTION.md`,
 `docs/SUPABASE_VALIDATION.md` y `docs/ROADMAP.md`. **No cierra ninguno ni
@@ -23,12 +23,18 @@ tampoco: es una guía para decidirlo.
 
 ## 2. Montar staging (con autorización explícita)
 
-- [ ] (C) Aplicar las migraciones de `master` en una transacción, incluidas
+- [ ] (P) Marcar la base de datos del proyecto con `roomly-staging`
+      (`docs/STAGING.md`, sección 3). Sin la marca, las herramientas de
+      `scripts/staging/` no hacen nada.
+- [ ] (C) Aplicar las migraciones de `master` con
+      `scripts/staging/apply-migrations.sh` (dry run primero), incluidas
       las que aún no están en ningún proyecto real:
       `20261126120000` (intereses y matches), `20261127120000` (chat),
       `20261128120000` (bloqueos y reportes), `20261129120000` (admin),
-      `20261130120000` (auditoría seudónima) y `20261201120000` (eliminación
-      de cuenta).
+      `20261130120000` (auditoría seudónima), `20261201120000` (eliminación
+      de cuenta) y `20261202120000` (eliminación de cuentas suspendidas).
+- [ ] (C) Datos de demostración solo ficticios con
+      `scripts/staging/seed-demo.sh` (y `--cleanup` al terminar).
 - [ ] (P/C) `npm run check:deploy-config -- --target=staging` sin errores con
       las variables del sitio.
 - [ ] (C) Preflight P0–P6, suite SQL completa, api-suite y AU3/AU5 en verde
@@ -77,11 +83,19 @@ tampoco: es una guía para decidirlo.
 - [ ] (P/L) Eliminación de cuenta (implementada en local, sesión 87): validar
       con legal lo que se conserva (reportes, auditoría, la solicitud, los
       mensajes que otras personas le escribieron), sus plazos, el texto de
-      `/ajustes/eliminar-cuenta` y si una cuenta suspendida puede eliminarse.
+      `/ajustes/eliminar-cuenta`, si una cuenta con un reporte abierto debe
+      esperar y si se guarda algo para impedir volver a registrarse (hoy no;
+      la suspensión ya no impide eliminar la cuenta, sesión 88).
 - [ ] (C) Probar la eliminación en staging (`docs/STAGING.md`, sección 6).
 - [ ] (L) Si «Descargar mis datos» basta para el derecho de acceso y la
       portabilidad (desde la sesión 87 incluye los mensajes propios de chats
       cerrados).
+- [ ] (P/C) Accesibilidad: revisión manual con teclado y lector de
+      pantalla de los flujos principales. Lo automático ya pasa (axe, WCAG 2.1
+      A y AA, y sin scroll horizontal a 375 px en 22 páginas, en escritorio y
+      en móvil: `tests/e2e/local/accessibility.spec.ts`, sesión 88), pero axe
+      no detecta el orden de lectura, la claridad de los textos ni los
+      problemas de uso con teclado.
 - [ ] (P) Canal de soporte y de avisos de seguridad, y quién atiende los
       reportes y en qué plazo.
 

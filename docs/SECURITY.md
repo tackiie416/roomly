@@ -1891,6 +1891,43 @@ Sin aplicar en ningún Supabase real. Diseño, qué se conserva y puntos legales
   el texto. `data-export.ts` sigue sin service_role.
 - Preflight: 21 tablas, 43 políticas, 27 triggers y 51 funciones.
 
+## Cuentas suspendidas y enumeración en el login (20261202120000, sesión 88, en local)
+
+Sin aplicar en ningún Supabase real.
+
+- Una cuenta suspendida (`deleted_at` puesto por `admin_suspend_user`) puede
+  pedir y completar su eliminación desde `/cuenta-desactivada`: la suspensión
+  no es una barrera para el derecho de supresión.
+- Con una eliminación pendiente, `admin_reactivate_user` se niega (23514): un
+  admin no puede reactivar una cuenta a medio borrar. `admin_get_user`
+  devuelve `deletion_requested_at` y el panel muestra «Eliminación
+  pendiente» en lugar del botón de reactivar. Las dos funciones siguen
+  siendo SECURITY DEFINER con `is_admin()` y registro en la misma
+  transacción (`tests/db/32`).
+- Se conservan la acción de suspensión en `admin_action_logs` y los reportes,
+  con el UUID como seudónimo (REQUIERE REVISIÓN LEGAL, sin plazo fijado;
+  `docs/PRIVACY_RETENTION.md`).
+- Login: con el registro cerrado (beta cerrada), `signInWithOtp` para un email
+  sin cuenta devuelve `signup_disabled`/`otp_disabled`/`user_not_found`. El
+  formulario lo trata como un envío correcto con el mismo texto que para un
+  email registrado («si puedes entrar en Roomly con esa dirección, te hemos
+  enviado un enlace»): no revela qué emails tienen cuenta
+  (`lib/auth/login-errors.ts`, `tests/e2e/local/login-enumeration.spec.ts`).
+  El límite de envíos sigue mostrando su propio error: el de Supabase es por
+  IP y email, así que no distingue cuentas.
+
+## Herramientas de staging (sesión 88, solo probadas en local)
+
+`scripts/staging/guard.sh` aborta antes de conectar o escribir si falta
+`STAGING_PROJECT_REF`, `STAGING_DB_URL` o la confirmación manual
+`STAGING_CONFIRM=roomly-staging`; si el ref no coincide con la URL de la base
+de datos o con `STAGING_SUPABASE_URL`; si el ref está prohibido (`uwxb…` y
+`DEPLOY_FORBIDDEN_SUPABASE_REFS`); o si la base de datos no tiene el
+comentario exacto `roomly-staging`. La guarda de validación rechaza esa marca,
+así que staging y validación no se mezclan. Los datos de demostración son
+ficticios (`@roomly.invalid`, ids `de0000de-…`, sin contraseña). Detalle y
+autotest: `docs/STAGING.md`, sección 3.1.
+
 ## Configuración de un despliegue (sesión 87)
 
 `npm run check:deploy-config -- --target=staging` (o `production`) comprueba
@@ -1983,6 +2020,10 @@ cuanto exista.
   lockfile y Playwright está fijado en 1.63 por el Chromium del entorno de
   Claude Code (`docs/TESTING.md`). Repetir `npm audit` antes del primer
   despliegue.
+
+- **Sesión 88.** Nueva dependencia de desarrollo `@axe-core/playwright`
+  4.14.0, con la versión exacta (solo para E1; `axe-core` ya estaba en el
+  árbol por `eslint-plugin-jsx-a11y`). `npm audit`: 0 vulnerabilidades.
 
 ## Cabeceras HTTP (sesión 86)
 

@@ -81,6 +81,9 @@ jobs:
       # Sesión 73: consultas del runbook del incidente de
       # public_profile_previews (`tests/supabase/incident-*.sql`), en bases efímeras.
       - run: bash tests/supabase/incident-runbook-selftest.sh
+      # Sesión 88: herramientas de staging (scripts/staging/), con proyectos
+      # simulados en bases locales efímeras; nunca contra un proyecto real.
+      - run: bash scripts/staging/staging-selftest.sh
 
   # E1 — E2E local (Fase 2.8): la app real contra el Supabase simulado de
   # tests/e2e/support. Sin secrets ni Supabase real. El E2E real (E2) solo se

@@ -1655,6 +1655,32 @@ workflow manual.
   interés por habitación) y `student-flow` con «Mensajes» en la navegación.
   El mock emula las tres tablas, el trigger y las dos rpc nuevas.
 
+## Cuentas suspendidas, enumeración y herramientas de staging (sesión 88, en local)
+
+- `tests/db/32_suspended_account_deletion.sql` (SD0–SD5): una cuenta
+  suspendida por un admin pide y completa la eliminación; con la eliminación
+  pendiente, reactivarla da 23514; la suspensión y el reporte se conservan;
+  reactivar después da P0002.
+- E1: `admin-panel.spec.ts` (suspendida → «Eliminación pendiente», sin botón
+  de reactivar, y eliminación desde `/cuenta-desactivada`) y
+  `login-enumeration.spec.ts` (con el registro cerrado, misma respuesta con y
+  sin cuenta). El mock tiene `/__test/signups` y `/__test/request-deletion`.
+- E1 `accessibility.spec.ts` (`@axe-core/playwright`): WCAG 2.1 A y AA sin
+  infracciones y sin scroll horizontal en 22 páginas (públicas, con sesión y
+  de admin), a 1280 px y a 375 px. Comprueba que no hay redirección y que axe
+  evaluó más de 10 reglas en cada página. No sustituye una revisión manual.
+- `scripts/staging/staging-selftest.sh` (en `test:infra` y en el job
+  `db-security` de la CI): 28 comprobaciones de la guarda de staging, el dry
+  run, `--apply`, el preflight y los datos ficticios, con proyectos simulados
+  en PostgreSQL local.
+
+Resultados en local: `test` 1957/1957, `test:db` 1262 ok, `test:infra` 529
+ok, smoke 6/6, lint, typecheck, format y build en verde. E1: 74/75 con
+`accessibility.spec.ts`. El fallo es uno de `upload-size.spec.ts` (el 413
+simulado), que depende del entorno local; la CI del PR #46 pasó E1 entero
+sobre `1c93fb2`. `npm audit`: 0
+vulnerabilidades. Nada se ha ejecutado contra un Supabase real.
+
 ## Eliminación de cuenta, exportación y staging (sesión 87, en local)
 
 Resultados en este entorno (2026-11-28), sin Supabase real:

@@ -46,6 +46,22 @@ export function callbackErrorCode(errorCode: string | null | undefined): LoginEr
     : "auth_callback_failed";
 }
 
+/**
+ * Códigos de `signInWithOtp` cuando el email no tiene cuenta y el registro
+ * está cerrado (beta cerrada). Sesión 88: se tratan como un envío correcto
+ * para que el formulario no revele qué emails están registrados
+ * (enumeración de cuentas). Supabase no envía nada en ese caso.
+ */
+const SIGNUP_CLOSED_CODES = new Set([
+  "otp_disabled",
+  "signup_disabled",
+  "user_not_found",
+]);
+
+export function isSignupClosedError(error: { code?: string; status?: number }): boolean {
+  return typeof error.code === "string" && SIGNUP_CLOSED_CODES.has(error.code);
+}
+
 /** Error de `signInWithOtp` → código propio. */
 export function otpErrorCode(error: { code?: string; status?: number }): LoginErrorCode {
   if (

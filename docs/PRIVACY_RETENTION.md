@@ -139,10 +139,25 @@ mensajes, reportes sin FK), `tests/unit/services-account-deletion.test.ts`,
   pregunta a Auth con `getUser()`, que ya no conoce al usuario) ni contra la
   API: no quedan filas suyas y cualquier escritura falla. Acortar la
   caducidad es una opción de configuración de Auth.
-- Una cuenta suspendida por un admin también puede eliminarse y, con ello,
-  borrar sus propios mensajes. Los reportes y la auditoría se conservan.
-  Si debe impedirse mientras haya un reporte abierto: **REQUIERE REVISIÓN
-  LEGAL** (y decisión del propietario).
+- **Cuentas suspendidas (sesión 88, `20261202120000`, `tests/db/32`):**
+  por decisión del propietario (2026-11-28), la suspensión **no** impide
+  pedir ni completar la eliminación: el enlace está en `/cuenta-desactivada`
+  y el proceso es el mismo. Con una eliminación pedida y sin terminar, un
+  admin no puede reactivar la cuenta (dejaría activa una cuenta a medio
+  borrar) y el panel la marca como «Eliminación pendiente». Al eliminarla se
+  borran también sus propios mensajes, como en cualquier cuenta.
+  - Se conserva, con el UUID como seudónimo: el registro de la suspensión y
+    su motivo (`admin_action_logs`) y los reportes que hizo o recibió. La
+    justificación propuesta es la seguridad de la plataforma y la defensa
+    ante reclamaciones (interés legítimo); **REQUIERE REVISIÓN LEGAL**,
+    igual que su plazo. No se ha fijado ningún plazo ni se ha cambiado
+    ninguna retención real.
+  - No se conserva el email ni ningún otro identificador que permita
+    impedir que la persona se vuelva a registrar. Hacerlo (por ejemplo, un
+    hash del email) sería una retención nueva: **REQUIERE REVISIÓN LEGAL**
+    y decisión del propietario.
+  - Si una cuenta con un reporte abierto debería esperar a que se resuelva
+    antes de borrarse: **REQUIERE REVISIÓN LEGAL**. Hoy no espera.
 - Copias de seguridad y registros de Auth o de la plataforma: fuera del
   alcance de la app (sección 5).
 - Nada de esto se ha ejecutado contra un Supabase real.
