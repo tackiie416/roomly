@@ -1930,6 +1930,38 @@ cuanto exista.
     `build` y E1 (55/55, con el límite de subida de 5 MB: 500 sin ejecutar
     la acción, igual que con 16.4.3) en verde en local.
 
+- **Revisión del 2026-11-28 (sesión 86).** `npm audit --omit=dev`: 0
+  vulnerabilidades. `npm outdated` solo muestra versiones menores o de
+  parche (supabase-js 2.119, Tailwind 4.3.5, Vitest 5.1, Prettier 3.10,
+  Playwright 1.65) y mayores sin urgencia (TypeScript 7, ESLint 10, React
+  19.3). No se actualiza nada: sin avisos de seguridad, cada subida cambia el
+  lockfile y Playwright está fijado en 1.63 por el Chromium del entorno de
+  Claude Code (`docs/TESTING.md`). Repetir `npm audit` antes del primer
+  despliegue.
+
+## Cabeceras HTTP (sesión 86)
+
+`next.config.ts` (`SECURITY_HEADERS`, fijado por
+`tests/unit/next-config.test.ts` y comprobado en E1 por
+`data-export.spec.ts`) añade a todas las rutas:
+
+- `Content-Security-Policy: frame-ancestors 'none'; base-uri 'self';
+  form-action 'self'; object-src 'none'` y `X-Frame-Options: DENY`: nadie
+  puede incrustar la app (clickjacking en las confirmaciones del panel de
+  admin, del borrado de habitaciones o del bloqueo) ni enviar sus formularios
+  a otro origen;
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  strict-origin-when-cross-origin` (los ids de las URL no salen a otros
+  sitios) y `Permissions-Policy` sin cámara, micrófono, ubicación ni pagos;
+- `Strict-Transport-Security` de dos años (sin `preload`: requiere decidir el
+  dominio de producción), y sin `X-Powered-By`.
+
+**Pendiente:** una CSP de scripts y estilos (`script-src` con nonces desde el
+proxy). Next.js inyecta scripts en línea, así que necesita
+`headers()` dinámicos y probarla en el despliegue; no se añade a ciegas.
+Las fotos se sirven con URL firmadas de Supabase: una `img-src` tendrá que
+incluir ese dominio.
+
 ## RGPD — lo que es responsabilidad técnica y lo que no
 
 Diseño pensado desde el principio para RGPD (minimización de datos,

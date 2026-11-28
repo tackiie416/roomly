@@ -36,7 +36,12 @@ test("descargar mis datos: adjunto JSON propio, sin sesión al login", async ({
   await completeOnboarding(page, "Nora Exporta");
   await seedRoom(email, { title: "Mi habitación exportada", status: "draft" });
 
-  await page.goto("/ajustes");
+  const settings = await page.goto("/ajustes");
+  // Cabeceras de seguridad (next.config.ts, sesión 86), en una página real.
+  const headers = settings?.headers() ?? {};
+  expect(headers["x-frame-options"]).toBe("DENY");
+  expect(headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+  expect(headers["x-powered-by"]).toBeUndefined();
   const link = page.getByTestId("data-export-link");
   await expect(link).toHaveAttribute("href", "/ajustes/mis-datos");
   const [download] = await Promise.all([page.waitForEvent("download"), link.click()]);

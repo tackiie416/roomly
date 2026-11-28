@@ -32,6 +32,17 @@ tocar Supabase real.
   `test:db` y `test:infra` no cambian (sin SQL).
 - Pendiente de decisión: si la descarga incluye los mensajes propios de chats
   cerrados (REQUIERE REVISIÓN LEGAL).
+- Configuración: `next.config.ts` añade cabeceras de seguridad a todas las
+  rutas (CSP sin scripts: `frame-ancestors`, `base-uri`, `form-action` y
+  `object-src`; `X-Frame-Options`, `nosniff`, `Referrer-Policy`,
+  `Permissions-Policy`, HSTS) y quita `X-Powered-By`
+  (`docs/SECURITY.md`, «Cabeceras HTTP»). E1 64/66 otra vez, con los mismos
+  dos fallos de `upload-size.spec.ts`.
+- Dependencias: `npm audit` sin alertas; no se actualiza nada
+  (`docs/SECURITY.md`, «Dependencias»).
+- `docs/LAUNCH_CHECKLIST.md`: lista de lo que falta antes de staging, de la
+  beta cerrada y del lanzamiento, con quién lo decide. Recoge pendientes ya
+  documentados; no cierra ninguno.
 
 ## 2026-11-27 — Sesión 85: merges de #42 y #43 y auditoría con actor seudónimo
 
